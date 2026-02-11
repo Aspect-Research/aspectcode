@@ -1,0 +1,64 @@
+{
+  "files": [
+    {
+      "relativePath": "src/app.ts",
+      "language": "typescript",
+      "exports": [
+        "App"
+      ],
+      "imports": [
+        "./services/UserService",
+        "./utils/format"
+      ]
+    },
+    {
+      "relativePath": "src/constants.ts",
+      "language": "typescript",
+      "exports": [
+        "API_VERSION",
+        "DEFAULT_PAGE_SIZE",
+        "MAX_USERS"
+      ],
+      "imports": []
+    },
+    {
+      "relativePath": "src/services/UserService.ts",
+      "language": "typescript",
+      "exports": [
+        "User",
+        "UserService"
+      ],
+      "imports": []
+    },
+    {
+      "relativePath": "src/utils/format.ts",
+      "language": "typescript",
+      "exports": [
+        "capitalize",
+        "formatDate",
+        "slugify"
+      ],
+      "imports": []
+    },
+    {
+      "relativePath": "tasks.py",
+      "language": "python",
+      "exports": [
+        "Task",
+        "TaskManager",
+        "main"
+      ],
+      "imports": [
+        "dataclasses",
+        "typing"
+      ]
+    }
+  ],
+  "stats": {
+    "totalFiles": 5,
+    "languages": {
+      "typescript": 4,
+      "python": 1
+    }
+  }
+}

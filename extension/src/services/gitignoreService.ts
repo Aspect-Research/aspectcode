@@ -1,10 +1,10 @@
 /**
  * Gitignore Service for Aspect Code
- * 
+ *
  * Manages .gitignore entries for Aspect Code generated files.
  * Each target file (e.g., .aspect/, AGENTS.md, CLAUDE.md) is managed separately
  * with user opt-in stored in .aspect/.settings.json
- * 
+ *
  * Design principles:
  * - Opt-in per file: user is prompted for each target file separately
  * - Do not silently break existing .gitignore rules
@@ -16,11 +16,11 @@
  */
 
 import * as vscode from 'vscode';
-import { 
-  GitignoreTarget, 
-  hasGitignorePreference, 
-  getGitignorePreference, 
-  promptGitignorePreference 
+import {
+  GitignoreTarget,
+  hasGitignorePreference,
+  getGitignorePreference,
+  promptGitignorePreference,
 } from './aspectSettings';
 
 // The comment line that marks Aspect Code–owned entries
@@ -38,7 +38,7 @@ const TARGET_TO_PATTERN: Record<GitignoreTarget, string> = {
   'AGENTS.md': 'AGENTS.md',
   'CLAUDE.md': 'CLAUDE.md',
   '.github/copilot-instructions.md': '.github/copilot-instructions.md',
-  '.cursor/rules/aspectcode.mdc': '.cursor/rules/aspectcode.mdc'
+  '.cursor/rules/aspectcode.mdc': '.cursor/rules/aspectcode.mdc',
 };
 
 // Legacy entries (kept for backwards compatibility with existing blocks)
@@ -224,7 +224,7 @@ export interface EnsureGitignoreResult {
 
 /**
  * Ensures .aspect/ and AGENTS.md are added to .gitignore if mode is 'auto'.
- * 
+ *
  * Safety guarantees:
  * - Never removes or modifies existing ignore rules
  * - Adds entries under a clearly labeled comment block
@@ -234,21 +234,21 @@ export interface EnsureGitignoreResult {
 export async function ensureGitignore(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  context?: vscode.ExtensionContext
+  context?: vscode.ExtensionContext,
 ): Promise<EnsureGitignoreResult> {
   const result: EnsureGitignoreResult = {
     modified: false,
     isFirstModification: false,
-    entriesAdded: []
+    entriesAdded: [],
   };
-  
+
   // Check if gitignore management is disabled
   const mode = getGitignoreMode();
   if (mode === 'off') {
     outputChannel.appendLine('[Gitignore] Mode is "off", skipping .gitignore management');
     return result;
   }
-  
+
   // Check if this is a git repository
   const isGitRepo = await isGitRepository(workspaceRoot);
   if (!isGitRepo) {
@@ -256,9 +256,9 @@ export async function ensureGitignore(
     result.message = 'Not a git repository';
     return result;
   }
-  
+
   const gitignorePath = vscode.Uri.joinPath(workspaceRoot, '.gitignore');
-  
+
   try {
     // Try to read existing .gitignore
     const content = await vscode.workspace.fs.readFile(gitignorePath);
@@ -275,17 +275,17 @@ export async function ensureGitignore(
 
     const aspectExplicit = hasExplicitLine(lines, ['.aspect/', '.aspect', '/.aspect/', '/.aspect']);
     const agentsExplicit = hasExplicitLine(lines, ['AGENTS.md', '/AGENTS.md']);
-    
+
     if (aspectIgnored && agentsIgnored) {
       outputChannel.appendLine('[Gitignore] Both .aspect/ and AGENTS.md are already ignored');
       return result;
     }
-    
+
     // Check if we already have an Aspect Code block
     const blockStart = findAspectCodeBlockStart(lines);
-    
+
     let newContent: string;
-    
+
     if (blockStart !== -1) {
       const blockEnd = findAspectCodeBlockEnd(lines, blockStart);
       const blockLines = lines.slice(blockStart, blockEnd + 1);
@@ -331,47 +331,50 @@ export async function ensureGitignore(
         entriesToAdd.push(AGENTS_MD_ENTRY);
         result.entriesAdded.push(AGENTS_MD_ENTRY);
       }
-      
+
       if (entriesToAdd.length === 0) {
         outputChannel.appendLine('[Gitignore] All entries already ignored by existing rules');
         return result;
       }
-      
+
       // Build the block with only the entries we need to add
       const blockContent = `${ASPECT_CODE_BLOCK_START}${eol}${entriesToAdd.join(eol)}${eol}`;
 
       // Append to end, ensuring proper newline separation without rewriting existing content
       const endsWithNewline = text.endsWith('\n');
-      newContent = endsWithNewline
-        ? text + eol + blockContent
-        : text + eol + eol + blockContent;
+      newContent = endsWithNewline ? text + eol + blockContent : text + eol + eol + blockContent;
     }
-    
+
     // Write the updated content
     await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
     result.modified = true;
-    
+
     // Check if this is the first time we've modified .gitignore
-    const notificationShown = context?.globalState.get<boolean>(GITIGNORE_NOTIFICATION_SHOWN_KEY, false);
+    const notificationShown = context?.globalState.get<boolean>(
+      GITIGNORE_NOTIFICATION_SHOWN_KEY,
+      false,
+    );
     if (!notificationShown && context) result.isFirstModification = true;
-    
+
     outputChannel.appendLine(`[Gitignore] Added ${result.entriesAdded.join(', ')} to .gitignore`);
-    
   } catch (error) {
     // .gitignore doesn't exist - create it with the Aspect Code block
     if ((error as vscode.FileSystemError).code === 'FileNotFound') {
       const eol = '\n';
       const newContent = `${ASPECT_CODE_BLOCK_START}${eol}${ASPECT_DIR_ENTRY}${eol}${AGENTS_MD_ENTRY}${eol}`;
-      
+
       try {
         await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
         result.modified = true;
         result.entriesAdded = [ASPECT_DIR_ENTRY, AGENTS_MD_ENTRY];
-        
+
         // Check if this is the first time we've modified .gitignore
-        const notificationShown = context?.globalState.get<boolean>(GITIGNORE_NOTIFICATION_SHOWN_KEY, false);
+        const notificationShown = context?.globalState.get<boolean>(
+          GITIGNORE_NOTIFICATION_SHOWN_KEY,
+          false,
+        );
         if (!notificationShown && context) result.isFirstModification = true;
-        
+
         outputChannel.appendLine('[Gitignore] Created .gitignore with Aspect Code entries');
       } catch (writeError) {
         outputChannel.appendLine(`[Gitignore] Failed to create .gitignore: ${writeError}`);
@@ -382,7 +385,7 @@ export async function ensureGitignore(
       result.message = 'Failed to read .gitignore';
     }
   }
-  
+
   return result;
 }
 
@@ -402,11 +405,11 @@ export interface EnsureGitignoreForTargetResult {
 
 /**
  * Ensures a specific target is added to .gitignore, with opt-in prompt.
- * 
+ *
  * This function checks the user's preference stored in .aspect/.settings.json.
  * If no preference exists, it prompts the user.
  * If user agrees, it adds the entry to .gitignore.
- * 
+ *
  * @param workspaceRoot - The workspace root URI
  * @param target - The target to potentially add to .gitignore
  * @param outputChannel - Output channel for logging
@@ -415,100 +418,104 @@ export interface EnsureGitignoreForTargetResult {
 export async function ensureGitignoreForTarget(
   workspaceRoot: vscode.Uri,
   target: GitignoreTarget,
-  outputChannel: vscode.OutputChannel
+  outputChannel: vscode.OutputChannel,
 ): Promise<EnsureGitignoreForTargetResult> {
   const result: EnsureGitignoreForTargetResult = {
     modified: false,
-    declined: false
+    declined: false,
   };
-  
+
   // Check if this is a git repository
   const isGitRepo = await isGitRepository(workspaceRoot);
   if (!isGitRepo) {
-    outputChannel.appendLine(`[Gitignore] Not a git repository, skipping .gitignore management for ${target}`);
+    outputChannel.appendLine(
+      `[Gitignore] Not a git repository, skipping .gitignore management for ${target}`,
+    );
     result.message = 'Not a git repository';
     return result;
   }
-  
+
   // Get the gitignore pattern for this target
   const pattern = TARGET_TO_PATTERN[target];
-  
+
   // Check if user already has a preference for this target
   const hasPref = await hasGitignorePreference(workspaceRoot, target);
-  
+
   let shouldAdd: boolean;
-  
+
   if (hasPref) {
     // User already made a choice - respect it
     const pref = await getGitignorePreference(workspaceRoot, target);
     shouldAdd = pref ?? false; // Default to false if somehow undefined
-    outputChannel.appendLine(`[Gitignore] Using saved preference for ${target}: ${shouldAdd ? 'add' : 'skip'}`);
+    outputChannel.appendLine(
+      `[Gitignore] Using saved preference for ${target}: ${shouldAdd ? 'add' : 'skip'}`,
+    );
   } else {
     // Prompt user for this target
     const preference = await promptGitignorePreference(workspaceRoot, target);
-    
+
     if (preference === undefined) {
       // User dismissed without choosing - skip for now but don't save preference
       outputChannel.appendLine(`[Gitignore] User dismissed prompt for ${target}, skipping`);
       result.message = 'User dismissed prompt';
       return result;
     }
-    
+
     shouldAdd = preference;
     outputChannel.appendLine(`[Gitignore] User chose ${shouldAdd ? 'add' : 'skip'} for ${target}`);
   }
-  
+
   if (!shouldAdd) {
     result.declined = true;
     return result;
   }
-  
+
   // User wants to add this entry - proceed with gitignore modification
   const gitignorePath = vscode.Uri.joinPath(workspaceRoot, '.gitignore');
-  
+
   try {
     // Try to read existing .gitignore
     const content = await vscode.workspace.fs.readFile(gitignorePath);
     const text = Buffer.from(content).toString('utf8');
     const eol = detectEol(text);
     const lines = text.split(/\r?\n/);
-    
+
     // Check if already ignored
     const targetInfo = getTargetInfo(target);
     const isIgnored = isIgnoredByRules(lines, targetInfo);
-    
+
     if (isIgnored) {
       outputChannel.appendLine(`[Gitignore] ${pattern} is already ignored`);
       return result;
     }
-    
+
     // Check for explicit line
     const hasExplicit = hasExplicitLine(lines, getExplicitCandidates(pattern));
     if (hasExplicit) {
       outputChannel.appendLine(`[Gitignore] ${pattern} already has explicit line`);
       return result;
     }
-    
+
     // Check if we already have an Aspect Code block
     const blockStart = findAspectCodeBlockStart(lines);
-    
+
     let newContent: string;
-    
+
     if (blockStart !== -1) {
       // Block exists - add entry to it
       const blockEnd = findAspectCodeBlockEnd(lines, blockStart);
       const blockLines = lines.slice(blockStart, blockEnd + 1);
-      
+
       // Check if entry already in block
-      const alreadyInBlock = blockLines.some(l => 
-        l.trim().toLowerCase() === pattern.toLowerCase()
+      const alreadyInBlock = blockLines.some(
+        (l) => l.trim().toLowerCase() === pattern.toLowerCase(),
       );
-      
+
       if (alreadyInBlock) {
         outputChannel.appendLine(`[Gitignore] ${pattern} already in Aspect Code block`);
         return result;
       }
-      
+
       // Insert entry after header
       const insertIndex = blockStart + 1;
       const newLines = [...lines];
@@ -517,31 +524,28 @@ export async function ensureGitignoreForTarget(
     } else {
       // No block - create one at the end
       const blockContent = `${ASPECT_CODE_BLOCK_START}${eol}${pattern}${eol}`;
-      
+
       const endsWithNewline = text.endsWith('\n');
-      newContent = endsWithNewline
-        ? text + eol + blockContent
-        : text + eol + eol + blockContent;
+      newContent = endsWithNewline ? text + eol + blockContent : text + eol + eol + blockContent;
     }
-    
+
     // Write the updated content
     await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
     result.modified = true;
     result.entryAdded = pattern;
-    
+
     outputChannel.appendLine(`[Gitignore] Added ${pattern} to .gitignore`);
-    
   } catch (error) {
     // .gitignore doesn't exist - create it
     if ((error as vscode.FileSystemError).code === 'FileNotFound') {
       const eol = '\n';
       const newContent = `${ASPECT_CODE_BLOCK_START}${eol}${pattern}${eol}`;
-      
+
       try {
         await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
         result.modified = true;
         result.entryAdded = pattern;
-        
+
         outputChannel.appendLine(`[Gitignore] Created .gitignore with ${pattern}`);
       } catch (writeError) {
         outputChannel.appendLine(`[Gitignore] Failed to create .gitignore: ${writeError}`);
@@ -552,7 +556,7 @@ export async function ensureGitignoreForTarget(
       result.message = 'Failed to read .gitignore';
     }
   }
-  
+
   return result;
 }
 
@@ -592,14 +596,17 @@ export async function showGitignoreNotification(context: vscode.ExtensionContext
   const result = await vscode.window.showInformationMessage(
     'Aspect Code added .aspect/ and AGENTS.md to .gitignore so AI context stays local. You can change this later in settings.',
     'Open Settings',
-    'Dismiss'
+    'Dismiss',
   );
-  
+
   // Mark notification as shown
   await context.globalState.update(GITIGNORE_NOTIFICATION_SHOWN_KEY, true);
-  
+
   if (result === 'Open Settings') {
-    await vscode.commands.executeCommand('workbench.action.openSettings', 'aspectcode.gitignore.mode');
+    await vscode.commands.executeCommand(
+      'workbench.action.openSettings',
+      'aspectcode.gitignore.mode',
+    );
   }
 }
 
@@ -609,10 +616,10 @@ export async function showGitignoreNotification(context: vscode.ExtensionContext
  */
 export async function removeAspectCodeBlock(
   workspaceRoot: vscode.Uri,
-  outputChannel: vscode.OutputChannel
+  outputChannel: vscode.OutputChannel,
 ): Promise<{ success: boolean; message: string }> {
   const gitignorePath = vscode.Uri.joinPath(workspaceRoot, '.gitignore');
-  
+
   try {
     const content = await vscode.workspace.fs.readFile(gitignorePath);
     const text = Buffer.from(content).toString('utf8');
@@ -623,7 +630,7 @@ export async function removeAspectCodeBlock(
     if (startIndex === -1) {
       return {
         success: false,
-        message: 'No Aspect Code block found in .gitignore'
+        message: 'No Aspect Code block found in .gitignore',
       };
     }
 
@@ -631,45 +638,46 @@ export async function removeAspectCodeBlock(
 
     // Remove header + subsequent managed lines (and only those)
     const newLines = [...lines.slice(0, startIndex), ...lines.slice(endIndex + 1)];
-    
+
     // Clean up any trailing empty lines that might have been left
     while (newLines.length > 0 && newLines[newLines.length - 1].trim() === '') {
       newLines.pop();
     }
-    
+
     // Ensure file ends with newline
     const newContent = newLines.join(eol) + eol;
-    
+
     // If the file would be empty or only whitespace, delete it instead
     if (newContent.trim() === '') {
       await vscode.workspace.fs.delete(gitignorePath);
-      outputChannel.appendLine('[Gitignore] Deleted empty .gitignore after removing Aspect Code block');
+      outputChannel.appendLine(
+        '[Gitignore] Deleted empty .gitignore after removing Aspect Code block',
+      );
       return {
         success: true,
-        message: 'Removed Aspect Code block and deleted empty .gitignore'
+        message: 'Removed Aspect Code block and deleted empty .gitignore',
       };
     }
-    
+
     await vscode.workspace.fs.writeFile(gitignorePath, Buffer.from(newContent, 'utf8'));
     outputChannel.appendLine('[Gitignore] Removed Aspect Code block from .gitignore');
-    
+
     return {
       success: true,
-      message: 'Removed Aspect Code block from .gitignore'
+      message: 'Removed Aspect Code block from .gitignore',
     };
-    
   } catch (error) {
     if ((error as vscode.FileSystemError).code === 'FileNotFound') {
       return {
         success: false,
-        message: 'No .gitignore file exists'
+        message: 'No .gitignore file exists',
       };
     }
-    
+
     outputChannel.appendLine(`[Gitignore] Error removing block: ${error}`);
     return {
       success: false,
-      message: `Failed to modify .gitignore: ${error}`
+      message: `Failed to modify .gitignore: ${error}`,
     };
   }
 }
@@ -678,20 +686,20 @@ export async function removeAspectCodeBlock(
  * Command handler for "Aspect Code: Stop ignoring generated files"
  */
 export async function stopIgnoringGeneratedFilesCommand(
-  outputChannel: vscode.OutputChannel
+  outputChannel: vscode.OutputChannel,
 ): Promise<void> {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-  
+
   if (!workspaceRoot) {
     vscode.window.showErrorMessage('No workspace folder open');
     return;
   }
-  
+
   const result = await removeAspectCodeBlock(workspaceRoot, outputChannel);
-  
+
   if (result.success) {
     vscode.window.showInformationMessage(
-      'Removed Aspect Code entries from .gitignore. Generated files will now be tracked by git.'
+      'Removed Aspect Code entries from .gitignore. Generated files will now be tracked by git.',
     );
   } else {
     vscode.window.showWarningMessage(result.message);

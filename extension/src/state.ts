@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 
 // --- INFERRED TYPES ---
 // (Based on your extension.ts file)
@@ -12,7 +12,7 @@ type SnapshotStats = {
 
 type HistoryItem = {
   ts: number;
-  kind: "index" | "reindex" | "validate";
+  kind: 'index' | 'reindex' | 'validate';
   meta: Record<string, any>;
 };
 
@@ -53,10 +53,10 @@ const DEFAULT_STATE: PanelState = {
   // Persistent fields have defaults
   snapshot: undefined,
   history: [],
-  ui: { 
-    activeTab: "overview",
+  ui: {
+    activeTab: 'overview',
     lastValidationFiles: [],
-    autoValidationEnabled: true
+    autoValidationEnabled: true,
   },
 };
 
@@ -64,13 +64,13 @@ const DEFAULT_STATE: PanelState = {
  * Keys from PanelState that we want to save to globalState.
  * EVERYTHING ELSE will be reset on load.
  */
-const PERSISTENT_KEYS: (keyof PanelState)[] = ["snapshot", "history", "ui"];
+const PERSISTENT_KEYS: (keyof PanelState)[] = ['snapshot', 'history', 'ui'];
 
 // --- STATE MANAGER CLASS ---
 
 export class AspectCodeState {
   private _state: PanelState;
-  private readonly storageKey = "aspectcode.panel.v1";
+  private readonly storageKey = 'aspectcode.panel.v1';
 
   readonly _onDidChange = new vscode.EventEmitter<PanelState>();
   readonly onDidChange = this._onDidChange.event;
@@ -93,21 +93,17 @@ export class AspectCodeState {
    */
   load() {
     // 1. Load the *saved* (and incomplete) state from storage
-    const persistentState = this.ctx.globalState.get<Partial<PanelState>>(
-      this.storageKey,
-      {}
-    );
+    const persistentState = this.ctx.globalState.get<Partial<PanelState>>(this.storageKey, {});
 
     // 2. Create the new in-memory state
     this._state = {
-      ...DEFAULT_STATE,   // Start with defaults (busy: false, findings: [], etc.)
+      ...DEFAULT_STATE, // Start with defaults (busy: false, findings: [], etc.)
       ...persistentState, // Merge in saved data (history, snapshot, ui)
     };
 
     // 3. (Optional) Force-clear ephemeral fields just in case
     this._state.busy = false;
     this._state.error = undefined;
-
 
     // 4. Notify listeners of the clean state
     this._onDidChange.fire(this._state);

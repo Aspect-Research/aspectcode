@@ -4,7 +4,12 @@ import * as path from 'path';
 import { AspectCodeState } from '../state';
 import { DependencyAnalyzer, DependencyLink } from '../services/DependencyAnalyzer';
 import { detectAssistants } from '../assistants/detection';
-import { getAutoRegenerateKbSetting, getInstructionsModeSetting, setAutoRegenerateKbSetting, getExtensionEnabledSetting } from '../services/aspectSettings';
+import {
+  getAutoRegenerateKbSetting,
+  getInstructionsModeSetting,
+  setAutoRegenerateKbSetting,
+  getExtensionEnabledSetting,
+} from '../services/aspectSettings';
 import { discoverSourceFiles } from '../services/DirectoryExclusion';
 import { getFileDiscoveryService } from '../services/FileDiscoveryService';
 
@@ -15,23 +20,29 @@ type StateSnapshot = {
   totalFiles?: number;
   processingPhase?: string;
   progress?: number;
-    kbStale?: boolean;
-    autoRegenerateKb?: 'off' | 'onSave' | 'idle';
-                instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
-                hasCustomInstructions?: boolean;
-                                extensionEnabled?: boolean;
-  score?: any;  // Score calculation disabled
+  kbStale?: boolean;
+  autoRegenerateKb?: 'off' | 'onSave' | 'idle';
+  instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
+  hasCustomInstructions?: boolean;
+  extensionEnabled?: boolean;
+  score?: any; // Score calculation disabled
 };
 
 type DependencyGraphData = {
-  nodes: Array<{ id: string; label: string; type: 'hub' | 'file'; importance: number; file?: string }>;
+  nodes: Array<{
+    id: string;
+    label: string;
+    type: 'hub' | 'file';
+    importance: number;
+    file?: string;
+  }>;
   links: Array<{ source: string; target: string; strength: number }>;
 };
 
 type DependencyGraphStats = {
-    totalFiles: number;
-    totalDeps?: number;
-    totalCycles?: number;
+  totalFiles: number;
+  totalDeps?: number;
+  totalCycles?: number;
 };
 
 export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
@@ -41,15 +52,15 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
   private _cacheLoadedSuccessfully = false; // Skip auto-processing when cache was loaded
   private _initialGraphSent = false; // Track if first dependency graph has been sent (enables UI)
   private _setupInProgress = false; // Track if initial setup is in progress (suppresses startup warning)
-    private _setupCompleteAtPanelReady: boolean | null = null;
-    private _hasAspectKBAtPanelReady: boolean | null = null;
-    private _startupSetupWarningShown = false;
-    private _initialGraphLoadInFlight: Promise<void> | null = null;
-    private _resolveInitialGraphLoadInFlight: (() => void) | null = null;
+  private _setupCompleteAtPanelReady: boolean | null = null;
+  private _hasAspectKBAtPanelReady: boolean | null = null;
+  private _startupSetupWarningShown = false;
+  private _initialGraphLoadInFlight: Promise<void> | null = null;
+  private _resolveInitialGraphLoadInFlight: (() => void) | null = null;
   // NOTE: ScoreEngine disabled for performance
   // private _scoreEngine: ScoreEngine;
   private _dependencyAnalyzer: DependencyAnalyzer;
-  
+
   // Performance caching for fast file switching
   private _workspaceFilesCache: string[] | null = null;
   private _dependencyCache = new Map<string, any[]>();
@@ -69,17 +80,17 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
   private _kbStale: boolean = false; // Track KB staleness for UI indicator
   private _fileDiscoveryInFlight: Promise<string[]> | null = null; // Prevent concurrent file discovery
 
-    private _globalGraphStats: DependencyGraphStats | null = null;
-    private _globalGraphStatsAt = 0;
+  private _globalGraphStats: DependencyGraphStats | null = null;
+  private _globalGraphStatsAt = 0;
 
   constructor(
     private readonly _context: vscode.ExtensionContext,
     private readonly _state: AspectCodeState,
-    private readonly _outputChannel?: vscode.OutputChannel
+    private readonly _outputChannel?: vscode.OutputChannel,
   ) {
     // NOTE: ScoreEngine disabled for performance - score calculation removed
     this._dependencyAnalyzer = new DependencyAnalyzer();
-    
+
     // When AspectCodeState changes, push a compact snapshot to the webview
     this._state.onDidChange((s) => {
       const totalFiles = this.estimateTotalFiles();
@@ -92,15 +103,15 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
         totalFiles: totalFiles,
         processingPhase: this._bridgeState.processingPhase,
         progress: this._bridgeState.progress,
-                kbStale: this._bridgeState.kbStale,
-                                autoRegenerateKb: this._bridgeState.autoRegenerateKb,
-                                instructionsMode: this._bridgeState.instructionsMode,
-                                hasCustomInstructions: this._bridgeState.hasCustomInstructions,
-                                extensionEnabled: this._bridgeState.extensionEnabled,
+        kbStale: this._bridgeState.kbStale,
+        autoRegenerateKb: this._bridgeState.autoRegenerateKb,
+        instructionsMode: this._bridgeState.instructionsMode,
+        hasCustomInstructions: this._bridgeState.hasCustomInstructions,
+        extensionEnabled: this._bridgeState.extensionEnabled,
       };
-      
+
       this.pushState();
-      
+
       // Send dependency graph after state update (async)
       // BUT: Skip during busy states to avoid duplicate analysis during reindex
       if (!s.busy) {
@@ -114,53 +125,57 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       }
     });
 
-        // Watch project-local settings file for changes.
-        // This keeps the panel state in sync when settings are changed via commands
-        // (or manually edited) without relying on VS Code workspace configuration.
-        // Use **/ glob pattern to ensure it works from workspace root.
-        const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher('**/.aspect/.settings.json');
-        const refresh = () => {
-            void this.loadProjectSettingsIntoBridgeState().then(() => this.pushState());
-        };
-        aspectSettingsWatcher.onDidChange(refresh);
-        aspectSettingsWatcher.onDidCreate(refresh);
-        aspectSettingsWatcher.onDidDelete(() => {
-            this._bridgeState.autoRegenerateKb = 'onSave';
-            this._bridgeState.instructionsMode = 'safe';
-            this._bridgeState.extensionEnabled = true;
-            this.pushState();
-        });
-        this._context.subscriptions.push(aspectSettingsWatcher);
+    // Watch project-local settings file for changes.
+    // This keeps the panel state in sync when settings are changed via commands
+    // (or manually edited) without relying on VS Code workspace configuration.
+    // Use **/ glob pattern to ensure it works from workspace root.
+    const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/.aspect/.settings.json',
+    );
+    const refresh = () => {
+      void this.loadProjectSettingsIntoBridgeState().then(() => this.pushState());
+    };
+    aspectSettingsWatcher.onDidChange(refresh);
+    aspectSettingsWatcher.onDidCreate(refresh);
+    aspectSettingsWatcher.onDidDelete(() => {
+      this._bridgeState.autoRegenerateKb = 'onSave';
+      this._bridgeState.instructionsMode = 'safe';
+      this._bridgeState.extensionEnabled = true;
+      this.pushState();
+    });
+    this._context.subscriptions.push(aspectSettingsWatcher);
 
-        // Watch custom instructions file presence so we can show/hide the Custom mode button.
-        const customInstructionsWatcher = vscode.workspace.createFileSystemWatcher('**/.aspect/instructions.md');
-        const refreshCustom = () => {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (!workspaceRoot) {
-                this._bridgeState.hasCustomInstructions = false;
-                this.pushState();
-                return;
-            }
-            void this.computeHasCustomInstructions(workspaceRoot).then((hasCustom) => {
-                if (this._bridgeState.hasCustomInstructions !== hasCustom) {
-                    this._bridgeState.hasCustomInstructions = hasCustom;
-                    this.pushState();
-                }
-            });
-        };
-        customInstructionsWatcher.onDidCreate(refreshCustom);
-        customInstructionsWatcher.onDidChange(refreshCustom);
-        customInstructionsWatcher.onDidDelete(() => {
-            this._bridgeState.hasCustomInstructions = false;
-            this.pushState();
-        });
-        this._context.subscriptions.push(customInstructionsWatcher);
+    // Watch custom instructions file presence so we can show/hide the Custom mode button.
+    const customInstructionsWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/.aspect/instructions.md',
+    );
+    const refreshCustom = () => {
+      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+      if (!workspaceRoot) {
+        this._bridgeState.hasCustomInstructions = false;
+        this.pushState();
+        return;
+      }
+      void this.computeHasCustomInstructions(workspaceRoot).then((hasCustom) => {
+        if (this._bridgeState.hasCustomInstructions !== hasCustom) {
+          this._bridgeState.hasCustomInstructions = hasCustom;
+          this.pushState();
+        }
+      });
+    };
+    customInstructionsWatcher.onDidCreate(refreshCustom);
+    customInstructionsWatcher.onDidChange(refreshCustom);
+    customInstructionsWatcher.onDidDelete(() => {
+      this._bridgeState.hasCustomInstructions = false;
+      this.pushState();
+    });
+    this._context.subscriptions.push(customInstructionsWatcher);
 
     // Set up periodic cache cleanup (every 60 seconds)
     this._cacheCleanupInterval = setInterval(() => {
       const now = Date.now();
       const cacheAge = now - this._cacheTimestamp;
-      
+
       if (cacheAge > this._cacheTimeout) {
         const cacheSize = this._graphCache.size;
         if (cacheSize > 0) {
@@ -169,8 +184,8 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           // NOTE: Don't clear _workspaceFilesCache here - file discovery is expensive
           // and only needs to refresh on actual file system changes, not time-based
           this._cacheTimestamp = 0;
-                    this._globalGraphStats = null;
-                    this._globalGraphStatsAt = 0;
+          this._globalGraphStats = null;
+          this._globalGraphStatsAt = 0;
         }
       }
     }, 60000); // Every 60 seconds
@@ -195,23 +210,26 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       if (this._fileChangeDebounceTimer) {
         clearTimeout(this._fileChangeDebounceTimer);
       }
-      
+
       // Only handle real files (not output channels, etc.)
-      const activeFile = editor?.document.uri.scheme === 'file' 
-        ? editor.document.fileName 
-        : undefined;
+      const activeFile =
+        editor?.document.uri.scheme === 'file' ? editor.document.fileName : undefined;
       const now = Date.now();
-      
+
       // Skip if currently processing a node click (let it finish first)
       if (this._isProcessingNodeClick) {
         return;
       }
-      
+
       // Skip ONLY if it's the same file AND was processed very recently (within 100ms)
-      if (activeFile && activeFile === this._lastProcessedFile && (now - this._lastProcessedTime) < 100) {
+      if (
+        activeFile &&
+        activeFile === this._lastProcessedFile &&
+        now - this._lastProcessedTime < 100
+      ) {
         return;
       }
-      
+
       // Minimal debounce to batch rapid switches only
       this._fileChangeDebounceTimer = setTimeout(async () => {
         try {
@@ -220,15 +238,15 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
             console.warn('[Dependency Graph] ⚠️ View not ready, skipping update');
             return;
           }
-          
+
           // Notify webview of active file change for findings sorting
           if (activeFile) {
             this.post({
               type: 'ACTIVE_FILE_CHANGED',
-              file: activeFile
+              file: activeFile,
             });
           }
-          
+
           // Update the graph
           if (activeFile) {
             this._lastProcessedFile = activeFile;
@@ -241,7 +259,10 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
             this._lastProcessedFile = null;
             this._lastProcessedTime = Date.now();
             // No active file - prefer current center over best file
-            if (this._currentGraphCenterFile && await this.isFileValid(this._currentGraphCenterFile)) {
+            if (
+              this._currentGraphCenterFile &&
+              (await this.isFileValid(this._currentGraphCenterFile))
+            ) {
               await this.sendFocusedDependencyGraph(this._currentGraphCenterFile);
             } else {
               // Invalid or no current center - clear it and pick a file to focus on
@@ -274,15 +295,17 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     processingPhase?: string;
     progress?: number;
     kbStale?: boolean;
-        autoRegenerateKb?: 'off' | 'onSave' | 'idle';
-        instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
-        hasCustomInstructions?: boolean;
-        extensionEnabled?: boolean;
+    autoRegenerateKb?: 'off' | 'onSave' | 'idle';
+    instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
+    hasCustomInstructions?: boolean;
+    extensionEnabled?: boolean;
   } = { busy: false, history: [] };
 
   // (optional) helper to show the view from activate()
-  reveal() { this._view?.show?.(true); }
-  
+  reveal() {
+    this._view?.show?.(true);
+  }
+
   /**
    * Update KB staleness indicator - called by extension when fingerprint changes.
    */
@@ -292,44 +315,45 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     this.pushState();
   }
 
-    private async computeHasCustomInstructions(workspaceRoot: vscode.Uri): Promise<boolean> {
-        try {
-            const uri = vscode.Uri.joinPath(workspaceRoot, '.aspect', 'instructions.md');
-            await vscode.workspace.fs.stat(uri);
-            return true;
-        } catch {
-            return false;
-        }
+  private async computeHasCustomInstructions(workspaceRoot: vscode.Uri): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.joinPath(workspaceRoot, '.aspect', 'instructions.md');
+      await vscode.workspace.fs.stat(uri);
+      return true;
+    } catch {
+      return false;
     }
+  }
 
-    private getAutoRegenerateKbMode(): 'off' | 'onSave' | 'idle' {
-        const value = this._bridgeState.autoRegenerateKb;
-        if (value === 'off' || value === 'onSave' || value === 'idle') {
-            return value;
-        }
-        return 'onSave';
+  private getAutoRegenerateKbMode(): 'off' | 'onSave' | 'idle' {
+    const value = this._bridgeState.autoRegenerateKb;
+    if (value === 'off' || value === 'onSave' || value === 'idle') {
+      return value;
     }
+    return 'onSave';
+  }
 
-        private getInstructionsMode(): 'safe' | 'permissive' | 'custom' | 'off' {
-            const value = this._bridgeState.instructionsMode;
-            return value === 'permissive' || value === 'custom' || value === 'off' ? value : 'safe';
-        }
+  private getInstructionsMode(): 'safe' | 'permissive' | 'custom' | 'off' {
+    const value = this._bridgeState.instructionsMode;
+    return value === 'permissive' || value === 'custom' || value === 'off' ? value : 'safe';
+  }
 
-        private async loadProjectSettingsIntoBridgeState(): Promise<void> {
-            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-            if (!workspaceRoot) return;
-            try {
-                const autoRegenerateKb = await getAutoRegenerateKbSetting(workspaceRoot);
-                const instructionsMode = await getInstructionsModeSetting(workspaceRoot);
-                const extensionEnabled = await getExtensionEnabledSetting(workspaceRoot);
-                this._bridgeState.autoRegenerateKb = autoRegenerateKb;
-                this._bridgeState.instructionsMode = instructionsMode;
-                this._bridgeState.hasCustomInstructions = await this.computeHasCustomInstructions(workspaceRoot);
-                this._bridgeState.extensionEnabled = extensionEnabled;
-            } catch (e) {
-                console.warn('[PanelProvider] Failed to load .aspect/.settings.json:', e);
-            }
-        }
+  private async loadProjectSettingsIntoBridgeState(): Promise<void> {
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+    if (!workspaceRoot) return;
+    try {
+      const autoRegenerateKb = await getAutoRegenerateKbSetting(workspaceRoot);
+      const instructionsMode = await getInstructionsModeSetting(workspaceRoot);
+      const extensionEnabled = await getExtensionEnabledSetting(workspaceRoot);
+      this._bridgeState.autoRegenerateKb = autoRegenerateKb;
+      this._bridgeState.instructionsMode = instructionsMode;
+      this._bridgeState.hasCustomInstructions =
+        await this.computeHasCustomInstructions(workspaceRoot);
+      this._bridgeState.extensionEnabled = extensionEnabled;
+    } catch (e) {
+      console.warn('[PanelProvider] Failed to load .aspect/.settings.json:', e);
+    }
+  }
 
   private estimateTotalFiles(): number {
     // Simple heuristic - count files from workspace cache
@@ -345,23 +369,22 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
   private async sendDependencyGraph(forceOverview: boolean = false) {
     if (!this._view) return;
 
-        // Hard stop when extension is disabled.
-        if (this._bridgeState.extensionEnabled === false) {
-            return;
-        }
-    
+    // Hard stop when extension is disabled.
+    if (this._bridgeState.extensionEnabled === false) {
+      return;
+    }
+
     // ALWAYS send focused graph - never show all nodes at once
     // Only use activeTextEditor if it's a real file (not output channel, etc.)
     const activeEditor = vscode.window.activeTextEditor;
-    const activeFile = activeEditor?.document.uri.scheme === 'file' 
-      ? activeEditor.document.fileName 
-      : undefined;
-    
+    const activeFile =
+      activeEditor?.document.uri.scheme === 'file' ? activeEditor.document.fileName : undefined;
+
     if (activeFile) {
       await this.sendFocusedDependencyGraph(activeFile);
     } else {
       // No active file - prefer current center over best file
-      if (this._currentGraphCenterFile && await this.isFileValid(this._currentGraphCenterFile)) {
+      if (this._currentGraphCenterFile && (await this.isFileValid(this._currentGraphCenterFile))) {
         await this.sendFocusedDependencyGraph(this._currentGraphCenterFile);
       } else {
         // Invalid or no current center - clear it and pick a file to focus on
@@ -371,117 +394,120 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     }
   }
 
-    private ensureGlobalGraphStats(allFiles: string[], allDependencies: DependencyLink[]): DependencyGraphStats {
-        // Recompute only when the underlying dependency cache epoch changes.
-        if (this._globalGraphStats && this._globalGraphStatsAt === this._dependencyCacheTimestamp) {
-            return this._globalGraphStats;
-        }
-
-        const totalFiles = allFiles.length;
-        const totalDeps = allDependencies.length;
-        const totalCycles = this.computeCycleGroupCountFromLinks(allFiles, allDependencies);
-
-        this._globalGraphStats = { totalFiles, totalDeps, totalCycles };
-        this._globalGraphStatsAt = this._dependencyCacheTimestamp;
-        return this._globalGraphStats;
+  private ensureGlobalGraphStats(
+    allFiles: string[],
+    allDependencies: DependencyLink[],
+  ): DependencyGraphStats {
+    // Recompute only when the underlying dependency cache epoch changes.
+    if (this._globalGraphStats && this._globalGraphStatsAt === this._dependencyCacheTimestamp) {
+      return this._globalGraphStats;
     }
 
-    private bestEffortStats(): DependencyGraphStats | undefined {
-        const files = this._workspaceFilesCache;
-        if (!files) return undefined;
-        const deps = this._dependencyCache.get('all') as DependencyLink[] | undefined;
-        if (deps) {
-            return this.ensureGlobalGraphStats(files, deps);
-        }
-        return { totalFiles: files.length };
+    const totalFiles = allFiles.length;
+    const totalDeps = allDependencies.length;
+    const totalCycles = this.computeCycleGroupCountFromLinks(allFiles, allDependencies);
+
+    this._globalGraphStats = { totalFiles, totalDeps, totalCycles };
+    this._globalGraphStatsAt = this._dependencyCacheTimestamp;
+    return this._globalGraphStats;
+  }
+
+  private bestEffortStats(): DependencyGraphStats | undefined {
+    const files = this._workspaceFilesCache;
+    if (!files) return undefined;
+    const deps = this._dependencyCache.get('all') as DependencyLink[] | undefined;
+    if (deps) {
+      return this.ensureGlobalGraphStats(files, deps);
     }
+    return { totalFiles: files.length };
+  }
 
-    private computeCycleGroupCountFromLinks(files: string[], links: DependencyLink[]): number {
-        try {
-            const nodeIds = files.map((f) => path.normalize(f));
-            const indexMap = new Map<string, number>();
-            for (let i = 0; i < nodeIds.length; i++) {
-                indexMap.set(nodeIds[i].toLowerCase(), i);
-            }
+  private computeCycleGroupCountFromLinks(files: string[], links: DependencyLink[]): number {
+    try {
+      const nodeIds = files.map((f) => path.normalize(f));
+      const indexMap = new Map<string, number>();
+      for (let i = 0; i < nodeIds.length; i++) {
+        indexMap.set(nodeIds[i].toLowerCase(), i);
+      }
 
-            const adj: number[][] = Array.from({ length: nodeIds.length }, () => []);
-            for (const link of links) {
-                const s = path.normalize(link.source).toLowerCase();
-                const t = path.normalize(link.target).toLowerCase();
-                const si = indexMap.get(s);
-                const ti = indexMap.get(t);
-                if (si === undefined || ti === undefined) continue;
-                if (si === ti) continue;
-                adj[si].push(ti);
-            }
+      const adj: number[][] = Array.from({ length: nodeIds.length }, () => []);
+      for (const link of links) {
+        const s = path.normalize(link.source).toLowerCase();
+        const t = path.normalize(link.target).toLowerCase();
+        const si = indexMap.get(s);
+        const ti = indexMap.get(t);
+        if (si === undefined || ti === undefined) continue;
+        if (si === ti) continue;
+        adj[si].push(ti);
+      }
 
-            // Tarjan SCC count (only SCCs of size > 1 count as a cycle group)
-            let idx = 0;
-            const indices = new Array(nodeIds.length).fill(-1);
-            const lowlink = new Array(nodeIds.length).fill(0);
-            const onStack = new Array(nodeIds.length).fill(false);
-            const stack: number[] = [];
-            let cycleGroups = 0;
+      // Tarjan SCC count (only SCCs of size > 1 count as a cycle group)
+      let idx = 0;
+      const indices = new Array(nodeIds.length).fill(-1);
+      const lowlink = new Array(nodeIds.length).fill(0);
+      const onStack = new Array(nodeIds.length).fill(false);
+      const stack: number[] = [];
+      let cycleGroups = 0;
 
-            const strongconnect = (v: number) => {
-                indices[v] = idx;
-                lowlink[v] = idx;
-                idx++;
-                stack.push(v);
-                onStack[v] = true;
+      const strongconnect = (v: number) => {
+        indices[v] = idx;
+        lowlink[v] = idx;
+        idx++;
+        stack.push(v);
+        onStack[v] = true;
 
-                for (const w of adj[v]) {
-                    if (indices[w] === -1) {
-                        strongconnect(w);
-                        lowlink[v] = Math.min(lowlink[v], lowlink[w]);
-                    } else if (onStack[w]) {
-                        lowlink[v] = Math.min(lowlink[v], indices[w]);
-                    }
-                }
-
-                if (lowlink[v] === indices[v]) {
-                    let w: number;
-                    let size = 0;
-                    do {
-                        w = stack.pop()!;
-                        onStack[w] = false;
-                        size++;
-                    } while (w !== v);
-                    if (size > 1) cycleGroups++;
-                }
-            };
-
-            for (let v = 0; v < nodeIds.length; v++) {
-                if (indices[v] === -1) {
-                    strongconnect(v);
-                }
-            }
-
-            return cycleGroups;
-        } catch {
-            return 0;
+        for (const w of adj[v]) {
+          if (indices[w] === -1) {
+            strongconnect(w);
+            lowlink[v] = Math.min(lowlink[v], lowlink[w]);
+          } else if (onStack[w]) {
+            lowlink[v] = Math.min(lowlink[v], indices[w]);
+          }
         }
-    }
 
-    private async maybeShowSetupWarningAfterGraphReady(): Promise<void> {
-        if (this._startupSetupWarningShown) return;
-        if (this._setupCompleteAtPanelReady !== false) return;
-
-        this._startupSetupWarningShown = true;
-
-        const hasAspectKB = this._hasAspectKBAtPanelReady === true;
-        const message = !hasAspectKB
-            ? 'Aspect Code: Knowledge base (.aspect/) not found.'
-            : 'Aspect Code: No AI instruction files found.';
-
-        const action = await vscode.window.showWarningMessage(
-            message + ' Generate them to provide AI assistants with project context.',
-            'Generate Now'
-        );
-        if (action === 'Generate Now') {
-            void vscode.commands.executeCommand('aspectcode.configureAssistants');
+        if (lowlink[v] === indices[v]) {
+          let w: number;
+          let size = 0;
+          do {
+            w = stack.pop()!;
+            onStack[w] = false;
+            size++;
+          } while (w !== v);
+          if (size > 1) cycleGroups++;
         }
+      };
+
+      for (let v = 0; v < nodeIds.length; v++) {
+        if (indices[v] === -1) {
+          strongconnect(v);
+        }
+      }
+
+      return cycleGroups;
+    } catch {
+      return 0;
     }
+  }
+
+  private async maybeShowSetupWarningAfterGraphReady(): Promise<void> {
+    if (this._startupSetupWarningShown) return;
+    if (this._setupCompleteAtPanelReady !== false) return;
+
+    this._startupSetupWarningShown = true;
+
+    const hasAspectKB = this._hasAspectKBAtPanelReady === true;
+    const message = !hasAspectKB
+      ? 'Aspect Code: Knowledge base (.aspect/) not found.'
+      : 'Aspect Code: No AI instruction files found.';
+
+    const action = await vscode.window.showWarningMessage(
+      message + ' Generate them to provide AI assistants with project context.',
+      'Generate Now',
+    );
+    if (action === 'Generate Now') {
+      void vscode.commands.executeCommand('aspectcode.configureAssistants');
+    }
+  }
 
   private async sendFocusedDependencyGraph(activeFile: string) {
     // Ensure view is ready
@@ -490,336 +516,366 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-        // Hard stop when extension is disabled.
-        if (this._bridgeState.extensionEnabled === false) {
-            return;
-        }
-
-        // Dependency graph is available offline
-
-        // Track if this is the first graph load (enables UI + suppresses startup warning)
-        const isFirstGraphLoad = !this._initialGraphSent;
-
-        // Avoid duplicate concurrent initial graph loads.
-        if (isFirstGraphLoad && this._initialGraphLoadInFlight) {
-            await this._initialGraphLoadInFlight;
-            return;
-        }
-
-        if (isFirstGraphLoad) {
-            this._setupInProgress = true;
-            this._initialGraphLoadInFlight = new Promise<void>((resolve) => {
-                this._resolveInitialGraphLoadInFlight = resolve;
-            });
-        }
-
-        // For the first graph load, show a VS Code notification progress ("toast") in sync with the spinner.
-        let finishProgress: (() => void) | undefined;
-        let reportProgress: ((message: string) => void) | undefined;
-        let pendingProgressMessage: string | undefined;
-
-        const setPhase = (phase: string) => {
-            pendingProgressMessage = phase;
-            try {
-                this._view?.webview.postMessage({ type: 'LOADING_PHASE', phase });
-            } catch (e) {
-                // Webview might not be ready yet
-            }
-            reportProgress?.(phase);
-        };
-
-        if (isFirstGraphLoad) {
-            const done = new Promise<void>((resolve) => {
-                finishProgress = resolve;
-            });
-            void vscode.window.withProgress(
-                {
-                    location: vscode.ProgressLocation.Notification,
-                    title: 'Aspect Code: Building dependency graph',
-                    cancellable: false
-                },
-                async (progress) => {
-                    reportProgress = (message) => progress.report({ message });
-                    if (pendingProgressMessage) {
-                        reportProgress(pendingProgressMessage);
-                    }
-                    await done;
-                }
-            );
-        }
-
-        try {
-    
-    // Normalize file path to avoid mismatches
-    const normalizedFile = path.normalize(activeFile);
-    
-    // Check cache first - graph cache is valid as long as dependency cache exists
-    const now = Date.now();
-    const cacheKey = `focused_${normalizedFile}`;
-    
-    if (this._graphCache.has(cacheKey) && this._dependencyCache.has('all')) {
-      const cachedGraph = this._graphCache.get(cacheKey)!;
-
-            const cachedAllFiles = this._workspaceFilesCache;
-            const cachedAllDeps = this._dependencyCache.get('all') as DependencyLink[] | undefined;
-            const stats = (cachedAllFiles && cachedAllDeps)
-                ? this.ensureGlobalGraphStats(cachedAllFiles, cachedAllDeps)
-                : this._globalGraphStats;
-      
-      // Use consistent message type (UPPERCASE)
-      try {
-        this._view?.webview.postMessage({
-          type: 'DEPENDENCY_GRAPH',
-                    graph: { ...cachedGraph, focusMode: true, centerFile: normalizedFile },
-                    stats
-        });
-
-                // If the first graph was satisfied by cache, we still need to enable UI.
-                if (isFirstGraphLoad) {
-                    this._initialGraphSent = true;
-                    this.post({ type: 'GRAPH_READY' });
-                    this._outputChannel?.appendLine('[PanelProvider] Initial dependency graph ready (cached) - UI enabled');
-                    this._setupInProgress = false;
-                    void this.maybeShowSetupWarningAfterGraphReady();
-                }
-        return;
-      } catch (error) {
-        console.warn(`[Dependency Graph] Failed to send cached graph, fetching fresh data:`, error);
-        // Fall through to fetch fresh data
-        this._graphCache.delete(cacheKey); // Clear bad cache
-      }
+    // Hard stop when extension is disabled.
+    if (this._bridgeState.extensionEnabled === false) {
+      return;
     }
-    
-    // Send loading indicator to webview
-    this._view?.webview.postMessage({
-      type: 'graphLoading',
-      file: normalizedFile
-    });
 
-        // Always emit a phase message so the spinner has text even if caches are warm.
-        setPhase('Preparing dependency graph...');
-    
-    // Get all files in workspace (uses internal caching and deduplication)
-    let allFiles = await this.discoverAllWorkspaceFiles(setPhase);
-    
-    // Ensure the active file is valid (with normalized, case-insensitive path comparison on Windows)
-    const normalizedAllFiles = allFiles.map(f => path.normalize(f));
-    const normalizedLower = normalizedFile.toLowerCase();
-    let fileIndex = normalizedAllFiles.findIndex(f => 
-      f === normalizedFile || f.toLowerCase() === normalizedLower
-    );
-    
-    // If file wasn't found in cache, add it dynamically instead of invalidating entire cache.
-    // This handles newly opened files without expensive full rescans.
-    // File watchers handle actual file creations/deletions.
-    if (fileIndex === -1 && this._workspaceFilesCache) {
-      // Check if file actually exists before adding to cache
-      try {
-        await vscode.workspace.fs.stat(vscode.Uri.file(normalizedFile));
-        // File exists - add to cache for this session
-        this._workspaceFilesCache.push(normalizedFile);
-        allFiles = this._workspaceFilesCache;
-        fileIndex = allFiles.length - 1;
-        this._outputChannel?.appendLine(`[PanelProvider] Added missing file to cache: ${path.basename(normalizedFile)}`);
-      } catch {
-        // File doesn't exist on disk - don't add to cache
-        this._outputChannel?.appendLine(`[PanelProvider] File not found on disk: ${normalizedFile}`);
-      }
+    // Dependency graph is available offline
+
+    // Track if this is the first graph load (enables UI + suppresses startup warning)
+    const isFirstGraphLoad = !this._initialGraphSent;
+
+    // Avoid duplicate concurrent initial graph loads.
+    if (isFirstGraphLoad && this._initialGraphLoadInFlight) {
+      await this._initialGraphLoadInFlight;
+      return;
     }
-    
-    // Even if file not in workspace, we still need to analyze dependencies to get global stats
-    // Get dependencies (cached) - only reanalyze if cache is empty (invalidated by file watchers)
-    let allDependencies = this._dependencyCache.get('all');
-    if (!allDependencies) {
-            setPhase(`Analyzing dependencies (0/${allFiles.length} files)...`);
-      allDependencies = await this._dependencyAnalyzer.analyzeDependencies(allFiles, (current, total, phase) => {
-        // The phase string from DependencyAnalyzer already includes progress info
-        setPhase(phase);
+
+    if (isFirstGraphLoad) {
+      this._setupInProgress = true;
+      this._initialGraphLoadInFlight = new Promise<void>((resolve) => {
+        this._resolveInitialGraphLoadInFlight = resolve;
       });
-      this._dependencyCache.set('all', allDependencies);
-      this._dependencyCacheTimestamp = Date.now(); // Track when cache was populated
     }
 
-    const stats = this.ensureGlobalGraphStats(allFiles, allDependencies as DependencyLink[]);
-    
-    // Now handle the file-not-found case with proper stats
-    if (fileIndex === -1) {
-        console.error(`[Dependency Graph] File still not found after rescan. Showing empty graph with stats.`);
+    // For the first graph load, show a VS Code notification progress ("toast") in sync with the spinner.
+    let finishProgress: (() => void) | undefined;
+    let reportProgress: ((message: string) => void) | undefined;
+    let pendingProgressMessage: string | undefined;
+
+    const setPhase = (phase: string) => {
+      pendingProgressMessage = phase;
+      try {
+        this._view?.webview.postMessage({ type: 'LOADING_PHASE', phase });
+      } catch (e) {
+        // Webview might not be ready yet
+      }
+      reportProgress?.(phase);
+    };
+
+    if (isFirstGraphLoad) {
+      const done = new Promise<void>((resolve) => {
+        finishProgress = resolve;
+      });
+      void vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Aspect Code: Building dependency graph',
+          cancellable: false,
+        },
+        async (progress) => {
+          reportProgress = (message) => progress.report({ message });
+          if (pendingProgressMessage) {
+            reportProgress(pendingProgressMessage);
+          }
+          await done;
+        },
+      );
+    }
+
+    try {
+      // Normalize file path to avoid mismatches
+      const normalizedFile = path.normalize(activeFile);
+
+      // Check cache first - graph cache is valid as long as dependency cache exists
+      const now = Date.now();
+      const cacheKey = `focused_${normalizedFile}`;
+
+      if (this._graphCache.has(cacheKey) && this._dependencyCache.has('all')) {
+        const cachedGraph = this._graphCache.get(cacheKey)!;
+
+        const cachedAllFiles = this._workspaceFilesCache;
+        const cachedAllDeps = this._dependencyCache.get('all') as DependencyLink[] | undefined;
+        const stats =
+          cachedAllFiles && cachedAllDeps
+            ? this.ensureGlobalGraphStats(cachedAllFiles, cachedAllDeps)
+            : this._globalGraphStats;
+
+        // Use consistent message type (UPPERCASE)
+        try {
+          this._view?.webview.postMessage({
+            type: 'DEPENDENCY_GRAPH',
+            graph: { ...cachedGraph, focusMode: true, centerFile: normalizedFile },
+            stats,
+          });
+
+          // If the first graph was satisfied by cache, we still need to enable UI.
+          if (isFirstGraphLoad) {
+            this._initialGraphSent = true;
+            this.post({ type: 'GRAPH_READY' });
+            this._outputChannel?.appendLine(
+              '[PanelProvider] Initial dependency graph ready (cached) - UI enabled',
+            );
+            this._setupInProgress = false;
+            void this.maybeShowSetupWarningAfterGraphReady();
+          }
+          return;
+        } catch (error) {
+          console.warn(
+            `[Dependency Graph] Failed to send cached graph, fetching fresh data:`,
+            error,
+          );
+          // Fall through to fetch fresh data
+          this._graphCache.delete(cacheKey); // Clear bad cache
+        }
+      }
+
+      // Send loading indicator to webview
+      this._view?.webview.postMessage({
+        type: 'graphLoading',
+        file: normalizedFile,
+      });
+
+      // Always emit a phase message so the spinner has text even if caches are warm.
+      setPhase('Preparing dependency graph...');
+
+      // Get all files in workspace (uses internal caching and deduplication)
+      let allFiles = await this.discoverAllWorkspaceFiles(setPhase);
+
+      // Ensure the active file is valid (with normalized, case-insensitive path comparison on Windows)
+      const normalizedAllFiles = allFiles.map((f) => path.normalize(f));
+      const normalizedLower = normalizedFile.toLowerCase();
+      let fileIndex = normalizedAllFiles.findIndex(
+        (f) => f === normalizedFile || f.toLowerCase() === normalizedLower,
+      );
+
+      // If file wasn't found in cache, add it dynamically instead of invalidating entire cache.
+      // This handles newly opened files without expensive full rescans.
+      // File watchers handle actual file creations/deletions.
+      if (fileIndex === -1 && this._workspaceFilesCache) {
+        // Check if file actually exists before adding to cache
+        try {
+          await vscode.workspace.fs.stat(vscode.Uri.file(normalizedFile));
+          // File exists - add to cache for this session
+          this._workspaceFilesCache.push(normalizedFile);
+          allFiles = this._workspaceFilesCache;
+          fileIndex = allFiles.length - 1;
+          this._outputChannel?.appendLine(
+            `[PanelProvider] Added missing file to cache: ${path.basename(normalizedFile)}`,
+          );
+        } catch {
+          // File doesn't exist on disk - don't add to cache
+          this._outputChannel?.appendLine(
+            `[PanelProvider] File not found on disk: ${normalizedFile}`,
+          );
+        }
+      }
+
+      // Even if file not in workspace, we still need to analyze dependencies to get global stats
+      // Get dependencies (cached) - only reanalyze if cache is empty (invalidated by file watchers)
+      let allDependencies = this._dependencyCache.get('all');
+      if (!allDependencies) {
+        setPhase(`Analyzing dependencies (0/${allFiles.length} files)...`);
+        allDependencies = await this._dependencyAnalyzer.analyzeDependencies(
+          allFiles,
+          (current, total, phase) => {
+            // The phase string from DependencyAnalyzer already includes progress info
+            setPhase(phase);
+          },
+        );
+        this._dependencyCache.set('all', allDependencies);
+        this._dependencyCacheTimestamp = Date.now(); // Track when cache was populated
+      }
+
+      const stats = this.ensureGlobalGraphStats(allFiles, allDependencies as DependencyLink[]);
+
+      // Now handle the file-not-found case with proper stats
+      if (fileIndex === -1) {
+        console.error(
+          `[Dependency Graph] File still not found after rescan. Showing empty graph with stats.`,
+        );
         // Send empty graph centered on this file but WITH full stats
         this._view?.webview.postMessage({
-                    type: 'DEPENDENCY_GRAPH',
-                    graph: {
-            nodes: [{
-              id: normalizedFile,
-              label: path.basename(normalizedFile),
-              type: 'hub',
-              importance: 0,
-              file: normalizedFile,
-              violations: 0,
-              highSeverity: 0,
-              errors: 0,
-              isActiveFile: true
-            }],
+          type: 'DEPENDENCY_GRAPH',
+          graph: {
+            nodes: [
+              {
+                id: normalizedFile,
+                label: path.basename(normalizedFile),
+                type: 'hub',
+                importance: 0,
+                file: normalizedFile,
+                violations: 0,
+                highSeverity: 0,
+                errors: 0,
+                isActiveFile: true,
+              },
+            ],
             links: [],
             focusMode: true,
-            centerFile: normalizedFile
-                    },
-                                        stats
+            centerFile: normalizedFile,
+          },
+          stats,
         });
         // Even if file not found, we still need to enable UI if this is first graph
         if (isFirstGraphLoad) {
           this._initialGraphSent = true;
           this.post({ type: 'GRAPH_READY' });
-          this._outputChannel?.appendLine('[PanelProvider] Initial dependency graph ready (empty) - UI enabled');
+          this._outputChannel?.appendLine(
+            '[PanelProvider] Initial dependency graph ready (empty) - UI enabled',
+          );
           this._setupInProgress = false;
         }
         return;
-    }
-    
-    const actualFile = allFiles[fileIndex] || normalizedFile;
-    
-    // Filter to get only dependencies involving the active file (using actual file path)
-    const relevantDependencies = allDependencies.filter(dep => 
-      path.normalize(dep.source) === normalizedFile || path.normalize(dep.target) === normalizedFile
-    );
-    
-    // Get all files involved in these dependencies
-    const involvedFiles = new Set<string>([actualFile]);
-    relevantDependencies.forEach(dep => {
-      involvedFiles.add(dep.source);
-      involvedFiles.add(dep.target);
-    });
-    
-    const filesToAnalyze = Array.from(involvedFiles);
-    
-    // Create nodes with importance based on dependency counts (no longer using findings)
-    const nodes = filesToAnalyze.map(file => {
-      const importCount = relevantDependencies.filter(d => d.source === file && d.type === 'import').length;
-      const exportCount = relevantDependencies.filter(d => d.target === file && d.type === 'import').length;
-      const callCount = relevantDependencies.filter(d => d.source === file && d.type === 'call').length;
-      const isCircular = relevantDependencies.some(d => (d.source === file || d.target === file) && d.type === 'circular');
-      const totalDeps = importCount + exportCount + callCount;
-      
-      // Active file is always a hub, others based on dependency count
-      const isActive = path.normalize(file) === normalizedFile;
-      let nodeType: 'hub' | 'file' = isActive ? 'hub' : 'file';
-      // Mark files with many connections as hubs
-      if (!isActive && (totalDeps > 5 || isCircular)) {
-        nodeType = 'hub';
       }
-      
-      return {
-        id: file,
-        label: file.split(/[/\\]/).pop() || file,
-        type: nodeType,
-        importance: totalDeps,
-        file,
-        violations: 0,
-        highSeverity: 0,
-        errors: 0,
-        importanceScore: totalDeps + (isCircular ? 5 : 0),
-        ruleCategories: {},
-        isActiveFile: isActive,
-        // Add dependency metadata
-        dependencyInfo: {
-          imports: importCount,
-          exports: exportCount,
-          calls: callCount,
-          isCircular
-        }
-      };
-    });
-    
-    // Convert dependency links to graph links
-    const links = relevantDependencies.map(dep => ({
-      source: dep.source,
-      target: dep.target,
-      strength: dep.strength,
-      type: dep.type,
-      metadata: {
-        symbols: dep.symbols,
-        lines: dep.lines,
-        bidirectional: dep.bidirectional
-      }
-    }));
-    
-    // Create the graph data
-    const graphData = { 
-      nodes, 
-      links, 
-      focusMode: true, 
-      centerFile: actualFile,
-      metadata: {
-        totalDependencies: relevantDependencies.length,
-        circularDependencies: relevantDependencies.filter(d => d.type === 'circular').length,
-        analysisTimestamp: new Date().toISOString()
-      }
-    };
-    
-    // Cache the result for fast future access
-    this._graphCache.set(cacheKey, graphData);
-    
-    // Ensure view is still ready before posting
-    if (!this._view) {
-      console.error('[Dependency Graph] View disappeared before sending');
-      return;
-    }
-    
-    // Send with retry logic
-    const maxRetries = 2;
-    let retries = 0;
-    let sent = false;
-    
-    while (retries <= maxRetries && !sent) {
-      const result = this.post({ 
-        type: 'DEPENDENCY_GRAPH', 
-                graph: graphData,
-                stats
-      });
-      
-      sent = result !== false; // post returns false on error, otherwise Thenable or true
-      
-      if (!sent) {
-        retries++;
-        if (retries <= maxRetries) {
-          console.warn(`[Dependency Graph] ⚠️ Send failed, retry ${retries}/${maxRetries}`);
-          await new Promise(resolve => setTimeout(resolve, 50 * retries)); // Exponential backoff
-        }
-      }
-    }
-    
-    if (sent) {
-      // Track the current center file (only if not already updated by user action recently)
-      const timeSinceUserUpdate = Date.now() - this._centerFileUpdatedTime;
-      if (timeSinceUserUpdate > 1000) { // Only auto-update if no recent user action
-        this._currentGraphCenterFile = path.normalize(actualFile);
-      }
-      
-      // If this was the first graph load, signal that graph is ready (enables UI)
-      if (isFirstGraphLoad) {
-        this._initialGraphSent = true;
-        this.post({ type: 'GRAPH_READY' });
-        this._outputChannel?.appendLine('[PanelProvider] Initial dependency graph ready - UI enabled');
-                this._setupInProgress = false;
-                void this.maybeShowSetupWarningAfterGraphReady();
-      }
-    } else {
-      console.error(`[Dependency Graph] ✗ Failed to send graph after ${maxRetries} retries`);
-      // Clear cache on failure to force fresh fetch next time
-      this._graphCache.delete(cacheKey);
-            if (isFirstGraphLoad) {
-                this._setupInProgress = false;
-            }
-    }
 
-        } finally {
-            if (isFirstGraphLoad) {
-                this._resolveInitialGraphLoadInFlight?.();
-                this._resolveInitialGraphLoadInFlight = null;
-                this._initialGraphLoadInFlight = null;
-            }
-            finishProgress?.();
+      const actualFile = allFiles[fileIndex] || normalizedFile;
+
+      // Filter to get only dependencies involving the active file (using actual file path)
+      const relevantDependencies = allDependencies.filter(
+        (dep) =>
+          path.normalize(dep.source) === normalizedFile ||
+          path.normalize(dep.target) === normalizedFile,
+      );
+
+      // Get all files involved in these dependencies
+      const involvedFiles = new Set<string>([actualFile]);
+      relevantDependencies.forEach((dep) => {
+        involvedFiles.add(dep.source);
+        involvedFiles.add(dep.target);
+      });
+
+      const filesToAnalyze = Array.from(involvedFiles);
+
+      // Create nodes with importance based on dependency counts (no longer using findings)
+      const nodes = filesToAnalyze.map((file) => {
+        const importCount = relevantDependencies.filter(
+          (d) => d.source === file && d.type === 'import',
+        ).length;
+        const exportCount = relevantDependencies.filter(
+          (d) => d.target === file && d.type === 'import',
+        ).length;
+        const callCount = relevantDependencies.filter(
+          (d) => d.source === file && d.type === 'call',
+        ).length;
+        const isCircular = relevantDependencies.some(
+          (d) => (d.source === file || d.target === file) && d.type === 'circular',
+        );
+        const totalDeps = importCount + exportCount + callCount;
+
+        // Active file is always a hub, others based on dependency count
+        const isActive = path.normalize(file) === normalizedFile;
+        let nodeType: 'hub' | 'file' = isActive ? 'hub' : 'file';
+        // Mark files with many connections as hubs
+        if (!isActive && (totalDeps > 5 || isCircular)) {
+          nodeType = 'hub';
         }
+
+        return {
+          id: file,
+          label: file.split(/[/\\]/).pop() || file,
+          type: nodeType,
+          importance: totalDeps,
+          file,
+          violations: 0,
+          highSeverity: 0,
+          errors: 0,
+          importanceScore: totalDeps + (isCircular ? 5 : 0),
+          ruleCategories: {},
+          isActiveFile: isActive,
+          // Add dependency metadata
+          dependencyInfo: {
+            imports: importCount,
+            exports: exportCount,
+            calls: callCount,
+            isCircular,
+          },
+        };
+      });
+
+      // Convert dependency links to graph links
+      const links = relevantDependencies.map((dep) => ({
+        source: dep.source,
+        target: dep.target,
+        strength: dep.strength,
+        type: dep.type,
+        metadata: {
+          symbols: dep.symbols,
+          lines: dep.lines,
+          bidirectional: dep.bidirectional,
+        },
+      }));
+
+      // Create the graph data
+      const graphData = {
+        nodes,
+        links,
+        focusMode: true,
+        centerFile: actualFile,
+        metadata: {
+          totalDependencies: relevantDependencies.length,
+          circularDependencies: relevantDependencies.filter((d) => d.type === 'circular').length,
+          analysisTimestamp: new Date().toISOString(),
+        },
+      };
+
+      // Cache the result for fast future access
+      this._graphCache.set(cacheKey, graphData);
+
+      // Ensure view is still ready before posting
+      if (!this._view) {
+        console.error('[Dependency Graph] View disappeared before sending');
+        return;
+      }
+
+      // Send with retry logic
+      const maxRetries = 2;
+      let retries = 0;
+      let sent = false;
+
+      while (retries <= maxRetries && !sent) {
+        const result = this.post({
+          type: 'DEPENDENCY_GRAPH',
+          graph: graphData,
+          stats,
+        });
+
+        sent = result !== false; // post returns false on error, otherwise Thenable or true
+
+        if (!sent) {
+          retries++;
+          if (retries <= maxRetries) {
+            console.warn(`[Dependency Graph] ⚠️ Send failed, retry ${retries}/${maxRetries}`);
+            await new Promise((resolve) => setTimeout(resolve, 50 * retries)); // Exponential backoff
+          }
+        }
+      }
+
+      if (sent) {
+        // Track the current center file (only if not already updated by user action recently)
+        const timeSinceUserUpdate = Date.now() - this._centerFileUpdatedTime;
+        if (timeSinceUserUpdate > 1000) {
+          // Only auto-update if no recent user action
+          this._currentGraphCenterFile = path.normalize(actualFile);
+        }
+
+        // If this was the first graph load, signal that graph is ready (enables UI)
+        if (isFirstGraphLoad) {
+          this._initialGraphSent = true;
+          this.post({ type: 'GRAPH_READY' });
+          this._outputChannel?.appendLine(
+            '[PanelProvider] Initial dependency graph ready - UI enabled',
+          );
+          this._setupInProgress = false;
+          void this.maybeShowSetupWarningAfterGraphReady();
+        }
+      } else {
+        console.error(`[Dependency Graph] ✗ Failed to send graph after ${maxRetries} retries`);
+        // Clear cache on failure to force fresh fetch next time
+        this._graphCache.delete(cacheKey);
+        if (isFirstGraphLoad) {
+          this._setupInProgress = false;
+        }
+      }
+    } finally {
+      if (isFirstGraphLoad) {
+        this._resolveInitialGraphLoadInFlight?.();
+        this._resolveInitialGraphLoadInFlight = null;
+        this._initialGraphLoadInFlight = null;
+      }
+      finishProgress?.();
+    }
   }
 
   private async isFileValid(filePath: string): Promise<boolean> {
@@ -834,65 +890,72 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
   private async sendFocusedOnBestFile() {
     // Get all files in workspace
     const allFiles = await this.discoverAllWorkspaceFiles();
-    
+
     if (allFiles.length === 0) {
       // No files at all - send empty graph
-      this.post({ 
-        type: 'DEPENDENCY_GRAPH', 
-                graph: { nodes: [], links: [], focusMode: true, centerFile: null },
-                stats: { totalFiles: 0, totalDeps: 0, totalCycles: 0 }
+      this.post({
+        type: 'DEPENDENCY_GRAPH',
+        graph: { nodes: [], links: [], focusMode: true, centerFile: null },
+        stats: { totalFiles: 0, totalDeps: 0, totalCycles: 0 },
       });
       return;
     }
-    
+
     // Pick the first file to focus on
     const fileToFocus = allFiles[0];
-    
+
     await this.sendFocusedDependencyGraph(fileToFocus);
   }
 
   private async sendRandomDependencyGraph() {
     // Get ALL files in workspace
     const allFiles = await this.discoverAllWorkspaceFiles();
-    
+
     // Select a random subset of files for the graph
     let selectedFiles: string[] = [];
-    
+
     // Include a random sample of files (up to 25)
     const sampleSize = Math.min(25, allFiles.length);
     const shuffled = allFiles.sort(() => Math.random() - 0.5);
     selectedFiles = shuffled.slice(0, sampleSize);
-    
+
     if (selectedFiles.length === 0) {
-            this.post({ type: 'DEPENDENCY_GRAPH', graph: { nodes: [], links: [] }, stats: { totalFiles: 0, totalDeps: 0, totalCycles: 0 } });
+      this.post({
+        type: 'DEPENDENCY_GRAPH',
+        graph: { nodes: [], links: [] },
+        stats: { totalFiles: 0, totalDeps: 0, totalCycles: 0 },
+      });
       return;
     }
-    
+
     // Analyze real dependencies among selected files
-    const allDependencies = await this._dependencyAnalyzer.analyzeDependencies(selectedFiles, (current, total, phase) => {
-      // Progress callback - this method is not the primary entry point
-      // so we just send the phase to the webview
-      try {
-        this._view?.webview.postMessage({ type: 'LOADING_PHASE', phase });
-      } catch {
-        // best-effort
-      }
-    });
-    
+    const allDependencies = await this._dependencyAnalyzer.analyzeDependencies(
+      selectedFiles,
+      (current, total, phase) => {
+        // Progress callback - this method is not the primary entry point
+        // so we just send the phase to the webview
+        try {
+          this._view?.webview.postMessage({ type: 'LOADING_PHASE', phase });
+        } catch {
+          // best-effort
+        }
+      },
+    );
+
     // Create nodes for ALL selected files (even those without dependencies)
     // Node importance is now based on dependency counts (no longer using findings)
-    const nodes = selectedFiles.map(file => {
+    const nodes = selectedFiles.map((file) => {
       // Calculate dependency metrics for this file
-      const incomingDeps = allDependencies.filter(d => d.target === file);
-      const outgoingDeps = allDependencies.filter(d => d.source === file);
+      const incomingDeps = allDependencies.filter((d) => d.target === file);
+      const outgoingDeps = allDependencies.filter((d) => d.source === file);
       const totalDeps = incomingDeps.length + outgoingDeps.length;
-      const isCircular = [...incomingDeps, ...outgoingDeps].some(d => d.type === 'circular');
-      
+      const isCircular = [...incomingDeps, ...outgoingDeps].some((d) => d.type === 'circular');
+
       let nodeType: 'hub' | 'file' = 'file';
       if (this.isKeyArchitecturalFile(file) || totalDeps > 4 || isCircular) {
         nodeType = 'hub';
       }
-      
+
       return {
         id: file,
         label: file.split(/[/\\]/).pop() || file,
@@ -906,16 +969,16 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
         ruleCategories: {},
         isActiveFile: false,
         dependencyInfo: {
-          imports: outgoingDeps.filter(d => d.type === 'import').length,
-          exports: incomingDeps.filter(d => d.type === 'import').length,
-          calls: outgoingDeps.filter(d => d.type === 'call').length,
-          isCircular
-        }
+          imports: outgoingDeps.filter((d) => d.type === 'import').length,
+          exports: incomingDeps.filter((d) => d.type === 'import').length,
+          calls: outgoingDeps.filter((d) => d.type === 'call').length,
+          isCircular,
+        },
       };
     });
-    
+
     // Convert dependency links to graph links
-    const links = allDependencies.map(dep => ({
+    const links = allDependencies.map((dep) => ({
       source: dep.source,
       target: dep.target,
       strength: dep.strength,
@@ -923,66 +986,73 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       metadata: {
         symbols: dep.symbols,
         lines: dep.lines,
-        bidirectional: dep.bidirectional
-      }
+        bidirectional: dep.bidirectional,
+      },
     }));
-    
-    this.post({ 
-      type: 'DEPENDENCY_GRAPH', 
-      graph: { 
-        nodes, 
-        links, 
-        focusMode: false, 
+
+    this.post({
+      type: 'DEPENDENCY_GRAPH',
+      graph: {
+        nodes,
+        links,
+        focusMode: false,
         centerFile: null,
         metadata: {
           totalDependencies: allDependencies.length,
-          circularDependencies: allDependencies.filter(d => d.type === 'circular').length,
-          analysisTimestamp: new Date().toISOString()
-        }
-            },
-            stats: this.ensureGlobalGraphStats(selectedFiles, allDependencies as DependencyLink[])
+          circularDependencies: allDependencies.filter((d) => d.type === 'circular').length,
+          analysisTimestamp: new Date().toISOString(),
+        },
+      },
+      stats: this.ensureGlobalGraphStats(selectedFiles, allDependencies as DependencyLink[]),
     });
   }
-  
-  private addOrUpdateLink(links: any[], source: string, target: string, strength: number, type: string) {
-    const existing = links.find(l => 
-      (l.source === source && l.target === target) || 
-      (l.source === target && l.target === source)
+
+  private addOrUpdateLink(
+    links: any[],
+    source: string,
+    target: string,
+    strength: number,
+    type: string,
+  ) {
+    const existing = links.find(
+      (l) =>
+        (l.source === source && l.target === target) ||
+        (l.source === target && l.target === source),
     );
-    
+
     if (existing) {
       existing.strength = Math.min(1.0, existing.strength + strength * 0.5);
     } else {
       links.push({ source, target, strength: Math.max(0.1, Math.min(1.0, strength)), type });
     }
   }
-  
+
   private calculateDirectorySimilarity(file1: string, file2: string): number {
     const dir1 = file1.split(/[/\\]/).slice(0, -1);
     const dir2 = file2.split(/[/\\]/).slice(0, -1);
-    
+
     let commonDepth = 0;
     for (let i = 0; i < Math.min(dir1.length, dir2.length); i++) {
       if (dir1[i] === dir2[i]) commonDepth++;
       else break;
     }
-    
+
     const maxDepth = Math.max(dir1.length, dir2.length);
     return maxDepth > 0 ? commonDepth / maxDepth : 0;
   }
-  
+
   private async discoverAllWorkspaceFiles(onProgress?: (phase: string) => void): Promise<string[]> {
     // If discovery is already in flight, wait for it instead of starting a new one
     if (this._fileDiscoveryInFlight) {
       onProgress?.('Discovering files...');
       return this._fileDiscoveryInFlight;
     }
-    
+
     // Check cache first (but not if it was just cleared)
     if (this._workspaceFilesCache && this._workspaceFilesCache.length > 0) {
       return this._workspaceFilesCache;
     }
-    
+
     // Start new discovery and store the promise
     this._fileDiscoveryInFlight = this._doDiscoverAllWorkspaceFiles(onProgress);
     try {
@@ -994,8 +1064,10 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       this._fileDiscoveryInFlight = null;
     }
   }
-  
-  private async _doDiscoverAllWorkspaceFiles(onProgress?: (phase: string) => void): Promise<string[]> {
+
+  private async _doDiscoverAllWorkspaceFiles(
+    onProgress?: (phase: string) => void,
+  ): Promise<string[]> {
     // Use FileDiscoveryService if available (preferred - uses cache)
     const service = getFileDiscoveryService();
     if (service) {
@@ -1005,7 +1077,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
         this._outputChannel?.appendLine(`[PanelProvider] FileDiscoveryService error: ${e}`);
       }
     }
-    
+
     // Fallback to direct discovery
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -1014,56 +1086,82 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
 
     return discoverSourceFiles(workspaceFolders[0].uri, this._outputChannel, onProgress);
   }
-  
+
   private isKeyArchitecturalFile(filePath: string): boolean {
     const fileName = filePath.split(/[/\\]/).pop()?.toLowerCase() || '';
     const directoryPath = filePath.toLowerCase();
-    
+
     // Check for key architectural files
     const keyFiles = [
-      'main.py', 'app.py', '__init__.py',
-      'index.ts', 'main.ts', 'app.ts',
-      'index.js', 'main.js', 'app.js',
-      'package.json', 'tsconfig.json', 'pyproject.toml',
-      'requirements.txt', 'cargo.toml', 'pom.xml',
-      'dockerfile', 'readme.md'
+      'main.py',
+      'app.py',
+      '__init__.py',
+      'index.ts',
+      'main.ts',
+      'app.ts',
+      'index.js',
+      'main.js',
+      'app.js',
+      'package.json',
+      'tsconfig.json',
+      'pyproject.toml',
+      'requirements.txt',
+      'cargo.toml',
+      'pom.xml',
+      'dockerfile',
+      'readme.md',
     ];
-    
+
     // Check for important directories
     const keyDirectoryParts = [
-      'src', 'lib', 'core', 'api', 'server', 'client',
-      'components', 'services', 'utils', 'common'
+      'src',
+      'lib',
+      'core',
+      'api',
+      'server',
+      'client',
+      'components',
+      'services',
+      'utils',
+      'common',
     ];
-    
-    return keyFiles.includes(fileName) || 
-           keyDirectoryParts.some(part => directoryPath.includes('/' + part + '/') || directoryPath.includes('\\' + part + '\\'));
+
+    return (
+      keyFiles.includes(fileName) ||
+      keyDirectoryParts.some(
+        (part) =>
+          directoryPath.includes('/' + part + '/') || directoryPath.includes('\\' + part + '\\'),
+      )
+    );
   }
-  
+
   private calculateArchitecturalImportance(filePath: string): number {
     let score = 0;
     const fileName = filePath.split(/[/\\]/).pop()?.toLowerCase() || '';
     const directoryPath = filePath.toLowerCase();
-    
+
     // Main/entry files
     if (['main.py', 'app.py', 'index.ts', 'main.ts', 'index.js', 'main.js'].includes(fileName)) {
       score += 5;
     }
-    
+
     // Configuration files
-    if (['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt'].includes(fileName)) {
+    if (
+      ['package.json', 'tsconfig.json', 'pyproject.toml', 'requirements.txt'].includes(fileName)
+    ) {
       score += 3;
     }
-    
+
     // Core directories
     if (directoryPath.includes('/src/') || directoryPath.includes('\\src\\')) {
       score += 2;
     }
-    
+
     // Init files (often architectural)
     if (fileName === '__init__.py') {
       score += 1;
     }
-    
+
     return score;
   }
 
@@ -1071,7 +1169,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     this._view = view;
     view.webview.options = { enableScripts: true };
     view.webview.html = this.getHtml();
-    
+
     // Reset auto-processing flag when webview is resolved/recreated
     this._autoProcessingStarted = false;
     // Reset initial graph flag - will be set true after first graph is sent
@@ -1096,55 +1194,62 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
             setupComplete = hasAspectKB && hasInstructionFiles;
           }
 
-                    // Persist status so we can show the warning toast in sync with '+' (after GRAPH_READY).
-                    this._setupCompleteAtPanelReady = setupComplete;
-                    this._hasAspectKBAtPanelReady = hasAspectKB;
-          
+          // Persist status so we can show the warning toast in sync with '+' (after GRAPH_READY).
+          this._setupCompleteAtPanelReady = setupComplete;
+          this._hasAspectKBAtPanelReady = hasAspectKB;
+
           // Auto-start processing ONLY if:
           // 1. Cache was loaded successfully, OR
           // 2. .aspect/ KB exists (prior configuration) but cache is stale
           // Otherwise, user must click '+' to initialize
-                                                                                if (!this._autoProcessingStarted && !this._cacheLoadedSuccessfully && hasAspectKB) {
+          if (!this._autoProcessingStarted && !this._cacheLoadedSuccessfully && hasAspectKB) {
             this._autoProcessingStarted = true;
             // KB exists but cache is stale - regenerate automatically
-            this._outputChannel?.appendLine('[PanelProvider] .aspect/ KB exists, regenerating cache...');
+            this._outputChannel?.appendLine(
+              '[PanelProvider] .aspect/ KB exists, regenerating cache...',
+            );
             this.post({ type: 'START_AUTOMATIC_PROCESSING' });
           } else if (this._cacheLoadedSuccessfully) {
             // Cache was loaded - just update the score display without running INDEX/VALIDATE
-            this._outputChannel?.appendLine('[PanelProvider] Cache already loaded, skipping automatic processing');
+            this._outputChannel?.appendLine(
+              '[PanelProvider] Cache already loaded, skipping automatic processing',
+            );
           } else if (!hasAspectKB) {
             // No KB exists - user must click '+' to initialize
-            this._outputChannel?.appendLine('[PanelProvider] No .aspect/ KB found, waiting for user to configure via + button');
+            this._outputChannel?.appendLine(
+              '[PanelProvider] No .aspect/ KB found, waiting for user to configure via + button',
+            );
             this.post({ type: 'SETUP_REQUIRED' });
           }
-                    await this.loadProjectSettingsIntoBridgeState();
+          await this.loadProjectSettingsIntoBridgeState();
           // Send state with workspace root without modifying the original state
           const webviewState = {
             ...this._bridgeState,
-                        workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
-                        autoRegenerateKb: this.getAutoRegenerateKbMode(),
-                        instructionsMode: this.getInstructionsMode()
+            workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
+            autoRegenerateKb: this.getAutoRegenerateKbMode(),
+            instructionsMode: this.getInstructionsMode(),
           };
           this.post({ type: 'STATE_UPDATE', state: webviewState });
 
-                    // Startup reliability: proactively build/sent the initial dependency graph.
-                    // This avoids a confusing state where footer totals and top status stay blank
-                    // until an editor-change event happens.
-                    if (!this._initialGraphSent) {
-                        void this.sendDependencyGraph().catch((e) => {
-                            console.error('[Aspect Code:panel] Failed to send initial dependency graph:', e);
-                        });
-                    }
-          
+          // Startup reliability: proactively build/sent the initial dependency graph.
+          // This avoids a confusing state where footer totals and top status stay blank
+          // until an editor-change event happens.
+          if (!this._initialGraphSent) {
+            void this.sendDependencyGraph().catch((e) => {
+              console.error('[Aspect Code:panel] Failed to send initial dependency graph:', e);
+            });
+          }
+
           // Send current active file for findings sorting (only real files)
           const activeEditor = vscode.window.activeTextEditor;
-          const activeFile = activeEditor?.document.uri.scheme === 'file' 
-            ? activeEditor.document.fileName 
-            : undefined;
+          const activeFile =
+            activeEditor?.document.uri.scheme === 'file'
+              ? activeEditor.document.fileName
+              : undefined;
           if (activeFile) {
             this.post({ type: 'ACTIVE_FILE_CHANGED', file: activeFile });
           }
-          
+
           // Send instruction files status (using already-computed values)
           this.post({ type: 'INSTRUCTION_FILES_STATUS', hasFiles: setupComplete });
           break;
@@ -1152,14 +1257,18 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
         case 'REQUEST_DEPENDENCY_GRAPH':
           // Legacy handler - default to focused mode for compatibility
           const currentActiveEditor = vscode.window.activeTextEditor;
-          const currentActiveFile = currentActiveEditor?.document.uri.scheme === 'file'
-            ? currentActiveEditor.document.fileName
-            : undefined;
+          const currentActiveFile =
+            currentActiveEditor?.document.uri.scheme === 'file'
+              ? currentActiveEditor.document.fileName
+              : undefined;
           if (currentActiveFile) {
             await this.sendFocusedDependencyGraph(currentActiveFile);
           } else {
             // No active file - prefer current center over best file
-            if (this._currentGraphCenterFile && await this.isFileValid(this._currentGraphCenterFile)) {
+            if (
+              this._currentGraphCenterFile &&
+              (await this.isFileValid(this._currentGraphCenterFile))
+            ) {
               await this.sendFocusedDependencyGraph(this._currentGraphCenterFile);
             } else {
               // Invalid or no current center - clear it and pick a file to focus on
@@ -1170,7 +1279,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           break;
 
         case 'REQUEST_STATE':
-                    this.pushState();
+          this.pushState();
           break;
 
         case 'RUN_FLOW':
@@ -1186,29 +1295,29 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           if (file) {
             // Set flag to prevent editor change handler interference
             this._isProcessingNodeClick = true;
-            
+
             try {
               // Clear any pending editor change debounce to avoid duplicate updates
               if (this._fileChangeDebounceTimer) {
                 clearTimeout(this._fileChangeDebounceTimer);
                 this._fileChangeDebounceTimer = null;
               }
-              
+
               const normalizedFile = path.normalize(file);
-              
+
               // Clear cache for this file to force fresh data
               const cacheKey = `focused_${normalizedFile}`;
               if (this._graphCache.has(cacheKey)) {
                 this._graphCache.delete(cacheKey);
               }
-              
+
               // Update tracking
               this._lastProcessedFile = normalizedFile;
               this._lastProcessedTime = Date.now();
               // Update center file tracking for node clicks
               this._currentGraphCenterFile = normalizedFile;
               this._centerFileUpdatedTime = Date.now();
-              
+
               // Node clicks always focus on the specific file (good UX) - force fresh data
               await this.sendFocusedDependencyGraph(file);
             } catch (error) {
@@ -1243,26 +1352,23 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           }
           break;
 
-                case 'CYCLE_AUTO_REGENERATE_KB': {
-                    // Cycling auto-regenerate setting works offline
-                    const current = this.getAutoRegenerateKbMode();
-                    const next: 'off' | 'onSave' | 'idle' = current === 'off'
-                        ? 'onSave'
-                        : current === 'onSave'
-                            ? 'idle'
-                            : 'off';
-                    try {
-                        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-                        if (workspaceRoot) {
-                            await setAutoRegenerateKbSetting(workspaceRoot, next);
-                        }
-                        this._bridgeState.autoRegenerateKb = next;
-                    } catch (e) {
-                        console.error('[PanelProvider] Failed to update autoRegenerateKb:', e);
-                    }
-                    this.pushState();
-                    break;
-                }
+        case 'CYCLE_AUTO_REGENERATE_KB': {
+          // Cycling auto-regenerate setting works offline
+          const current = this.getAutoRegenerateKbMode();
+          const next: 'off' | 'onSave' | 'idle' =
+            current === 'off' ? 'onSave' : current === 'onSave' ? 'idle' : 'off';
+          try {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+            if (workspaceRoot) {
+              await setAutoRegenerateKbSetting(workspaceRoot, next);
+            }
+            this._bridgeState.autoRegenerateKb = next;
+          } catch (e) {
+            console.error('[PanelProvider] Failed to update autoRegenerateKb:', e);
+          }
+          this.pushState();
+          break;
+        }
 
         case 'FORCE_REINDEX':
           // Force reindex works offline - rebuilds local dependency graph
@@ -1272,82 +1378,94 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
 
         case 'COMMAND':
           if (msg?.command) {
-                        const perfEnabled = vscode.workspace.getConfiguration().get<boolean>('aspectcode.devLogs', true);
-                        const t0 = Date.now();
-                        if (perfEnabled) {
-                            this._outputChannel?.appendLine(`[Perf][PanelProvider][COMMAND] start cmd=${msg.command}`);
-                        }
-                        try {
-                            await vscode.commands.executeCommand(msg.command);
+            const perfEnabled = vscode.workspace
+              .getConfiguration()
+              .get<boolean>('aspectcode.devLogs', true);
+            const t0 = Date.now();
+            if (perfEnabled) {
+              this._outputChannel?.appendLine(
+                `[Perf][PanelProvider][COMMAND] start cmd=${msg.command}`,
+              );
+            }
+            try {
+              await vscode.commands.executeCommand(msg.command);
 
-                            // Keep project-local settings in sync after commands that mutate .aspect/.settings.json
-                            // (e.g. instructions mode toggles, assistant configuration).
-                            await this.loadProjectSettingsIntoBridgeState();
-                            this.pushState();
-                        } finally {
-                            if (perfEnabled) {
-                                this._outputChannel?.appendLine(`[Perf][PanelProvider][COMMAND] end cmd=${msg.command} tookMs=${Date.now() - t0}`);
-                            }
-                        }
+              // Keep project-local settings in sync after commands that mutate .aspect/.settings.json
+              // (e.g. instructions mode toggles, assistant configuration).
+              await this.loadProjectSettingsIntoBridgeState();
+              this.pushState();
+            } finally {
+              if (perfEnabled) {
+                this._outputChannel?.appendLine(
+                  `[Perf][PanelProvider][COMMAND] end cmd=${msg.command} tookMs=${Date.now() - t0}`,
+                );
+              }
+            }
           }
           break;
 
-                case 'OPEN_KB': {
-                    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-                    if (!root) {
-                        vscode.window.showInformationMessage('No workspace folder is open.');
-                        break;
-                    }
+        case 'OPEN_KB': {
+          const root = vscode.workspace.workspaceFolders?.[0]?.uri;
+          if (!root) {
+            vscode.window.showInformationMessage('No workspace folder is open.');
+            break;
+          }
 
-                    const toUri = (relPath: string) => vscode.Uri.joinPath(root, ...relPath.split('/').filter(Boolean));
+          const toUri = (relPath: string) =>
+            vscode.Uri.joinPath(root, ...relPath.split('/').filter(Boolean));
 
-                    const candidates = [
-                        '.aspect/architecture.md',
-                        'architecture.md',
-                        'docs/architecture.md',
-                        'server/docs/architecture.md'
-                    ];
+          const candidates = [
+            '.aspect/architecture.md',
+            'architecture.md',
+            'docs/architecture.md',
+            'server/docs/architecture.md',
+          ];
 
-                    let target: vscode.Uri | undefined;
-                    for (const rel of candidates) {
-                        const uri = toUri(rel);
-                        try {
-                            await vscode.workspace.fs.stat(uri);
-                            target = uri;
-                            break;
-                        } catch {
-                            // continue
-                        }
-                    }
+          let target: vscode.Uri | undefined;
+          for (const rel of candidates) {
+            const uri = toUri(rel);
+            try {
+              await vscode.workspace.fs.stat(uri);
+              target = uri;
+              break;
+            } catch {
+              // continue
+            }
+          }
 
-                    if (!target) {
-                        try {
-                            const found = await vscode.workspace.findFiles('**/architecture.md', '**/node_modules/**', 1);
-                            if (found.length > 0) {
-                                target = found[0];
-                            }
-                        } catch {
-                            // ignore
-                        }
-                    }
+          if (!target) {
+            try {
+              const found = await vscode.workspace.findFiles(
+                '**/architecture.md',
+                '**/node_modules/**',
+                1,
+              );
+              if (found.length > 0) {
+                target = found[0];
+              }
+            } catch {
+              // ignore
+            }
+          }
 
-                    if (!target) {
-                        vscode.window.showInformationMessage('architecture.md not found in this workspace.');
-                        break;
-                    }
+          if (!target) {
+            vscode.window.showInformationMessage('architecture.md not found in this workspace.');
+            break;
+          }
 
-                    const doc = await vscode.workspace.openTextDocument(target);
-                    await vscode.window.showTextDocument(doc, { preview: true });
-                    break;
-                }
+          const doc = await vscode.workspace.openTextDocument(target);
+          await vscode.window.showTextDocument(doc, { preview: true });
+          break;
+        }
 
         case 'REQUEST_FOCUSED_GRAPH':
           // Always send focused data for 2D graph
           const activeEditorFocused = vscode.window.activeTextEditor;
-          const activeFileFocused = activeEditorFocused?.document.uri.scheme === 'file'
-            ? activeEditorFocused.document.fileName
-            : undefined;
-          
+          const activeFileFocused =
+            activeEditorFocused?.document.uri.scheme === 'file'
+              ? activeEditorFocused.document.fileName
+              : undefined;
+
           if (activeFileFocused) {
             // Use the actual active file
             await this.sendFocusedDependencyGraph(activeFileFocused);
@@ -1355,11 +1473,18 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
             // No active file - check if we recently updated center due to user action
             const timeSinceLastUpdate = Date.now() - this._centerFileUpdatedTime;
             const recentUserUpdate = timeSinceLastUpdate < 500; // 500ms grace period
-            
-            if (this._currentGraphCenterFile && await this.isFileValid(this._currentGraphCenterFile) && recentUserUpdate) {
+
+            if (
+              this._currentGraphCenterFile &&
+              (await this.isFileValid(this._currentGraphCenterFile)) &&
+              recentUserUpdate
+            ) {
               // Keep the current center file - user recently selected it
               await this.sendFocusedDependencyGraph(this._currentGraphCenterFile);
-            } else if (this._currentGraphCenterFile && await this.isFileValid(this._currentGraphCenterFile)) {
+            } else if (
+              this._currentGraphCenterFile &&
+              (await this.isFileValid(this._currentGraphCenterFile))
+            ) {
               // Keep the current center file - older but still valid
               await this.sendFocusedDependencyGraph(this._currentGraphCenterFile);
             } else {
@@ -1381,7 +1506,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           await vscode.commands.executeCommand('aspectcode.alignIssue');
           break;
         }
-        
+
         case 'DEBUG_MESSAGE': {
           // Log webview debug messages to extension output channel
           this._outputChannel?.appendLine(`🌐 [WEBVIEW DEBUG] ${msg.message}`);
@@ -1392,7 +1517,12 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
   }
 
   public resetBridgeState() {
-        this._bridgeState = { busy: false, history: [], lastDiffMeta: undefined, kbStale: this._bridgeState.kbStale };
+    this._bridgeState = {
+      busy: false,
+      history: [],
+      lastDiffMeta: undefined,
+      kbStale: this._bridgeState.kbStale,
+    };
     this.pushState();
   }
 
@@ -1416,10 +1546,10 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     return this._setupInProgress;
   }
 
-    /** True once the initial dependency graph has been computed and sent. */
-    public isGraphReady(): boolean {
-        return this._initialGraphSent;
-    }
+  /** True once the initial dependency graph has been computed and sent. */
+  public isGraphReady(): boolean {
+    return this._initialGraphSent;
+  }
 
   /**
    * Invalidate the dependency cache so next graph render fetches fresh data.
@@ -1463,7 +1593,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     return {
       filters: {}, // fill with your real filter UI state if you have it
       history: this._bridgeState.history,
-      lastDiffMeta: this._bridgeState.lastDiffMeta
+      lastDiffMeta: this._bridgeState.lastDiffMeta,
     };
   }
 
@@ -1472,40 +1602,35 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       this._bridgeState.busy = true;
       this._bridgeState.progress = 0;
       this.pushState();
-      
+
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
         const progress = Math.round((i / steps.length) * 100);
-        
+
         this._bridgeState.processingPhase = step;
         this._bridgeState.progress = progress;
         this.post({ type: 'FLOW_PROGRESS', phase: step });
 
-                if (step === 'validate') {
+        if (step === 'validate') {
           try {
             await vscode.commands.executeCommand('aspectcode.examine');
           } catch (error) {
             console.error('[Aspect Code] validate step failed:', error);
             throw error;
           }
+        } else if (step === 'preview_fixes') {
+          this._bridgeState.lastDiffMeta = { files: 1, hunks: 2 };
+          this.pushState();
+        } else if (step === 'revalidate') {
+          await vscode.commands.executeCommand('aspectcode.validateWorkspaceDiff');
         }
-
-      else if (step === 'preview_fixes') {
-        this._bridgeState.lastDiffMeta = { files: 1, hunks: 2 };
-        this.pushState();
       }
 
-      else if (step === 'revalidate') {
-        await vscode.commands.executeCommand('aspectcode.validateWorkspaceDiff');
-      }
-    }
-    
-    this._bridgeState.history.push({
-      ts: new Date().toISOString(),
-      filesChanged: 1,
-      diffBytes: 120
-    });
-    
+      this._bridgeState.history.push({
+        ts: new Date().toISOString(),
+        filesChanged: 1,
+        diffBytes: 120,
+      });
     } catch (error) {
       console.error('[Aspect Code:panel] Flow execution failed:', error);
       // Don't re-throw, just log the error
@@ -1516,7 +1641,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       this._bridgeState.progress = 100;
       this.pushState();
     }
-    
+
     return this.captureSnapshot();
   }
 
@@ -1537,53 +1662,53 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
       return false;
     }
   }
-  private pushState() { 
+  private pushState() {
     const webviewState = {
       ...this._bridgeState,
-            workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
-                        autoRegenerateKb: this.getAutoRegenerateKbMode(),
-                        instructionsMode: this.getInstructionsMode()
+      workspaceRoot: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '',
+      autoRegenerateKb: this.getAutoRegenerateKbMode(),
+      instructionsMode: this.getInstructionsMode(),
     };
-    this.post({ type: 'STATE_UPDATE', state: webviewState }); 
+    this.post({ type: 'STATE_UPDATE', state: webviewState });
   }
 
   /**
    * Parse file path from either structured format or location strings.
    */
-     private resolveWorkspaceFilePath(filePath: string): string {
-        try {
-            const trimmed = (filePath ?? '').trim();
-            if (!trimmed) return '';
+  private resolveWorkspaceFilePath(filePath: string): string {
+    try {
+      const trimmed = (filePath ?? '').trim();
+      if (!trimmed) return '';
 
-            // Already absolute (covers Windows drive letters and UNC paths too).
-            if (path.isAbsolute(trimmed)) {
-                return path.normalize(trimmed);
-            }
+      // Already absolute (covers Windows drive letters and UNC paths too).
+      if (path.isAbsolute(trimmed)) {
+        return path.normalize(trimmed);
+      }
 
-            const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            if (!root) {
-                return path.normalize(trimmed);
-            }
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) {
+        return path.normalize(trimmed);
+      }
 
-            // The server often reports workspace-relative paths like "backend\\app\\utils.py".
-            return path.normalize(path.join(root, trimmed));
-        } catch {
-            return filePath;
-        }
+      // The server often reports workspace-relative paths like "backend\\app\\utils.py".
+      return path.normalize(path.join(root, trimmed));
+    } catch {
+      return filePath;
     }
+  }
 
-     private parseFileFromFinding(f: any): string {
-        const directFile = f.file ?? f.filePath ?? f.file_path;
-        if (directFile) {
-            return this.resolveWorkspaceFilePath(String(directFile));
-        }
+  private parseFileFromFinding(f: any): string {
+    const directFile = f.file ?? f.filePath ?? f.file_path;
+    if (directFile) {
+      return this.resolveWorkspaceFilePath(String(directFile));
+    }
 
     if (f.locations && Array.isArray(f.locations) && f.locations.length > 0) {
       const location = f.locations[0];
       if (typeof location === 'string') {
         const match = location.match(/^(.+):(\d+):(\d+)-(\d+):(\d+)$/);
         if (match) {
-                    return this.resolveWorkspaceFilePath(match[1]);
+          return this.resolveWorkspaceFilePath(match[1]);
         }
       }
     }
@@ -1598,7 +1723,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
     if (f.span && f.span.start && f.span.end) {
       return {
         start: { line: f.span.start.line, column: f.span.start.column },
-        end: { line: f.span.end.line, column: f.span.end.column }
+        end: { line: f.span.end.line, column: f.span.end.column },
       };
     }
 
@@ -1610,7 +1735,7 @@ export class AspectCodePanelProvider implements vscode.WebviewViewProvider {
           const [, startLine, startCol, endLine, endCol] = match;
           return {
             start: { line: parseInt(startLine, 10), column: parseInt(startCol, 10) },
-            end: { line: parseInt(endLine, 10), column: parseInt(endCol, 10) }
+            end: { line: parseInt(endLine, 10), column: parseInt(endCol, 10) },
           };
         }
       }

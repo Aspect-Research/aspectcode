@@ -1,0 +1,22 @@
+{
+  "name": "@aspectcode/core",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Pure-logic core for Aspect Code — no VS Code dependency",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "mocha --require ts-node/register 'test/**/*.test.ts'",
+    "test:snapshot": "mocha --require ts-node/register 'test/snapshot.test.ts'"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

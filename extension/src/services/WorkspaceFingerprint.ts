@@ -1,10 +1,10 @@
 /**
  * WorkspaceFingerprint - Simple KB staleness detection
- * 
+ *
  * Computes a cheap fingerprint from workspace files (paths + mtime + size).
  * Stores fingerprint in .aspect/.fingerprint.json alongside KB files.
  * Provides simple isKbStale() / markKbFresh() API.
- * 
+ *
  * Now uses FileDiscoveryService for file discovery to avoid redundant scans.
  */
 
@@ -42,7 +42,7 @@ interface FileMetadata {
 
 export class WorkspaceFingerprint implements vscode.Disposable {
   private readonly FINGERPRINT_FILE = '.fingerprint.json';
-  
+
   // Idle detection
   private idleTimer: NodeJS.Timeout | null = null;
   private lastEditTime: number = 0;
@@ -54,7 +54,7 @@ export class WorkspaceFingerprint implements vscode.Disposable {
   private readonly SAVE_DEBOUNCE_MS = 2000; // 2 seconds after last save
 
   private autoRegenMode: AutoRegenerateKbMode = 'onSave';
-  
+
   // Cached fingerprint
   private cachedFingerprint: string | null = null;
   private cachedFileCount: number = 0;
@@ -66,7 +66,7 @@ export class WorkspaceFingerprint implements vscode.Disposable {
 
   // Track if regeneration is in progress to avoid overlapping runs
   private regenerationInProgress: boolean = false;
-  
+
   // Event emitter for stale state changes
   private readonly _onStaleStateChanged = new vscode.EventEmitter<boolean>();
   readonly onStaleStateChanged = this._onStaleStateChanged.event;
@@ -83,14 +83,14 @@ export class WorkspaceFingerprint implements vscode.Disposable {
       this.idleTimer = null;
     }
   }
-  
+
   // KB regeneration callback
   private kbRegenerateCallback: (() => Promise<void>) | null = null;
-  
+
   constructor(
     private workspaceRoot: string,
     private extensionVersion: string,
-    private outputChannel: vscode.OutputChannel
+    private outputChannel: vscode.OutputChannel,
   ) {}
 
   dispose(): void {
@@ -129,22 +129,23 @@ export class WorkspaceFingerprint implements vscode.Disposable {
       // Check version mismatch - extension update forces KB regeneration
       if (stored.version !== this.extensionVersion) {
         this.outputChannel.appendLine(
-          `[WorkspaceFingerprint] Version mismatch: ${stored.version} -> ${this.extensionVersion}`
+          `[WorkspaceFingerprint] Version mismatch: ${stored.version} -> ${this.extensionVersion}`,
         );
         return true;
       }
 
       const current = await this.computeFingerprint();
-      
+
       // Check if fingerprint changed
       if (current.fingerprint !== stored.fingerprint) {
         // Estimate change magnitude
-        const changePercent = Math.abs(current.fileCount - stored.fileCount) / Math.max(stored.fileCount, 1) * 100;
-        
+        const changePercent =
+          (Math.abs(current.fileCount - stored.fileCount) / Math.max(stored.fileCount, 1)) * 100;
+
         this.outputChannel.appendLine(
-          `[WorkspaceFingerprint] Fingerprint changed: ${stored.fileCount} -> ${current.fileCount} files (${changePercent.toFixed(1)}% change)`
+          `[WorkspaceFingerprint] Fingerprint changed: ${stored.fileCount} -> ${current.fileCount} files (${changePercent.toFixed(1)}% change)`,
         );
-        
+
         return true; // Any fingerprint change = stale
       }
 
@@ -158,16 +159,20 @@ export class WorkspaceFingerprint implements vscode.Disposable {
   /**
    * Get staleness info for UI display.
    */
-  async getStalenessInfo(): Promise<{ isStale: boolean; fileCount: number; lastGenerated: number | null }> {
+  async getStalenessInfo(): Promise<{
+    isStale: boolean;
+    fileCount: number;
+    lastGenerated: number | null;
+  }> {
     try {
       const stored = await this.loadFingerprint();
       const isStale = await this.isKbStale();
       const current = await this.computeFingerprint();
-      
+
       return {
         isStale,
         fileCount: current.fileCount,
-        lastGenerated: stored?.kbGeneratedAt || null
+        lastGenerated: stored?.kbGeneratedAt || null,
       };
     } catch {
       return { isStale: false, fileCount: 0, lastGenerated: null };
@@ -176,27 +181,27 @@ export class WorkspaceFingerprint implements vscode.Disposable {
 
   /**
    * Mark KB as fresh (call after successful KB regeneration).
-   * 
+   *
    * @param preDiscoveredFiles Optional - if KB generation already discovered files,
    *                           pass them here to avoid rediscovering.
    */
   async markKbFresh(preDiscoveredFiles?: string[]): Promise<void> {
     try {
       const fingerprint = await this.computeFingerprint(preDiscoveredFiles);
-      
+
       const data: FingerprintData = {
         fingerprint: fingerprint.fingerprint,
         kbGeneratedAt: Date.now(),
         fileCount: fingerprint.fileCount,
-        version: this.extensionVersion
+        version: this.extensionVersion,
       };
 
       await this.saveFingerprint(data);
       this.cachedFingerprint = fingerprint.fingerprint;
       this.cachedFileCount = fingerprint.fileCount;
-      
+
       this.outputChannel.appendLine(
-        `[WorkspaceFingerprint] Marked KB fresh: ${fingerprint.fileCount} files`
+        `[WorkspaceFingerprint] Marked KB fresh: ${fingerprint.fileCount} files`,
       );
 
       // Notify listeners that KB is no longer stale
@@ -212,7 +217,7 @@ export class WorkspaceFingerprint implements vscode.Disposable {
    */
   onFileEdited(): void {
     this.lastEditTime = Date.now();
-    
+
     // Reset idle timer
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
@@ -274,17 +279,21 @@ export class WorkspaceFingerprint implements vscode.Disposable {
    */
   private async onSaveTimeout(lastSavedFile: string): Promise<void> {
     if (this.regenerationInProgress) {
-      this.outputChannel.appendLine('[WorkspaceFingerprint] Skipping onSave regen (already in progress)');
+      this.outputChannel.appendLine(
+        '[WorkspaceFingerprint] Skipping onSave regen (already in progress)',
+      );
       return;
     }
 
     try {
       this.regenerationInProgress = true;
       const startTime = Date.now();
-      this.outputChannel.appendLine(`[WorkspaceFingerprint] Auto-regenerating KB (onSave trigger, file: ${path.basename(lastSavedFile)})...`);
-      
+      this.outputChannel.appendLine(
+        `[WorkspaceFingerprint] Auto-regenerating KB (onSave trigger, file: ${path.basename(lastSavedFile)})...`,
+      );
+
       await this.kbRegenerateCallback!();
-      
+
       const duration = Date.now() - startTime;
       this.outputChannel.appendLine(`[WorkspaceFingerprint] KB regenerated in ${duration}ms`);
     } catch (e) {
@@ -296,21 +305,23 @@ export class WorkspaceFingerprint implements vscode.Disposable {
 
   /**
    * Get current fingerprint without comparing to stored.
-   * 
+   *
    * @param preDiscoveredFiles Optional - if files were already discovered, pass them
    *                           to avoid redundant file discovery.
    */
-  async computeFingerprint(preDiscoveredFiles?: string[]): Promise<{ fingerprint: string; fileCount: number }> {
-    const files = preDiscoveredFiles ?? await this.discoverWorkspaceSourceFiles();
+  async computeFingerprint(
+    preDiscoveredFiles?: string[],
+  ): Promise<{ fingerprint: string; fileCount: number }> {
+    const files = preDiscoveredFiles ?? (await this.discoverWorkspaceSourceFiles());
     const metadata = await this.getFilesMetadata(files);
-    
+
     // Sort for deterministic hash
     metadata.sort((a, b) => a.path.localeCompare(b.path));
-    
+
     // Create fingerprint from metadata
-    const hashInput = metadata.map(m => `${m.path}:${m.mtime}:${m.size}`).join('\n');
+    const hashInput = metadata.map((m) => `${m.path}:${m.mtime}:${m.size}`).join('\n');
     const hash = crypto.createHash('sha256').update(hashInput).digest('hex').slice(0, 16);
-    
+
     return { fingerprint: hash, fileCount: metadata.length };
   }
 
@@ -321,7 +332,9 @@ export class WorkspaceFingerprint implements vscode.Disposable {
   private async onIdleTimeout(): Promise<void> {
     try {
       if (this.regenerationInProgress) {
-        this.outputChannel.appendLine('[WorkspaceFingerprint] Skipping idle regen (already in progress)');
+        this.outputChannel.appendLine(
+          '[WorkspaceFingerprint] Skipping idle regen (already in progress)',
+        );
         return;
       }
 
@@ -330,12 +343,16 @@ export class WorkspaceFingerprint implements vscode.Disposable {
       if (this.staleNotified && this.kbRegenerateCallback) {
         this.regenerationInProgress = true;
         const startTime = Date.now();
-        this.outputChannel.appendLine(`[WorkspaceFingerprint] Idle timeout reached, auto-regenerating KB...`);
+        this.outputChannel.appendLine(
+          `[WorkspaceFingerprint] Idle timeout reached, auto-regenerating KB...`,
+        );
         await this.kbRegenerateCallback();
         const duration = Date.now() - startTime;
         this.outputChannel.appendLine(`[WorkspaceFingerprint] KB regenerated in ${duration}ms`);
       } else {
-        this.outputChannel.appendLine('[WorkspaceFingerprint] Idle timeout but no changes detected, skipping');
+        this.outputChannel.appendLine(
+          '[WorkspaceFingerprint] Idle timeout but no changes detected, skipping',
+        );
       }
     } catch (e) {
       this.outputChannel.appendLine(`[WorkspaceFingerprint] Idle regeneration failed: ${e}`);
@@ -358,13 +375,13 @@ export class WorkspaceFingerprint implements vscode.Disposable {
         this.outputChannel.appendLine(`[WorkspaceFingerprint] FileDiscoveryService error: ${e}`);
       }
     }
-    
+
     // Fallback to direct discovery
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (!workspaceFolders || workspaceFolders.length === 0) {
       return [];
     }
-    
+
     try {
       return await discoverSourceFiles(workspaceFolders[0].uri, this.outputChannel);
     } catch (e) {
@@ -375,25 +392,25 @@ export class WorkspaceFingerprint implements vscode.Disposable {
 
   private async getFilesMetadata(files: string[]): Promise<FileMetadata[]> {
     const metadata: FileMetadata[] = [];
-    
+
     for (const filePath of files) {
       try {
         const uri = vscode.Uri.file(filePath);
         const stat = await vscode.workspace.fs.stat(uri);
-        
+
         // Use relative path for consistency across machines
         const relativePath = path.relative(this.workspaceRoot, filePath).replace(/\\/g, '/');
-        
+
         metadata.push({
           path: relativePath,
           mtime: stat.mtime,
-          size: stat.size
+          size: stat.size,
         });
       } catch {
         // File may have been deleted between discovery and stat
       }
     }
-    
+
     return metadata;
   }
 

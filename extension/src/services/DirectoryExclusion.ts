@@ -1,12 +1,12 @@
 /**
  * DirectoryExclusion - Types and legacy compatibility layer
- * 
+ *
  * The actual exclusion logic has moved to FileDiscoveryService.
  * This module now provides:
  * - Type definitions (ExclusionSettings)
  * - Legacy compatibility wrapper (discoverSourceFiles)
  * - Static helper functions
- * 
+ *
  * All new code should use FileDiscoveryService directly.
  */
 
@@ -46,26 +46,61 @@ export interface ExclusionResult {
 
 /** Package manager directories */
 const PACKAGE_MANAGER_DIRS = [
-  'node_modules', 'bower_components', 'jspm_packages', 'vendor',
-  'packages', 'site-packages', 'dist-packages', 'eggs', '.eggs',
+  'node_modules',
+  'bower_components',
+  'jspm_packages',
+  'vendor',
+  'packages',
+  'site-packages',
+  'dist-packages',
+  'eggs',
+  '.eggs',
 ];
 
 /** Build output directories */
 const BUILD_OUTPUT_DIRS = [
-  'dist', 'build', 'out', 'output', 'target', 'bin', 'obj', 'lib',
-  '.next', '.nuxt', '.output', '.turbo', '.parcel-cache', '.webpack', '.rollup.cache',
+  'dist',
+  'build',
+  'out',
+  'output',
+  'target',
+  'bin',
+  'obj',
+  'lib',
+  '.next',
+  '.nuxt',
+  '.output',
+  '.turbo',
+  '.parcel-cache',
+  '.webpack',
+  '.rollup.cache',
 ];
 
 /** Virtual environment directories */
 const VENV_DIRS = [
-  'venv', '.venv', 'env', '.env', 'virtualenv', '.virtualenv',
-  '.tox', '.nox', '.conda',
+  'venv',
+  '.venv',
+  'env',
+  '.env',
+  'virtualenv',
+  '.virtualenv',
+  '.tox',
+  '.nox',
+  '.conda',
 ];
 
 /** Cache directories */
 const CACHE_DIRS = [
-  '__pycache__', '.cache', '.pytest_cache', '.mypy_cache', '.ruff_cache',
-  '.hypothesis', 'coverage', 'htmlcov', '.nyc_output', '.coverage',
+  '__pycache__',
+  '.cache',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.ruff_cache',
+  '.hypothesis',
+  'coverage',
+  'htmlcov',
+  '.nyc_output',
+  '.coverage',
 ];
 
 /** VCS and IDE directories */
@@ -75,7 +110,14 @@ const VCS_IDE_DIRS = ['.git', '.hg', '.svn', '.idea', '.vs', '.vscode'];
 const TEST_OUTPUT_DIRS = ['e2e', 'playwright-report', 'test-results', 'cypress', '.playwright'];
 
 /** Generated/framework directories */
-const GENERATED_DIRS = ['.aspect', 'generated', '__generated__', '.serverless', '.terraform', '.pulumi'];
+const GENERATED_DIRS = [
+  '.aspect',
+  'generated',
+  '__generated__',
+  '.serverless',
+  '.terraform',
+  '.pulumi',
+];
 
 // ============================================================================
 // DirectoryExclusionService (Legacy Compatibility)
@@ -88,7 +130,7 @@ const GENERATED_DIRS = ['.aspect', 'generated', '__generated__', '.serverless', 
 export class DirectoryExclusionService {
   constructor(
     private workspaceRoot: string,
-    private outputChannel?: vscode.OutputChannel
+    private outputChannel?: vscode.OutputChannel,
   ) {}
 
   /**
@@ -101,24 +143,24 @@ export class DirectoryExclusionService {
       return {
         excludeGlob: exclusions.excludeGlob,
         excludedDirs: exclusions.excludedDirs,
-        overriddenDirs: []
+        overriddenDirs: [],
       };
     }
-    
+
     // Fallback: compute locally (shouldn't happen in normal operation)
     const allDirs = DirectoryExclusionService.getDefaultExclusionNames();
-    const neverSet = new Set((settings?.never ?? []).map(p => p.replace(/\\/g, '/')));
-    const excludedDirs = allDirs.filter(d => !neverSet.has(d));
-    const overriddenDirs = allDirs.filter(d => neverSet.has(d));
-    
+    const neverSet = new Set((settings?.never ?? []).map((p) => p.replace(/\\/g, '/')));
+    const excludedDirs = allDirs.filter((d) => !neverSet.has(d));
+    const overriddenDirs = allDirs.filter((d) => neverSet.has(d));
+
     this.outputChannel?.appendLine(
-      `[DirectoryExclusion] Computed exclusions: ${excludedDirs.length} dirs, ${overriddenDirs.length} overridden`
+      `[DirectoryExclusion] Computed exclusions: ${excludedDirs.length} dirs, ${overriddenDirs.length} overridden`,
     );
-    
+
     return {
       excludeGlob: this.buildExcludeGlob(excludedDirs),
       excludedDirs,
-      overriddenDirs
+      overriddenDirs,
     };
   }
 
@@ -135,14 +177,19 @@ export class DirectoryExclusionService {
 
   static getDefaultExclusionNames(): string[] {
     return [
-      ...PACKAGE_MANAGER_DIRS, ...BUILD_OUTPUT_DIRS, ...VENV_DIRS,
-      ...CACHE_DIRS, ...VCS_IDE_DIRS, ...TEST_OUTPUT_DIRS, ...GENERATED_DIRS,
+      ...PACKAGE_MANAGER_DIRS,
+      ...BUILD_OUTPUT_DIRS,
+      ...VENV_DIRS,
+      ...CACHE_DIRS,
+      ...VCS_IDE_DIRS,
+      ...TEST_OUTPUT_DIRS,
+      ...GENERATED_DIRS,
     ];
   }
 
   private buildExcludeGlob(dirs: string[]): string {
     if (dirs.length === 0) return '';
-    const escaped = dirs.map(d => d.replace(/[{}[\]()]/g, '\\$&'));
+    const escaped = dirs.map((d) => d.replace(/[{}[\]()]/g, '\\$&'));
     return `**/{${escaped.join(',')}}/**`;
   }
 }
@@ -165,7 +212,7 @@ export function getDefaultExcludeGlob(): string {
  */
 export function createExclusionService(
   workspaceRoot: string,
-  outputChannel?: vscode.OutputChannel
+  outputChannel?: vscode.OutputChannel,
 ): DirectoryExclusionService {
   return new DirectoryExclusionService(workspaceRoot, outputChannel);
 }
@@ -174,7 +221,7 @@ export function createExclusionService(
  * Discover all source files in the workspace with proper exclusions.
  * Uses FileDiscoveryService if available (singleton), otherwise falls back
  * to direct discovery.
- * 
+ *
  * @param workspaceRoot The workspace root URI
  * @param outputChannel Optional output channel for logging (only used in fallback)
  * @param onProgress Optional progress callback
@@ -183,16 +230,18 @@ export function createExclusionService(
 export async function discoverSourceFiles(
   workspaceRoot: vscode.Uri,
   outputChannel?: vscode.OutputChannel,
-  onProgress?: (phase: string) => void
+  onProgress?: (phase: string) => void,
 ): Promise<string[]> {
   // Use FileDiscoveryService singleton if available
   const service = getFileDiscoveryService();
   if (service) {
     return service.getFiles();
   }
-  
+
   // Fallback: direct discovery (should only happen during early initialization)
-  outputChannel?.appendLine('[FileDiscovery] Warning: FileDiscoveryService not initialized, using fallback');
+  outputChannel?.appendLine(
+    '[FileDiscovery] Warning: FileDiscoveryService not initialized, using fallback',
+  );
   return discoverSourceFilesFallback(workspaceRoot, outputChannel, onProgress);
 }
 
@@ -203,7 +252,7 @@ export async function discoverSourceFiles(
 async function discoverSourceFilesFallback(
   workspaceRoot: vscode.Uri,
   outputChannel?: vscode.OutputChannel,
-  onProgress?: (phase: string) => void
+  onProgress?: (phase: string) => void,
 ): Promise<string[]> {
   const workspaceFolders = vscode.workspace.workspaceFolders;
   if (!workspaceFolders || workspaceFolders.length === 0) {
@@ -214,15 +263,22 @@ async function discoverSourceFilesFallback(
 
   const patterns = [
     '**/*.py',
-    '**/*.ts', '**/*.tsx',
-    '**/*.js', '**/*.jsx', '**/*.mjs', '**/*.cjs',
+    '**/*.ts',
+    '**/*.tsx',
+    '**/*.js',
+    '**/*.jsx',
+    '**/*.mjs',
+    '**/*.cjs',
     '**/*.java',
-    '**/*.cpp', '**/*.c', '**/*.hpp', '**/*.h',
+    '**/*.cpp',
+    '**/*.c',
+    '**/*.hpp',
+    '**/*.h',
     '**/*.cs',
     '**/*.go',
     '**/*.rs',
     '**/*.rb',
-    '**/*.php'
+    '**/*.php',
   ];
 
   const explicitExclude = DirectoryExclusionService.getDefaultExcludeGlob();
@@ -236,10 +292,12 @@ async function discoverSourceFilesFallback(
       const files = await vscode.workspace.findFiles(
         new vscode.RelativePattern(workspaceRoot, pattern),
         explicitExclude,
-        maxResultsPerPattern
+        maxResultsPerPattern,
       );
       completedPatterns++;
-      onProgress?.(`Discovering files (${Math.round((completedPatterns / patterns.length) * 100)}%)...`);
+      onProgress?.(
+        `Discovering files (${Math.round((completedPatterns / patterns.length) * 100)}%)...`,
+      );
       return files;
     } catch {
       completedPatterns++;
@@ -259,4 +317,3 @@ async function discoverSourceFilesFallback(
   outputChannel?.appendLine(`[FileDiscovery] Found ${sorted.length} source files (fallback)`);
   return sorted;
 }
-

@@ -2,7 +2,12 @@ import * as vscode from 'vscode';
 import { AspectCodeState } from '../state';
 import { generateKnowledgeBase } from './kb';
 import { ensureGitignoreForTarget } from '../services/gitignoreService';
-import { GitignoreTarget, InstructionsMode, getAssistantsSettings, getInstructionsModeSetting } from '../services/aspectSettings';
+import {
+  GitignoreTarget,
+  InstructionsMode,
+  getAssistantsSettings,
+  getInstructionsModeSetting,
+} from '../services/aspectSettings';
 
 const ASPECT_CODE_START = '<!-- ASPECT_CODE_START -->';
 const ASPECT_CODE_END = '<!-- ASPECT_CODE_END -->';
@@ -29,12 +34,18 @@ function removeAspectCodeSection(existingContent: string): string {
   let deleteTo = endIndex + ASPECT_CODE_END.length;
 
   // Remove trailing newline(s) right after the end marker
-  while (deleteTo < existingContent.length && (existingContent[deleteTo] === '\n' || existingContent[deleteTo] === '\r')) {
+  while (
+    deleteTo < existingContent.length &&
+    (existingContent[deleteTo] === '\n' || existingContent[deleteTo] === '\r')
+  ) {
     deleteTo++;
   }
 
   // Remove at most one preceding newline before the start marker to avoid leaving a blank gap.
-  if (deleteFrom > 0 && (existingContent[deleteFrom - 1] === '\n' || existingContent[deleteFrom - 1] === '\r')) {
+  if (
+    deleteFrom > 0 &&
+    (existingContent[deleteFrom - 1] === '\n' || existingContent[deleteFrom - 1] === '\r')
+  ) {
     deleteFrom--;
   }
 
@@ -237,17 +248,20 @@ export interface AssistantsOverride {
 async function generateInstructionFilesForEnabledAssistants(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  assistantsOverride?: AssistantsOverride
+  assistantsOverride?: AssistantsOverride,
 ): Promise<void> {
   const mode = await getInstructionsModeSetting(workspaceRoot, outputChannel);
   // Use override if provided, otherwise read from settings file
-  const assistants = assistantsOverride ?? await getAssistantsSettings(workspaceRoot, outputChannel);
+  const assistants =
+    assistantsOverride ?? (await getAssistantsSettings(workspaceRoot, outputChannel));
   const wantCopilot = assistants.copilot;
   const wantCursor = assistants.cursor;
   const wantClaude = assistants.claude;
   const wantOther = assistants.other;
 
-  outputChannel.appendLine(`[Instructions] Generating instruction files (mode=${mode}, Copilot: ${wantCopilot}, Cursor: ${wantCursor}, Claude: ${wantClaude}, Other: ${wantOther})`);
+  outputChannel.appendLine(
+    `[Instructions] Generating instruction files (mode=${mode}, Copilot: ${wantCopilot}, Cursor: ${wantCursor}, Claude: ${wantClaude}, Other: ${wantOther})`,
+  );
 
   const promises: Promise<void>[] = [];
 
@@ -277,17 +291,17 @@ async function generateInstructionFilesForEnabledAssistants(
  */
 export async function regenerateInstructionFilesOnly(
   workspaceRoot: vscode.Uri,
-  outputChannel: vscode.OutputChannel
+  outputChannel: vscode.OutputChannel,
 ): Promise<void> {
   await generateInstructionFilesForEnabledAssistants(workspaceRoot, outputChannel);
 }
 
 /**
  * Generates or updates instruction files for configured AI assistants.
- * 
+ *
  * Note: KB files should already be generated before calling this function.
  * Call regenerateEverything() first if KB needs regeneration.
- * 
+ *
  * @param assistantsOverride Optional assistants selection override. If provided,
  *   uses these values instead of reading from .aspect/.settings.json. This enables
  *   generating instruction files before settings are written to disk, ensuring
@@ -298,7 +312,7 @@ export async function generateInstructionFiles(
   state: AspectCodeState,
   outputChannel: vscode.OutputChannel,
   context?: vscode.ExtensionContext,
-  assistantsOverride?: AssistantsOverride
+  assistantsOverride?: AssistantsOverride,
 ): Promise<void> {
   // Note: Gitignore prompts are now handled per-file in each generation function
 
@@ -311,7 +325,7 @@ export async function generateInstructionFiles(
   } catch {
     needsKbGeneration = true;
   }
-  
+
   if (needsKbGeneration) {
     outputChannel.appendLine('[Instructions] KB files not found, generating...');
     try {
@@ -323,7 +337,11 @@ export async function generateInstructionFiles(
     }
   }
 
-  await generateInstructionFilesForEnabledAssistants(workspaceRoot, outputChannel, assistantsOverride);
+  await generateInstructionFilesForEnabledAssistants(
+    workspaceRoot,
+    outputChannel,
+    assistantsOverride,
+  );
 }
 
 /**
@@ -332,7 +350,7 @@ export async function generateInstructionFiles(
 async function generateCopilotInstructions(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  mode: InstructionsMode
+  mode: InstructionsMode,
 ): Promise<void> {
   const githubDir = vscode.Uri.joinPath(workspaceRoot, '.github');
   const instructionsFile = vscode.Uri.joinPath(githubDir, 'copilot-instructions.md');
@@ -362,7 +380,7 @@ async function generateCopilotInstructions(
 
   const aspectCodeContent =
     mode === 'custom'
-      ? (await readCustomInstructionsContent(workspaceRoot)) ?? generateCopilotContent('safe')
+      ? ((await readCustomInstructionsContent(workspaceRoot)) ?? generateCopilotContent('safe'))
       : generateCopilotContent(mode);
 
   const newContent = mergeAspectCodeSection(existingContent, aspectCodeContent);
@@ -372,7 +390,7 @@ async function generateCopilotInstructions(
 
   // Prompt user for gitignore preference for this specific file (fire-and-forget, don't block)
   const target: GitignoreTarget = '.github/copilot-instructions.md';
-  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch(e => {
+  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch((e) => {
     outputChannel.appendLine(`[Instructions] Gitignore prompt failed (non-critical): ${e}`);
   });
 }
@@ -399,7 +417,7 @@ function generateCopilotContent(mode: InstructionsMode): string {
 async function generateCursorRules(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  mode: InstructionsMode
+  mode: InstructionsMode,
 ): Promise<void> {
   const cursorDir = vscode.Uri.joinPath(workspaceRoot, '.cursor', 'rules');
   const rulesFile = vscode.Uri.joinPath(cursorDir, 'aspectcode.mdc');
@@ -429,7 +447,7 @@ async function generateCursorRules(
 
   const aspectCodeContent =
     mode === 'custom'
-      ? (await readCustomInstructionsContent(workspaceRoot)) ?? generateCursorContent('safe')
+      ? ((await readCustomInstructionsContent(workspaceRoot)) ?? generateCursorContent('safe'))
       : generateCursorContent(mode);
 
   const newContent = mergeAspectCodeSection(existingContent, aspectCodeContent);
@@ -439,7 +457,7 @@ async function generateCursorRules(
 
   // Prompt user for gitignore preference for this specific file (fire-and-forget, don't block)
   const target: GitignoreTarget = '.cursor/rules/aspectcode.mdc';
-  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch(e => {
+  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch((e) => {
     outputChannel.appendLine(`[Instructions] Gitignore prompt failed (non-critical): ${e}`);
   });
 }
@@ -474,14 +492,13 @@ ${generateCanonicalContentForMode(mode)}
 `.trim();
 }
 
-
 /**
  * Generate/update CLAUDE.md with Aspect Code section
  */
 async function generateClaudeInstructions(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  mode: InstructionsMode
+  mode: InstructionsMode,
 ): Promise<void> {
   const claudeFile = vscode.Uri.joinPath(workspaceRoot, 'CLAUDE.md');
 
@@ -505,7 +522,7 @@ async function generateClaudeInstructions(
 
   const aspectCodeContent =
     mode === 'custom'
-      ? (await readCustomInstructionsContent(workspaceRoot)) ?? generateClaudeContent('safe')
+      ? ((await readCustomInstructionsContent(workspaceRoot)) ?? generateClaudeContent('safe'))
       : generateClaudeContent(mode);
 
   if (!fileExists) {
@@ -519,7 +536,7 @@ async function generateClaudeInstructions(
 
   // Prompt user for gitignore preference for this specific file (fire-and-forget, don't block)
   const target: GitignoreTarget = 'CLAUDE.md';
-  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch(e => {
+  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch((e) => {
     outputChannel.appendLine(`[Instructions] Gitignore prompt failed (non-critical): ${e}`);
   });
 }
@@ -546,7 +563,7 @@ function generateClaudeContent(mode: InstructionsMode): string {
 async function generateOtherInstructions(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  mode: InstructionsMode
+  mode: InstructionsMode,
 ): Promise<void> {
   const agentsFile = vscode.Uri.joinPath(workspaceRoot, 'AGENTS.md');
 
@@ -570,7 +587,8 @@ async function generateOtherInstructions(
 
   const aspectCodeContent =
     mode === 'custom'
-      ? (await readCustomInstructionsContent(workspaceRoot)) ?? generateCanonicalContentForMode('safe')
+      ? ((await readCustomInstructionsContent(workspaceRoot)) ??
+        generateCanonicalContentForMode('safe'))
       : generateCanonicalContentForMode(mode);
 
   if (!fileExists) {
@@ -584,7 +602,7 @@ async function generateOtherInstructions(
 
   // Prompt user for gitignore preference for this specific file (fire-and-forget, don't block)
   const target: GitignoreTarget = 'AGENTS.md';
-  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch(e => {
+  void ensureGitignoreForTarget(workspaceRoot, target, outputChannel).catch((e) => {
     outputChannel.appendLine(`[Instructions] Gitignore prompt failed (non-critical): ${e}`);
   });
 }
@@ -609,4 +627,3 @@ function mergeAspectCodeSection(existingContent: string, aspectCodeContent: stri
     return `${existingContent}${separator}${ASPECT_CODE_START}\n${aspectCodeContent}\n${ASPECT_CODE_END}\n`;
   }
 }
-

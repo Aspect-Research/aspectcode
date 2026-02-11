@@ -29,46 +29,51 @@ let grammarSummary: GrammarSummary = {
   javascript: false,
   java: false,
   csharp: false,
-  initFailed: false
+  initFailed: false,
 };
 
-export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputChannel?: vscode.OutputChannel): Promise<LoadedGrammars> {
+export async function loadGrammarsOnce(
+  context: vscode.ExtensionContext,
+  outputChannel?: vscode.OutputChannel,
+): Promise<LoadedGrammars> {
   if (initOnce) {
     outputChannel?.appendLine('Tree-sitter: returning cached grammars');
     return initOnce;
   }
-  
+
   outputChannel?.appendLine('Tree-sitter: starting initialization...');
-  
+
   initOnce = (async () => {
     try {
       outputChannel?.appendLine('Tree-sitter: initializing WASM runtime...');
-      
+
       // Use bundled tree-sitter.wasm in parsers folder (node_modules not included in VSIX)
       const wasmPath = context.asAbsolutePath(path.join('parsers', 'tree-sitter.wasm'));
       outputChannel?.appendLine(`Tree-sitter: WASM path: ${wasmPath}`);
-      
+
       // Initialize with explicit WASM path
       await Parser.init({
         locateFile(scriptName: string, scriptDirectory: string) {
-          outputChannel?.appendLine(`Tree-sitter: locateFile called: ${scriptName} in ${scriptDirectory}`);
+          outputChannel?.appendLine(
+            `Tree-sitter: locateFile called: ${scriptName} in ${scriptDirectory}`,
+          );
           if (scriptName === 'tree-sitter.wasm') {
             return wasmPath;
           }
           return path.join(scriptDirectory, scriptName);
-        }
+        },
       });
-      
+
       outputChannel?.appendLine('Tree-sitter: WASM runtime initialized successfully');
-      
+
       const base = context.asAbsolutePath('parsers');
       outputChannel?.appendLine(`Tree-sitter: parser base path: ${base}`);
-      
+
       outputChannel?.appendLine('Tree-sitter: loading language grammars...');
-      
+
       // Load grammars one by one with individual error handling
       const grammars: LoadedGrammars = {};
-      
+
       // Python grammar
       try {
         outputChannel?.appendLine('Loading python.wasm...');
@@ -78,7 +83,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: python grammar failed: ${error}`);
       }
-      
+
       // TypeScript grammar
       try {
         outputChannel?.appendLine('Loading typescript.wasm...');
@@ -88,7 +93,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: typescript grammar failed: ${error}`);
       }
-      
+
       // TSX grammar
       try {
         outputChannel?.appendLine('Loading tsx.wasm...');
@@ -98,7 +103,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: tsx grammar failed: ${error}`);
       }
-      
+
       // JavaScript grammar
       try {
         outputChannel?.appendLine('Loading javascript.wasm...');
@@ -108,7 +113,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: javascript grammar failed: ${error}`);
       }
-      
+
       // Java grammar
       try {
         outputChannel?.appendLine('Loading java.wasm...');
@@ -118,7 +123,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: java grammar failed: ${error}`);
       }
-      
+
       // C# grammar
       try {
         outputChannel?.appendLine('Loading c_sharp.wasm...');
@@ -128,7 +133,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       } catch (error) {
         outputChannel?.appendLine(`Tree-sitter: csharp grammar failed: ${error}`);
       }
-      
+
       outputChannel?.appendLine('Tree-sitter: initialization complete');
       return grammars;
     } catch (error) {
@@ -137,7 +142,7 @@ export async function loadGrammarsOnce(context: vscode.ExtensionContext, outputC
       throw error;
     }
   })();
-  
+
   return initOnce;
 }
 
@@ -154,6 +159,6 @@ export function resetGrammarCache(): void {
     javascript: false,
     java: false,
     csharp: false,
-    initFailed: false
+    initFailed: false,
   };
 }

@@ -16,22 +16,22 @@ export async function detectAssistants(workspaceRoot: vscode.Uri): Promise<Set<A
     { id: 'copilot', paths: ['.github/copilot-instructions.md'] },
     { id: 'cursor', paths: ['.cursor', '.cursorrules'] },
     { id: 'claude', paths: ['CLAUDE.md'] },
-    { id: 'other', paths: ['AGENTS.md'] }
+    { id: 'other', paths: ['AGENTS.md'] },
   ];
 
-  const allPromises = checks.flatMap(check => 
-    check.paths.map(async p => {
+  const allPromises = checks.flatMap((check) =>
+    check.paths.map(async (p) => {
       try {
         await vscode.workspace.fs.stat(vscode.Uri.joinPath(workspaceRoot, p));
         return check.id;
       } catch {
         return null;
       }
-    })
+    }),
   );
 
   const results = await Promise.allSettled(allPromises);
-  
+
   for (const result of results) {
     if (result.status === 'fulfilled' && result.value) {
       detected.add(result.value);

@@ -10,9 +10,21 @@ import { activateCommands } from './commandHandlers';
 import { WorkspaceFingerprint } from './services/WorkspaceFingerprint';
 import { computeImpactSummaryForFile } from './assistants/kb';
 import { AspectCodePanelProvider } from './panel/PanelProvider';
-import { getAssistantsSettings, getAutoRegenerateKbSetting, migrateAspectSettingsFromVSCode, readAspectSettings, setAutoRegenerateKbSetting, getExtensionEnabledSetting, aspectDirExists } from './services/aspectSettings';
+import {
+  getAssistantsSettings,
+  getAutoRegenerateKbSetting,
+  migrateAspectSettingsFromVSCode,
+  readAspectSettings,
+  setAutoRegenerateKbSetting,
+  getExtensionEnabledSetting,
+  aspectDirExists,
+} from './services/aspectSettings';
 import { getEnablementCancellationToken } from './services/enablementCancellation';
-import { initFileDiscoveryService, disposeFileDiscoveryService, type FileDiscoveryService } from './services/FileDiscoveryService';
+import {
+  initFileDiscoveryService,
+  disposeFileDiscoveryService,
+  type FileDiscoveryService,
+} from './services/FileDiscoveryService';
 
 // --- Type Definitions ---
 
@@ -21,7 +33,7 @@ interface AspectCodeDiagnostic extends vscode.Diagnostic {
   violationId?: string;
 }
 
-let examineOnSave = false;
+const examineOnSave = false;
 const diag = vscode.languages.createDiagnosticCollection('aspectcode');
 
 // OUTPUT channel for logging
@@ -49,7 +61,9 @@ export function getWorkspaceFingerprint(): WorkspaceFingerprint | null {
 
 // Dev logging helper
 function devLog(message: string, ...args: any[]) {
-  const devLogsEnabled = vscode.workspace.getConfiguration().get<boolean>('aspectcode.devLogs', true);
+  const devLogsEnabled = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.devLogs', true);
   if (devLogsEnabled && outputChannel) {
     outputChannel.appendLine(`[DEV] ${message}`);
     if (args.length > 0) {
@@ -75,7 +89,7 @@ let lastParseStats: ParseStats = {
   treeSitterFiles: 0,
   skippedFiles: 0,
   skipReasons: {},
-  totalTime: 0
+  totalTime: 0,
 };
 
 // Helper to get or create cached parser
@@ -100,13 +114,13 @@ async function readTextFile(uri: vscode.Uri): Promise<string | null> {
 async function runPyright(workspaceRoot: string, files: vscode.Uri[]): Promise<any[] | null> {
   return new Promise((resolve) => {
     // Only run on Python files
-    const pyFiles = files.filter(f => f.fsPath.endsWith('.py')).map(f => f.fsPath);
+    const pyFiles = files.filter((f) => f.fsPath.endsWith('.py')).map((f) => f.fsPath);
     if (pyFiles.length === 0) {
       resolve([]);
       return;
     }
 
-    const fileArgs = pyFiles.map(f => `"${f}"`).join(' ');
+    const fileArgs = pyFiles.map((f) => `"${f}"`).join(' ');
     const cmd = `pyright --outputjson ${fileArgs}`;
 
     exec(cmd, { cwd: workspaceRoot }, (err, stdout, stderr) => {
@@ -130,21 +144,18 @@ async function runPyright(workspaceRoot: string, files: vscode.Uri[]): Promise<a
 function modToPath(root: string, mod: string): string[] {
   // Try module.py and module/__init__.py
   const rel = mod.replace(/\./g, path.sep);
-  return [
-    path.join(root, rel + ".py"),
-    path.join(root, rel, "__init__.py"),
-  ];
+  return [path.join(root, rel + '.py'), path.join(root, rel, '__init__.py')];
 }
 
 function toModuleName(root: string, filePath: string): string {
-  let rel = path.relative(root, filePath).replace(/\\/g, "/");
-  if (rel.toLowerCase().endsWith("/__init__.py")) rel = rel.slice(0, -"/__init__.py".length);
-  else if (rel.toLowerCase().endsWith(".py")) rel = rel.slice(0, -".py".length);
-  return rel.split("/").filter(Boolean).join(".");
+  let rel = path.relative(root, filePath).replace(/\\/g, '/');
+  if (rel.toLowerCase().endsWith('/__init__.py')) rel = rel.slice(0, -'/__init__.py'.length);
+  else if (rel.toLowerCase().endsWith('.py')) rel = rel.slice(0, -'.py'.length);
+  return rel.split('/').filter(Boolean).join('.');
 }
 
 // Keep the last touched files so we can pin diagnostics if server returns no locations
-let lastTouchedFiles: string[] = [];
+const lastTouchedFiles: string[] = [];
 
 // Track applied violations to prevent re-showing diagnostics
 const appliedViolationIds = new Set<string>();
@@ -170,22 +181,23 @@ async function discoverWorkspaceSourceFiles(): Promise<string[]> {
   if (!workspaceFolders || workspaceFolders.length === 0) {
     return [];
   }
-  
+
   const allFiles: string[] = [];
   const seenPaths = new Set<string>();
-  
+
   // Use single combined pattern for much faster discovery
   const combinedPattern = '**/*.{py,ts,tsx,js,jsx,mjs,cjs,java,cpp,c,hpp,h,cs,go,rs}';
   // VS Code findFiles uses GlobPattern - use curly braces for alternatives
-  const excludePattern = '**/{node_modules,.git,__pycache__,build,dist,target,e2e,playwright,cypress,.venv,venv,.next,coverage,site-packages,.pytest_cache,.mypy_cache,.tox,htmlcov,eggs,*.egg-info,.eggs}/**';
-  
+  const excludePattern =
+    '**/{node_modules,.git,__pycache__,build,dist,target,e2e,playwright,cypress,.venv,venv,.next,coverage,site-packages,.pytest_cache,.mypy_cache,.tox,htmlcov,eggs,*.egg-info,.eggs}/**';
+
   try {
     const files = await vscode.workspace.findFiles(
       combinedPattern,
       excludePattern,
-      5000 // Higher limit for large repos
+      5000, // Higher limit for large repos
     );
-    
+
     for (const file of files) {
       const filePath = file.fsPath;
       if (!seenPaths.has(filePath)) {
@@ -196,19 +208,25 @@ async function discoverWorkspaceSourceFiles(): Promise<string[]> {
   } catch (error) {
     outputChannel?.appendLine(`Error finding files: ${error}`);
   }
-  
+
   outputChannel?.appendLine(`[DiscoverFiles] Found ${allFiles.length} source files in workspace`);
-  
+
   // Sanity check: warn if too many files (likely missing exclusions)
   if (allFiles.length > 2000) {
-    outputChannel?.appendLine(`[DiscoverFiles] WARNING: Large file count (${allFiles.length}) may indicate missing exclusion patterns`);
+    outputChannel?.appendLine(
+      `[DiscoverFiles] WARNING: Large file count (${allFiles.length}) may indicate missing exclusion patterns`,
+    );
   }
-  
+
   return allFiles;
 }
 
 // IR builder with Tree-sitter only import extraction
-async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, context?: vscode.ExtensionContext): Promise<any> {
+async function buildIRForFiles(
+  files: vscode.Uri[],
+  workspaceRoot: string,
+  context?: vscode.ExtensionContext,
+): Promise<any> {
   outputChannel?.appendLine(`=== buildIRForFiles called with ${files.length} files ===`);
 
   const symbols: any[] = [];
@@ -223,10 +241,16 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
   const q: vscode.Uri[] = [];
 
   // Config flags
-  const treeSitterEnabled = vscode.workspace.getConfiguration().get<boolean>('aspectcode.treeSitter.enabled', true);
-  const maxFileSizeKB = vscode.workspace.getConfiguration().get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
+  const treeSitterEnabled = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.treeSitter.enabled', true);
+  const maxFileSizeKB = vscode.workspace
+    .getConfiguration()
+    .get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
 
-  outputChannel?.appendLine(`Config: treeSitterEnabled=${treeSitterEnabled}, maxFileSizeKB=${maxFileSizeKB}`);
+  outputChannel?.appendLine(
+    `Config: treeSitterEnabled=${treeSitterEnabled}, maxFileSizeKB=${maxFileSizeKB}`,
+  );
 
   // Parse stats
   const stats: ParseStats = {
@@ -234,7 +258,7 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
     treeSitterFiles: 0,
     skippedFiles: 0,
     skipReasons: {},
-    totalTime: 0
+    totalTime: 0,
   };
 
   // Early exit if Tree-sitter is disabled
@@ -285,14 +309,20 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
     scannedFiles.add(filePath);
 
     const text = await readTextFile(uri);
-    if (text == null) continue;
+    if (text === null) continue;
 
     stats.totalFiles++;
 
     const modName = toModuleName(workspaceRoot, filePath);
     if (!scannedModules.has(modName)) {
       scannedModules.add(modName);
-      symbols.push({ id: modName, kind: 'module', name: modName.split('.').pop() || modName, file: filePath, span: null });
+      symbols.push({
+        id: modName,
+        kind: 'module',
+        name: modName.split('.').pop() || modName,
+        file: filePath,
+        span: null,
+      });
     }
 
     // Extract defs (functions/classes) - simple regex for this is OK
@@ -315,7 +345,9 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
       stats.skippedFiles++;
       stats.skipReasons[reason] = (stats.skipReasons[reason] || 0) + 1;
       const relativePath = path.relative(workspaceRoot, filePath);
-      outputChannel?.appendLine(`TS skip: ${relativePath} — reason=${reason} (limit=${maxFileSizeKB}KB)`);
+      outputChannel?.appendLine(
+        `TS skip: ${relativePath} — reason=${reason} (limit=${maxFileSizeKB}KB)`,
+      );
       continue;
     }
 
@@ -380,7 +412,13 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
             // Add a symbol for dst module to help server anchor locations
             const dstMod = toModuleName(workspaceRoot, candidate);
             if (!scannedModules.has(dstMod)) {
-              symbols.push({ id: dstMod, kind: 'module', name: dstMod.split('.').pop() || dstMod, file: candidate, span: null });
+              symbols.push({
+                id: dstMod,
+                kind: 'module',
+                name: dstMod.split('.').pop() || dstMod,
+                file: candidate,
+                span: null,
+              });
             }
             // Enqueue the file for scan (one hop)
             q.push(uriCandidate);
@@ -398,9 +436,13 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
   lastParseStats = stats;
 
   // Log summary
-  const reasonStrings = Object.entries(stats.skipReasons).map(([reason, count]) => `${reason}=${count}`);
+  const reasonStrings = Object.entries(stats.skipReasons).map(
+    ([reason, count]) => `${reason}=${count}`,
+  );
   const reasonSummary = reasonStrings.length > 0 ? ` (${reasonStrings.join(', ')})` : '';
-  outputChannel?.appendLine(`Parse summary: TS: ${stats.treeSitterFiles} files, Skipped: ${stats.skippedFiles}${reasonSummary}, Duration: ${stats.totalTime}ms`);
+  outputChannel?.appendLine(
+    `Parse summary: TS: ${stats.treeSitterFiles} files, Skipped: ${stats.skippedFiles}${reasonSummary}, Duration: ${stats.totalTime}ms`,
+  );
 
   return { symbols, types, edges };
 }
@@ -408,10 +450,15 @@ async function buildIRForFiles(files: vscode.Uri[], workspaceRoot: string, conte
 async function computeTouchedFilesFromGit(cwd: string): Promise<vscode.Uri[]> {
   return new Promise((resolve) => {
     exec('git diff --name-only', { cwd }, async (err, stdout) => {
-      const allFiles = stdout.split('\n').filter(Boolean).map(f => vscode.Uri.file(path.join(cwd, f)));
+      const allFiles = stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((f) => vscode.Uri.file(path.join(cwd, f)));
 
       // Get focus path configuration
-      const focusPath = vscode.workspace.getConfiguration().get<string>('aspectcode.focusPath', 'samples');
+      const focusPath = vscode.workspace
+        .getConfiguration()
+        .get<string>('aspectcode.focusPath', 'samples');
 
       if (!focusPath) {
         // No filtering - analyze all files
@@ -421,14 +468,20 @@ async function computeTouchedFilesFromGit(cwd: string): Promise<vscode.Uri[]> {
       }
 
       // Filter to only include files in the focus directory
-      const focusedFiles = allFiles.filter(uri => {
+      const focusedFiles = allFiles.filter((uri) => {
         const relativePath = path.relative(cwd, uri.fsPath);
-        return relativePath.startsWith(focusPath + path.sep) || relativePath.startsWith(focusPath + '/');
+        return (
+          relativePath.startsWith(focusPath + path.sep) || relativePath.startsWith(focusPath + '/')
+        );
       });
 
-      outputChannel?.appendLine(`Focus path '${focusPath}': ${allFiles.length} total → ${focusedFiles.length} focused files`);
+      outputChannel?.appendLine(
+        `Focus path '${focusPath}': ${allFiles.length} total → ${focusedFiles.length} focused files`,
+      );
       if (focusedFiles.length !== allFiles.length) {
-        const excludedFiles = allFiles.filter(uri => !focusedFiles.includes(uri)).map(uri => path.relative(cwd, uri.fsPath));
+        const excludedFiles = allFiles
+          .filter((uri) => !focusedFiles.includes(uri))
+          .map((uri) => path.relative(cwd, uri.fsPath));
         outputChannel?.appendLine(`Excluded files: ${excludedFiles.join(', ')}`);
       }
 
@@ -477,10 +530,10 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
 
           // Write the file
           await vscode.workspace.fs.writeFile(vscode.Uri.file(abs), Buffer.from(content, 'utf8'));
-
         } catch (e) {
           const errorMsg = `Failed to write ${file.relpath}: ${(e as Error).message}`;
-          const previewContent = file.content.substring(0, 120) + (file.content.length > 120 ? '...' : '');
+          const previewContent =
+            file.content.substring(0, 120) + (file.content.length > 120 ? '...' : '');
           outputChannel?.appendLine(`ERROR applying patch to ${file.relpath}: ${errorMsg}`);
           outputChannel?.appendLine(`Content preview: ${previewContent}`);
           vscode.window.showErrorMessage(`${errorMsg}\nContent preview: ${previewContent}`);
@@ -508,7 +561,9 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
 
       const abs = path.join(repoRoot, rel);
       if (!abs.startsWith(path.resolve(repoRoot))) {
-        vscode.window.showErrorMessage(`Aspect Code: patch tries to touch ${rel} outside workspace — skipped`);
+        vscode.window.showErrorMessage(
+          `Aspect Code: patch tries to touch ${rel} outside workspace — skipped`,
+        );
         continue;
       }
       const uri = vscode.Uri.file(abs);
@@ -519,7 +574,9 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
         try {
           cur = (await vscode.workspace.fs.readFile(uri)).toString();
         } catch (e) {
-          vscode.window.showErrorMessage(`Aspect Code: cannot read ${rel} — ${(e as Error).message}`);
+          vscode.window.showErrorMessage(
+            `Aspect Code: cannot read ${rel} — ${(e as Error).message}`,
+          );
           continue;
         }
 
@@ -531,7 +588,9 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
         const nextLF = applyPatch(curLF, filePatch);
         if (typeof nextLF !== 'string') {
           const patchPreview = JSON.stringify(filePatch).substring(0, 120) + '...';
-          vscode.window.showErrorMessage(`Aspect Code: failed to apply patch to ${rel}\nPatch preview: ${patchPreview}`);
+          vscode.window.showErrorMessage(
+            `Aspect Code: failed to apply patch to ${rel}\nPatch preview: ${patchPreview}`,
+          );
           continue;
         }
 
@@ -540,14 +599,15 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
 
         // Write back
         await vscode.workspace.fs.writeFile(uri, Buffer.from(next, 'utf8'));
-
       } catch (e) {
         const errorMsg = `Aspect Code: error processing ${rel} — ${(e as Error).message}`;
         vscode.window.showErrorMessage(errorMsg);
       }
     }
   } catch (e) {
-    vscode.window.showErrorMessage(`Aspect Code: patch application failed — ${(e as Error).message}`);
+    vscode.window.showErrorMessage(
+      `Aspect Code: patch application failed — ${(e as Error).message}`,
+    );
   }
 }
 
@@ -558,9 +618,15 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
 
 // Command implementations
 async function showParserStatus() {
-  const treeSitterEnabled = vscode.workspace.getConfiguration().get<boolean>('aspectcode.treeSitter.enabled', true);
-  const maxFileSizeKB = vscode.workspace.getConfiguration().get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
-  const treeSitterOnly = vscode.workspace.getConfiguration().get<boolean>('aspectcode.treeSitter.only', true);
+  const treeSitterEnabled = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.treeSitter.enabled', true);
+  const maxFileSizeKB = vscode.workspace
+    .getConfiguration()
+    .get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
+  const treeSitterOnly = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.treeSitter.only', true);
   const summary = getLoadedGrammarsSummary();
 
   const grammars = [];
@@ -573,15 +639,19 @@ async function showParserStatus() {
   const enabledText = treeSitterEnabled ? 'Enabled' : 'Disabled';
   const { treeSitterFiles, skippedFiles, totalFiles, totalTime, skipReasons } = lastParseStats;
 
-  const reasonText = Object.entries(skipReasons).map(([reason, count]) => `${reason}: ${count}`).join(', ');
+  const reasonText = Object.entries(skipReasons)
+    .map(([reason, count]) => `${reason}: ${count}`)
+    .join(', ');
 
   const message = [
     `Tree-sitter Status:`,
     `• Grammars loaded: ${grammarText}`,
     `• Parsing: ${enabledText} (max ${maxFileSizeKB}KB, TS-only: ${treeSitterOnly})`,
     `• Last examination: ${totalFiles} files (${treeSitterFiles} TS, ${skippedFiles} skipped) in ${totalTime}ms`,
-    skippedFiles > 0 ? `• Skip reasons: ${reasonText}` : ''
-  ].filter(Boolean).join('\n');
+    skippedFiles > 0 ? `• Skip reasons: ${reasonText}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 
   vscode.window.showInformationMessage(message, { modal: true });
 }
@@ -606,8 +676,12 @@ async function debugParseCurrentFile(context: vscode.ExtensionContext) {
   outputChannel.appendLine(`\n=== Debug Parse: ${path.basename(filePath)} ===`);
 
   // Check configuration
-  const treeSitterEnabled = vscode.workspace.getConfiguration().get<boolean>('aspectcode.treeSitter.enabled', true);
-  const maxFileSizeKB = vscode.workspace.getConfiguration().get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
+  const treeSitterEnabled = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.treeSitter.enabled', true);
+  const maxFileSizeKB = vscode.workspace
+    .getConfiguration()
+    .get<number>('aspectcode.treeSitter.maxFileSizeKB', 256);
   const fileSizeKB = Buffer.byteLength(text, 'utf8') / 1024;
 
   outputChannel.appendLine(`Config: enabled=${treeSitterEnabled}, maxSizeKB=${maxFileSizeKB}`);
@@ -620,7 +694,9 @@ async function debugParseCurrentFile(context: vscode.ExtensionContext) {
   }
 
   if (fileSizeKB > maxFileSizeKB) {
-    outputChannel.appendLine(`Result: File too large (${fileSizeKB.toFixed(2)}KB > ${maxFileSizeKB}KB) - no imports extracted`);
+    outputChannel.appendLine(
+      `Result: File too large (${fileSizeKB.toFixed(2)}KB > ${maxFileSizeKB}KB) - no imports extracted`,
+    );
     outputChannel.appendLine('=== End Debug Parse ===\n');
     return;
   }
@@ -635,19 +711,27 @@ async function debugParseCurrentFile(context: vscode.ExtensionContext) {
     if (ext === '.py' && grammars.python) {
       imports = extractPythonImports(grammars.python, text);
       grammarUsed = true;
-      outputChannel.appendLine(`Tree-sitter (Python): ${imports.join(', ')} [${Date.now() - startTime}ms]`);
+      outputChannel.appendLine(
+        `Tree-sitter (Python): ${imports.join(', ')} [${Date.now() - startTime}ms]`,
+      );
     } else if (ext === '.ts' && grammars.typescript) {
       imports = extractTSJSImports(grammars.typescript, text);
       grammarUsed = true;
-      outputChannel.appendLine(`Tree-sitter (TypeScript): ${imports.join(', ')} [${Date.now() - startTime}ms]`);
+      outputChannel.appendLine(
+        `Tree-sitter (TypeScript): ${imports.join(', ')} [${Date.now() - startTime}ms]`,
+      );
     } else if (ext === '.tsx' && grammars.tsx) {
       imports = extractTSJSImports(grammars.tsx, text);
       grammarUsed = true;
-      outputChannel.appendLine(`Tree-sitter (TSX): ${imports.join(', ')} [${Date.now() - startTime}ms]`);
+      outputChannel.appendLine(
+        `Tree-sitter (TSX): ${imports.join(', ')} [${Date.now() - startTime}ms]`,
+      );
     } else if (['.js', '.jsx', '.mjs', '.cjs'].includes(ext) && grammars.javascript) {
       imports = extractTSJSImports(grammars.javascript, text);
       grammarUsed = true;
-      outputChannel.appendLine(`Tree-sitter (JavaScript): ${imports.join(', ')} [${Date.now() - startTime}ms]`);
+      outputChannel.appendLine(
+        `Tree-sitter (JavaScript): ${imports.join(', ')} [${Date.now() - startTime}ms]`,
+      );
     } else {
       outputChannel.appendLine(`Result: No grammar available for ${ext} - no imports extracted`);
     }
@@ -655,7 +739,6 @@ async function debugParseCurrentFile(context: vscode.ExtensionContext) {
     if (grammarUsed) {
       outputChannel.appendLine(`Result: Extracted ${imports.length} imports using Tree-sitter`);
     }
-
   } catch (error) {
     outputChannel.appendLine(`Tree-sitter error: ${error} - no imports extracted`);
   }
@@ -673,11 +756,14 @@ function parseLocationToSpan(loc: string | undefined) {
   const c2 = Math.max(1, parseInt(m[5], 10));
   return {
     start: { line: l1, column: c1 },
-    end: { line: l2, column: c2 }
+    end: { line: l2, column: c2 },
   };
 }
 
-function parseLocationToFileAndSpan(loc?: string): { file: string; span?: { start: { line: number; column: number }; end: { line: number; column: number } } } | null {
+function parseLocationToFileAndSpan(loc?: string): {
+  file: string;
+  span?: { start: { line: number; column: number }; end: { line: number; column: number } };
+} | null {
   if (!loc) return null;
   // Greedy path capture, then 4 numbers. Works on "C:\x\y.py:10:1-12:2" and "/x/y.py:10:1-12:2"
   const m = loc.match(/^(.*):(\d+):(\d+)-(\d+):(\d+)$/);
@@ -689,7 +775,7 @@ function parseLocationToFileAndSpan(loc?: string): { file: string; span?: { star
   const c2 = Math.max(1, parseInt(m[5], 10));
   return {
     file,
-    span: { start: { line: l1, column: c1 }, end: { line: l2, column: c2 } }
+    span: { start: { line: l1, column: c1 }, end: { line: l2, column: c2 } },
   };
 }
 
@@ -701,7 +787,7 @@ function parseLocationToFileAndSpan(loc?: string): { file: string; span?: { star
 function extractFilesFromDiff(diff: string): string[] {
   const files = new Set<string>();
   const lines = diff.split('\n');
-  
+
   for (const line of lines) {
     if (line.startsWith('+++') || line.startsWith('---')) {
       // Extract file path from "--- a/path/to/file" or "+++ b/path/to/file"
@@ -711,7 +797,7 @@ function extractFilesFromDiff(diff: string): string[] {
       }
     }
   }
-  
+
   return Array.from(files);
 }
 
@@ -721,7 +807,7 @@ function extractFilesFromDiff(diff: string): string[] {
 function countLinesInDiff(diff: string): number {
   const lines = diff.split('\n');
   let count = 0;
-  
+
   for (const line of lines) {
     if (line.startsWith('+') || line.startsWith('-')) {
       // Don't count header lines like +++ or ---
@@ -730,7 +816,7 @@ function countLinesInDiff(diff: string): number {
       }
     }
   }
-  
+
   return count;
 }
 
@@ -740,9 +826,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Create status bar item immediately on activation (icon only)
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, -100);
-  statusBarItem.command = "aspectcode.generateKB";
-  statusBarItem.tooltip = "Regenerate Aspect Code Knowledge Base";
-  statusBarItem.text = "$(beaker)";
+  statusBarItem.command = 'aspectcode.generateKB';
+  statusBarItem.tooltip = 'Regenerate Aspect Code Knowledge Base';
+  statusBarItem.text = '$(beaker)';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
 
@@ -752,11 +838,12 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register panel provider
   const panelProvider = new AspectCodePanelProvider(context, state, outputChannel);
-  (state as AspectCodeState & { _panelProvider?: AspectCodePanelProvider })._panelProvider = panelProvider;
+  (state as AspectCodeState & { _panelProvider?: AspectCodePanelProvider })._panelProvider =
+    panelProvider;
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('aspectcode.panel', panelProvider, {
-      webviewOptions: { retainContextWhenHidden: true }
-    })
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
   );
 
   // Migrate project-scoped Aspect Code settings from .vscode/settings.json (if present)
@@ -768,7 +855,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const root = await getWorkspaceRoot();
     if (root) {
       const rootUri = vscode.Uri.file(root);
-      
+
       // Only migrate/set defaults if .aspect/ already exists
       const dirExists = await aspectDirExists(rootUri);
       if (dirExists) {
@@ -793,8 +880,12 @@ export async function activate(context: vscode.ExtensionContext) {
     fileDiscoveryService = initFileDiscoveryService(workspaceRootUri, outputChannel);
     context.subscriptions.push({ dispose: () => disposeFileDiscoveryService() });
     outputChannel.appendLine('[Startup] FileDiscoveryService initialized');
-    
-    workspaceFingerprint = new WorkspaceFingerprint(workspaceRoot, EXTENSION_VERSION, outputChannel);
+
+    workspaceFingerprint = new WorkspaceFingerprint(
+      workspaceRoot,
+      EXTENSION_VERSION,
+      outputChannel,
+    );
     context.subscriptions.push(workspaceFingerprint);
 
     // Initialize fingerprint service with project-local mode and keep it updated.
@@ -804,11 +895,16 @@ export async function activate(context: vscode.ExtensionContext) {
     } catch {}
 
     // Use **/ glob pattern to match the settings file from the workspace root.
-    const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher('**/.aspect/.settings.json');
+    const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher(
+      '**/.aspect/.settings.json',
+    );
     const refreshKbMode = () => {
       void (async () => {
         try {
-          const mode = await getAutoRegenerateKbSetting(vscode.Uri.file(workspaceRoot), outputChannel);
+          const mode = await getAutoRegenerateKbSetting(
+            vscode.Uri.file(workspaceRoot),
+            outputChannel,
+          );
           workspaceFingerprint?.setAutoRegenerateKbMode(mode);
         } catch {
           // Ignore
@@ -821,12 +917,12 @@ export async function activate(context: vscode.ExtensionContext) {
       workspaceFingerprint?.setAutoRegenerateKbMode('onSave');
     });
     context.subscriptions.push(aspectSettingsWatcher);
-    
+
     // Update panel when KB staleness changes
-    workspaceFingerprint.onStaleStateChanged(stale => {
+    workspaceFingerprint.onStaleStateChanged((stale) => {
       panelProvider.setKbStale(stale);
     });
-    
+
     // Set up KB regeneration callback for idle/onSave auto-regeneration
     workspaceFingerprint.setKbRegenerateCallback(async () => {
       try {
@@ -836,21 +932,23 @@ export async function activate(context: vscode.ExtensionContext) {
         // KB generation works offline (uses local dependency analysis)
         const { regenerateEverything } = await import('./assistants/kb');
         const result = await regenerateEverything(state, outputChannel, context);
-        
+
         if (result.regenerated) {
           // Pass the discovered files to markKbFresh to avoid rediscovery
           await workspaceFingerprint?.markKbFresh(result.files);
-          
+
           // Refresh dependency graph in panel
           panelProvider.refreshDependencyGraph();
 
-          outputChannel.appendLine(`[KB] Auto-regeneration complete in ${Date.now() - regenStart}ms`);
+          outputChannel.appendLine(
+            `[KB] Auto-regeneration complete in ${Date.now() - regenStart}ms`,
+          );
         }
       } catch (e) {
         outputChannel.appendLine(`[KB] Auto-regeneration failed: ${e}`);
       }
     });
-    
+
     // Check KB staleness on startup
     const isStale = await workspaceFingerprint.isKbStale();
     if (isStale) {
@@ -872,11 +970,12 @@ export async function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('No workspace folder open.');
         return;
       }
-      
+
       const enabled = await getExtensionEnabledSetting(rootUri);
       if (!enabled) {
         vscode.window.showInformationMessage('Aspect Code is disabled.', 'Enable').then((sel) => {
-          if (sel === 'Enable') void vscode.commands.executeCommand('aspectcode.toggleExtensionEnabled');
+          if (sel === 'Enable')
+            void vscode.commands.executeCommand('aspectcode.toggleExtensionEnabled');
         });
         return;
       }
@@ -889,22 +988,26 @@ export async function activate(context: vscode.ExtensionContext) {
         // Use the consolidated regenerateEverything function
         const { regenerateEverything } = await import('./assistants/kb');
         const result = await regenerateEverything(state, outputChannel!, context);
-        
+
         if (result.regenerated) {
           // Mark KB as fresh after successful regeneration, reusing discovered files
           await workspaceFingerprint?.markKbFresh(result.files);
 
-          outputChannel?.appendLine(`=== REGENERATE KB: Complete (${Date.now() - regenStart}ms) ===`);
+          outputChannel?.appendLine(
+            `=== REGENERATE KB: Complete (${Date.now() - regenStart}ms) ===`,
+          );
           vscode.window.showInformationMessage('Knowledge base regenerated successfully.');
         } else {
           outputChannel?.appendLine('=== REGENERATE KB: Skipped (.aspect/ not yet created) ===');
-          vscode.window.showInformationMessage('Knowledge base not yet initialized. Use the + button to create it.');
+          vscode.window.showInformationMessage(
+            'Knowledge base not yet initialized. Use the + button to create it.',
+          );
         }
       } catch (e) {
         outputChannel?.appendLine(`REGENERATE KB ERROR: ${e}`);
         vscode.window.showErrorMessage(`KB regeneration failed: ${e}`);
       }
-    })
+    }),
   );
 
   // Refresh dependency analysis caches and re-render the panel graph.
@@ -918,7 +1021,7 @@ export async function activate(context: vscode.ExtensionContext) {
       } catch (e) {
         vscode.window.showErrorMessage(`Aspect Code: failed to refresh dependency graph: ${e}`);
       }
-    })
+    }),
   );
 
   // Copy a short impact summary for the current file to clipboard.
@@ -946,14 +1049,15 @@ export async function activate(context: vscode.ExtensionContext) {
         {
           location: vscode.ProgressLocation.Notification,
           title: 'Aspect Code: Computing impact analysis...',
-          cancellable: false
+          cancellable: false,
         },
-        async () => computeImpactSummaryForFile(workspaceRoot, absPath, channel)
+        async () => computeImpactSummaryForFile(workspaceRoot, absPath, channel),
       );
 
-
       if (!summary) {
-        vscode.window.showWarningMessage('Impact analysis unavailable. Try running “Aspect Code: Examine” first.');
+        vscode.window.showWarningMessage(
+          'Impact analysis unavailable. Try running “Aspect Code: Examine” first.',
+        );
         return;
       }
 
@@ -974,29 +1078,45 @@ export async function activate(context: vscode.ExtensionContext) {
 
       await vscode.env.clipboard.writeText(lines.join('\n'));
       vscode.window.showInformationMessage('Impact analysis copied to clipboard.');
-    })
+    }),
   );
 
   // ===== EXTENSION SETUP =====
   outputChannel.appendLine('Aspect Code extension activated');
-  
+
   // Load tree-sitter grammars for local parsing
-  
-  loadGrammarsOnce(context, outputChannel).then(() => {
-    const summary = getLoadedGrammarsSummary();
-    const statusParts = [];
-    statusParts.push(`python=${summary.python ? 'OK' : 'MISSING'}`);
-    statusParts.push(`typescript=${summary.typescript ? 'OK' : 'MISSING'}`);
-    statusParts.push(`tsx=${summary.tsx ? 'OK' : 'MISSING'}`);
-    statusParts.push(`javascript=${summary.javascript ? 'OK' : 'MISSING'}`);
-    outputChannel.appendLine(`Tree-sitter loaded: ${statusParts.join(' ')}`);
-  }).catch((error) => {
-    outputChannel.appendLine(`Tree-sitter initialization failed: ${error}`);
-  });
+
+  loadGrammarsOnce(context, outputChannel)
+    .then(() => {
+      const summary = getLoadedGrammarsSummary();
+      const statusParts = [];
+      statusParts.push(`python=${summary.python ? 'OK' : 'MISSING'}`);
+      statusParts.push(`typescript=${summary.typescript ? 'OK' : 'MISSING'}`);
+      statusParts.push(`tsx=${summary.tsx ? 'OK' : 'MISSING'}`);
+      statusParts.push(`javascript=${summary.javascript ? 'OK' : 'MISSING'}`);
+      outputChannel.appendLine(`Tree-sitter loaded: ${statusParts.join(' ')}`);
+    })
+    .catch((error) => {
+      outputChannel.appendLine(`Tree-sitter initialization failed: ${error}`);
+    });
 
   const shouldTrackFileForKb = (filePath: string): boolean => {
     const ext = path.extname(filePath).toLowerCase();
-    const sourceExtensions = ['.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.cpp', '.c', '.cs', '.go', '.rs'];
+    const sourceExtensions = [
+      '.py',
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+      '.mjs',
+      '.cjs',
+      '.java',
+      '.cpp',
+      '.c',
+      '.cs',
+      '.go',
+      '.rs',
+    ];
     if (!sourceExtensions.includes(ext)) {
       return false;
     }
@@ -1004,12 +1124,23 @@ export async function activate(context: vscode.ExtensionContext) {
     const normalized = filePath.replace(/\\/g, '/').toLowerCase();
     // Avoid churn from common generated/vendor directories.
     const excludedSegments = [
-      '/node_modules/', '/.git/', '/__pycache__/', '/.venv/', '/venv/',
-      '/build/', '/dist/', '/target/', '/coverage/', '/.next/',
-      '/.pytest_cache/', '/.mypy_cache/', '/.tox/', '/htmlcov/',
-      '/.aspect/'
+      '/node_modules/',
+      '/.git/',
+      '/__pycache__/',
+      '/.venv/',
+      '/venv/',
+      '/build/',
+      '/dist/',
+      '/target/',
+      '/coverage/',
+      '/.next/',
+      '/.pytest_cache/',
+      '/.mypy_cache/',
+      '/.tox/',
+      '/htmlcov/',
+      '/.aspect/',
     ];
-    return !excludedSegments.some(seg => normalized.includes(seg));
+    return !excludedSegments.some((seg) => normalized.includes(seg));
   };
 
   const isBulkEdit = (changes: readonly vscode.TextDocumentContentChangeEvent[]): boolean => {
@@ -1032,19 +1163,21 @@ export async function activate(context: vscode.ExtensionContext) {
       if (!shouldTrackFileForKb(filePath)) {
         return;
       }
-      
+
       // Notify fingerprint service that a file was edited (for idle detection)
       if (event.contentChanges.length > 0) {
         workspaceFingerprint?.onFileEdited();
 
         // If autoRegenerateKb === 'onSave', also trigger regeneration for bulk edits
         // (common when an LLM applies a change), even if the editor isn't explicitly saved.
-        const autoRegen = workspaceRoot ? await getAutoRegenerateKbSetting(vscode.Uri.file(workspaceRoot)) : 'onSave';
+        const autoRegen = workspaceRoot
+          ? await getAutoRegenerateKbSetting(vscode.Uri.file(workspaceRoot))
+          : 'onSave';
         if (autoRegen === 'onSave' && isBulkEdit(event.contentChanges)) {
           workspaceFingerprint?.onFileSaved(filePath);
         }
       }
-    })
+    }),
   );
 
   // Also mark stale on save (users expect this signal on save).
@@ -1056,13 +1189,13 @@ export async function activate(context: vscode.ExtensionContext) {
         return;
       }
       workspaceFingerprint?.onFileSaved(filePath);
-    })
+    }),
   );
 
   // Also watch for on-disk changes (e.g., git revert/checkout, bulk updates) so
   // autoRegenerateKb='onSave' works even when files change outside normal saves.
   const kbFsWatcher = vscode.workspace.createFileSystemWatcher(
-    '**/*.{py,ts,tsx,js,jsx,mjs,cjs,java,cpp,c,cs,go,rs}'
+    '**/*.{py,ts,tsx,js,jsx,mjs,cjs,java,cpp,c,cs,go,rs}',
   );
   kbFsWatcher.onDidChange((uri) => {
     if (!shouldTrackFileForKb(uri.fsPath)) return;
@@ -1078,17 +1211,19 @@ export async function activate(context: vscode.ExtensionContext) {
   });
   context.subscriptions.push(kbFsWatcher);
 
-  context.subscriptions.push(
-    diag,
-    outputChannel
-  );
+  context.subscriptions.push(diag, outputChannel);
   const codeActionProvider: vscode.CodeActionProvider = {
     provideCodeActions(doc, range, ctx) {
       const actions: vscode.CodeAction[] = [];
       return actions;
-    }
+    },
   };
-  context.subscriptions.push(vscode.languages.registerCodeActionsProvider({ scheme: 'file', language: 'python' }, codeActionProvider));
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: 'file', language: 'python' },
+      codeActionProvider,
+    ),
+  );
 
   // Activate command handlers
   activateCommands(context, state, outputChannel);

@@ -1,7 +1,7 @@
 /**
  * Production-ready dependency analyzer for code relationships
  * Performs actual static analysis of imports, requires, and function calls
- * 
+ *
  * Optimized with pre-built indexes for O(1) lookups instead of O(N) scans.
  */
 
@@ -13,8 +13,8 @@ export interface DependencyLink {
   target: string;
   type: 'import' | 'export' | 'call' | 'inherit' | 'circular';
   strength: number;
-  symbols: string[];  // What symbols are imported/called
-  lines: number[];    // Line numbers where dependency occurs
+  symbols: string[]; // What symbols are imported/called
+  lines: number[]; // Line numbers where dependency occurs
   bidirectional: boolean;
 }
 
@@ -29,7 +29,7 @@ export interface ImportStatement {
 export interface CallSite {
   callee: string;
   line: number;
-  isExternal: boolean;  // Call to external module
+  isExternal: boolean; // Call to external module
 }
 
 /** Progress callback for dependency analysis */
@@ -53,7 +53,7 @@ interface FileIndex {
 export class DependencyAnalyzer {
   private workspaceFiles: Map<string, string> = new Map(); // file path -> content cache
   private fileIndex: FileIndex | null = null;
-  
+
   /**
    * Set pre-loaded file contents to avoid redundant file reads.
    * Call this before analyzeDependencies if you already have the content.
@@ -61,7 +61,7 @@ export class DependencyAnalyzer {
   setFileContentsCache(cache: Map<string, string>): void {
     this.workspaceFiles = new Map(cache);
   }
-  
+
   /**
    * Build indexes for fast lookups. O(N) once, then O(1) per lookup.
    */
@@ -70,23 +70,23 @@ export class DependencyAnalyzer {
     const byNormalizedPath = new Map<string, string>();
     const normalizedPathSet = new Set<string>();
     const byPackagePath = new Map<string, string[]>();
-    
+
     for (const file of files) {
       const normalized = path.normalize(file);
       const normalizedLower = normalized.toLowerCase();
       const basename = path.basename(file, path.extname(file));
-      
+
       // Index by basename
       const basenameKey = basename.toLowerCase();
       if (!byBasename.has(basenameKey)) {
         byBasename.set(basenameKey, []);
       }
       byBasename.get(basenameKey)!.push(file);
-      
+
       // Index by normalized path
       byNormalizedPath.set(normalizedLower, file);
       normalizedPathSet.add(normalizedLower);
-      
+
       // Index by package-style path segments
       const parts = normalized.replace(/\\/g, '/').split('/');
       const basenameNoExt = path.basename(file, path.extname(file));
@@ -99,10 +99,10 @@ export class DependencyAnalyzer {
         byPackagePath.get(pkgKey)!.push(file);
       }
     }
-    
+
     return { byBasename, byNormalizedPath, normalizedPathSet, byPackagePath };
   }
-  
+
   /**
    * Analyze all real dependencies between workspace files
    * @param files - List of file paths to analyze
@@ -110,12 +110,12 @@ export class DependencyAnalyzer {
    */
   async analyzeDependencies(
     files: string[],
-    onProgress?: DependencyProgressCallback
+    onProgress?: DependencyProgressCallback,
   ): Promise<DependencyLink[]> {
     const links: DependencyLink[] = [];
     const linkIndex = new Map<string, DependencyLink>();
     const startTime = Date.now();
-    
+
     // Load and cache file contents (parallelized for performance)
     // Skip if cache was already set via setFileContentsCache
     if (this.workspaceFiles.size === 0) {
@@ -125,23 +125,23 @@ export class DependencyAnalyzer {
     // Build indexes for fast resolution (O(N) once)
     onProgress?.(0, files.length, 'Building file index...');
     this.fileIndex = this.buildFileIndex(files);
-    
+
     // Analyze each file
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       // Report progress every 10 files or on first/last
       if (i % 10 === 0 || i === files.length - 1) {
         onProgress?.(i + 1, files.length, `Analyzing imports (${i + 1}/${files.length})...`);
       }
-      
+
       const fileDependencies = await this.analyzeFileImports(file);
       const fileCalls = await this.analyzeFileCalls(file);
-      
+
       // Convert imports to dependency links
       for (const imp of fileDependencies) {
         const resolvedTarget = this.resolveModulePathFast(imp.module, file);
-        
+
         // Skip self-references (file importing itself)
         if (resolvedTarget && resolvedTarget !== file) {
           const key = `import|${file}|${resolvedTarget}`;
@@ -149,7 +149,10 @@ export class DependencyAnalyzer {
           if (existing) {
             existing.symbols = [...new Set([...existing.symbols, ...imp.symbols])];
             existing.lines = [...new Set([...existing.lines, imp.line])].sort((a, b) => a - b);
-            existing.strength = Math.min(1.0, Math.max(existing.strength, this.calculateImportStrength(imp)));
+            existing.strength = Math.min(
+              1.0,
+              Math.max(existing.strength, this.calculateImportStrength(imp)),
+            );
           } else {
             const link: DependencyLink = {
               source: file,
@@ -158,14 +161,14 @@ export class DependencyAnalyzer {
               strength: this.calculateImportStrength(imp),
               symbols: [...new Set(imp.symbols)],
               lines: [imp.line],
-              bidirectional: false
+              bidirectional: false,
             };
             links.push(link);
             linkIndex.set(key, link);
           }
         }
       }
-      
+
       // Convert function calls to dependency links
       for (const call of fileCalls) {
         if (call.isExternal) {
@@ -174,7 +177,7 @@ export class DependencyAnalyzer {
           if (resolvedTarget && resolvedTarget !== file) {
             const callKey = `call|${file}|${resolvedTarget}`;
             const existing = linkIndex.get(callKey);
-            
+
             if (existing) {
               if (!existing.symbols.includes(call.callee)) {
                 existing.symbols.push(call.callee);
@@ -191,7 +194,7 @@ export class DependencyAnalyzer {
                 strength: 0.6,
                 symbols: [call.callee],
                 lines: [call.line],
-                bidirectional: false
+                bidirectional: false,
               };
               links.push(link);
               linkIndex.set(callKey, link);
@@ -200,22 +203,23 @@ export class DependencyAnalyzer {
         }
       }
     }
-    
+
     // Detect circular dependencies
     onProgress?.(files.length, files.length, 'Detecting circular dependencies...');
     this.detectCircularDependencies(links);
-    
+
     // Merge bidirectional relationships
     this.mergeBidirectionalLinks(links);
-    
+
     // Clear index after use to free memory
     this.fileIndex = null;
-    
+
     // Sort links for deterministic output order
-    return links.sort((a, b) => 
-      a.source.localeCompare(b.source) || 
-      a.target.localeCompare(b.target) ||
-      a.type.localeCompare(b.type)
+    return links.sort(
+      (a, b) =>
+        a.source.localeCompare(b.source) ||
+        a.target.localeCompare(b.target) ||
+        a.type.localeCompare(b.type),
     );
   }
 
@@ -225,15 +229,15 @@ export class DependencyAnalyzer {
   private async analyzeFileImports(filePath: string): Promise<ImportStatement[]> {
     const content = this.workspaceFiles.get(filePath);
     if (!content) return [];
-    
+
     const extension = path.extname(filePath).toLowerCase();
     const lines = content.split('\n');
     const imports: ImportStatement[] = [];
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       const lineNum = i + 1;
-      
+
       // Python imports
       if (extension === '.py') {
         const pythonImports = this.parsePythonImports(line, lineNum);
@@ -260,7 +264,7 @@ export class DependencyAnalyzer {
         imports.push(...goImports);
       }
     }
-    
+
     return imports;
   }
 
@@ -270,36 +274,36 @@ export class DependencyAnalyzer {
   private async analyzeFileCalls(filePath: string): Promise<CallSite[]> {
     const content = this.workspaceFiles.get(filePath);
     if (!content) return [];
-    
+
     const extension = path.extname(filePath).toLowerCase();
     const lines = content.split('\n');
     const calls: CallSite[] = [];
-    
+
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const lineNum = i + 1;
-      
+
       // Look for function calls that might be external
       const callPattern = /(\w+\.)*(\w+)\s*\(/g;
       let match;
-      
+
       while ((match = callPattern.exec(line)) !== null) {
         const fullCall = match[0];
         const callee = match[2];
-        
+
         // Heuristics to detect external calls
         const isExternal = this.isLikelyExternalCall(fullCall, extension);
-        
+
         if (isExternal) {
           calls.push({
             callee: callee,
             line: lineNum,
-            isExternal: true
+            isExternal: true,
           });
         }
       }
     }
-    
+
     return calls;
   }
 
@@ -318,7 +322,10 @@ export class DependencyAnalyzer {
       // Remove alias portion.
       s = s.split(' as ')[0].trim();
       // Strip common wrapper characters.
-      s = s.replace(/^[({\[]+/, '').replace(/[)}\]]+$/, '').trim();
+      s = s
+        .replace(/^[({\[]+/, '')
+        .replace(/[)}\]]+$/, '')
+        .trim();
       // Remove trailing commas.
       s = s.replace(/,+$/, '').trim();
       return s;
@@ -331,19 +338,19 @@ export class DependencyAnalyzer {
         .filter((s) => s.length > 0)
         .filter((s) => s !== '(' && s !== ')' && s !== '[' && s !== ']' && s !== '{' && s !== '}');
     };
-    
+
     // from module import symbols (including relative imports like `from .module` or `from ..pkg.mod`)
     const fromImportMatch = line.match(/from\s+(\.{0,3}[\w.]*?)\s+import\s+(.+)/);
     if (fromImportMatch) {
-      let module = fromImportMatch[1];
-      
+      const module = fromImportMatch[1];
+
       // Skip if module is empty (malformed)
       if (!module || module === '') {
         return imports;
       }
       const symbolsStr = fromImportMatch[2];
       const symbols = cleanSymbolsList(symbolsStr);
-      
+
       // Handle package imports like "acme_shop.cycle_simple_b"
       // Extract the last part as the module name for resolution
       if (module.includes('.')) {
@@ -354,9 +361,9 @@ export class DependencyAnalyzer {
           symbols,
           isDefault: false,
           line: lineNum,
-          raw: line
+          raw: line,
         });
-        
+
         // Also try just the last component for local imports
         const lastPart = parts[parts.length - 1];
         if (lastPart !== module) {
@@ -365,7 +372,7 @@ export class DependencyAnalyzer {
             symbols,
             isDefault: false,
             line: lineNum,
-            raw: line
+            raw: line,
           });
         }
       } else {
@@ -374,7 +381,7 @@ export class DependencyAnalyzer {
           symbols,
           isDefault: false,
           line: lineNum,
-          raw: line
+          raw: line,
         });
       }
 
@@ -383,7 +390,7 @@ export class DependencyAnalyzer {
       // as importing a module named `settings` (the first imported symbol), creating bogus edges.
       return imports;
     }
-    
+
     // import module
     // Skip lines that begin with `from ... import ...` (handled above).
     // Also skip if the word "import" doesn't begin the statement.
@@ -397,15 +404,15 @@ export class DependencyAnalyzer {
           if (module.includes('.')) {
             const parts = module.split('.');
             const lastPart = parts[parts.length - 1];
-            
+
             imports.push({
               module: module,
               symbols: [module],
               isDefault: true,
               line: lineNum,
-              raw: line
+              raw: line,
             });
-            
+
             // Also try just the last component
             if (lastPart !== module) {
               imports.push({
@@ -413,7 +420,7 @@ export class DependencyAnalyzer {
                 symbols: [lastPart],
                 isDefault: true,
                 line: lineNum,
-                raw: line
+                raw: line,
               });
             }
           } else {
@@ -422,13 +429,13 @@ export class DependencyAnalyzer {
               symbols: [module],
               isDefault: true,
               line: lineNum,
-              raw: line
+              raw: line,
             });
           }
         }
       }
     }
-    
+
     return imports;
   }
 
@@ -439,23 +446,23 @@ export class DependencyAnalyzer {
    */
   private parseJavaScriptImports(line: string, lineNum: number): ImportStatement[] {
     const imports: ImportStatement[] = [];
-    
+
     // Helper to extract module from quotes
     const extractModule = (str: string): string | null => {
       const match = str.match(/['"]([^'"]+)['"]/);
       return match ? match[1] : null;
     };
-    
+
     // Helper to clean symbol names (remove 'as alias', 'type' prefix, whitespace)
     const cleanSymbols = (symbolsStr: string): string[] => {
       return symbolsStr
         .split(',')
-        .map(s => s.trim())
-        .map(s => s.replace(/^type\s+/, '')) // Remove 'type' prefix
-        .map(s => s.split(/\s+as\s+/)[0].trim()) // Remove alias
-        .filter(s => s.length > 0 && s !== 'type');
+        .map((s) => s.trim())
+        .map((s) => s.replace(/^type\s+/, '')) // Remove 'type' prefix
+        .map((s) => s.split(/\s+as\s+/)[0].trim()) // Remove alias
+        .filter((s) => s.length > 0 && s !== 'type');
     };
-    
+
     // Side-effect import: import 'module'
     const sideEffectMatch = line.match(/^\s*import\s+['"]([^'"]+)['"]\s*;?\s*$/);
     if (sideEffectMatch) {
@@ -464,99 +471,113 @@ export class DependencyAnalyzer {
         symbols: ['*'],
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Re-exports: export { x } from 'module' or export * from 'module'
-    const reExportNamedMatch = line.match(/^\s*export\s*\{\s*([^}]+)\s*\}\s*from\s*['"]([^'"]+)['"]/);
+    const reExportNamedMatch = line.match(
+      /^\s*export\s*\{\s*([^}]+)\s*\}\s*from\s*['"]([^'"]+)['"]/,
+    );
     if (reExportNamedMatch) {
       imports.push({
         module: reExportNamedMatch[2],
         symbols: cleanSymbols(reExportNamedMatch[1]),
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
-    const reExportAllMatch = line.match(/^\s*export\s*\*\s*(?:as\s+\w+\s*)?from\s*['"]([^'"]+)['"]/);
+
+    const reExportAllMatch = line.match(
+      /^\s*export\s*\*\s*(?:as\s+\w+\s*)?from\s*['"]([^'"]+)['"]/,
+    );
     if (reExportAllMatch) {
       imports.push({
         module: reExportAllMatch[1],
         symbols: ['*'],
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Combined import: import Default, { named } from 'module'
     // or: import Default, * as ns from 'module'
-    const combinedMatch = line.match(/^\s*import\s+(?:type\s+)?(\w+)\s*,\s*(?:\{\s*([^}]+)\s*\}|\*\s*as\s+(\w+))\s*from\s*['"]([^'"]+)['"]/);
+    const combinedMatch = line.match(
+      /^\s*import\s+(?:type\s+)?(\w+)\s*,\s*(?:\{\s*([^}]+)\s*\}|\*\s*as\s+(\w+))\s*from\s*['"]([^'"]+)['"]/,
+    );
     if (combinedMatch) {
       const defaultSymbol = combinedMatch[1];
       const namedSymbols = combinedMatch[2] ? cleanSymbols(combinedMatch[2]) : [];
       const namespaceSymbol = combinedMatch[3];
       const module = combinedMatch[4];
-      
+
       const allSymbols = [defaultSymbol, ...namedSymbols];
       if (namespaceSymbol) allSymbols.push(namespaceSymbol);
-      
+
       imports.push({
         module,
         symbols: allSymbols,
         isDefault: true,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Namespace import: import * as name from 'module'
-    const namespaceMatch = line.match(/^\s*import\s+(?:type\s+)?\*\s*as\s+(\w+)\s*from\s*['"]([^'"]+)['"]/);
+    const namespaceMatch = line.match(
+      /^\s*import\s+(?:type\s+)?\*\s*as\s+(\w+)\s*from\s*['"]([^'"]+)['"]/,
+    );
     if (namespaceMatch) {
       imports.push({
         module: namespaceMatch[2],
         symbols: [namespaceMatch[1]],
         isDefault: true,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Named import: import { a, b as c } from 'module' (including import type)
-    const namedImportMatch = line.match(/^\s*import\s+(?:type\s+)?\{\s*([^}]+)\s*\}\s*from\s*['"]([^'"]+)['"]/);
+    const namedImportMatch = line.match(
+      /^\s*import\s+(?:type\s+)?\{\s*([^}]+)\s*\}\s*from\s*['"]([^'"]+)['"]/,
+    );
     if (namedImportMatch) {
       imports.push({
         module: namedImportMatch[2],
         symbols: cleanSymbols(namedImportMatch[1]),
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Default import: import name from 'module' (including import type)
-    const defaultImportMatch = line.match(/^\s*import\s+(?:type\s+)?(\w+)\s+from\s*['"]([^'"]+)['"]/);
+    const defaultImportMatch = line.match(
+      /^\s*import\s+(?:type\s+)?(\w+)\s+from\s*['"]([^'"]+)['"]/,
+    );
     if (defaultImportMatch) {
       imports.push({
         module: defaultImportMatch[2],
         symbols: [defaultImportMatch[1]],
         isDefault: true,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // require() calls: const x = require('module') or const { a, b } = require('module')
-    const requireMatch = line.match(/(?:const|let|var)\s+(?:\{\s*([^}]+)\s*\}|(\w+))\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/);
+    const requireMatch = line.match(
+      /(?:const|let|var)\s+(?:\{\s*([^}]+)\s*\}|(\w+))\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)/,
+    );
     if (requireMatch) {
       const symbols = requireMatch[1] ? cleanSymbols(requireMatch[1]) : [requireMatch[2]];
       imports.push({
@@ -564,11 +585,11 @@ export class DependencyAnalyzer {
         symbols,
         isDefault: !requireMatch[1],
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Dynamic import: import('module') - just detect the dependency
     const dynamicImportMatch = line.match(/import\s*\(\s*['"]([^'"]+)['"]\s*\)/);
     if (dynamicImportMatch) {
@@ -577,10 +598,10 @@ export class DependencyAnalyzer {
         symbols: ['*'],
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
     }
-    
+
     return imports;
   }
 
@@ -589,21 +610,21 @@ export class DependencyAnalyzer {
    */
   private parseJavaImports(line: string, lineNum: number): ImportStatement[] {
     const imports: ImportStatement[] = [];
-    
+
     const importMatch = line.match(/import\s+(?:static\s+)?([\w.]+)(?:\.\*)?;/);
     if (importMatch) {
       const module = importMatch[1];
       const isWildcard = line.includes('.*');
-      
+
       imports.push({
         module,
         symbols: isWildcard ? ['*'] : [module.split('.').pop() || module],
         isDefault: !isWildcard,
         line: lineNum,
-        raw: line
+        raw: line,
       });
     }
-    
+
     return imports;
   }
 
@@ -613,7 +634,7 @@ export class DependencyAnalyzer {
    */
   private parseCSharpImports(line: string, lineNum: number): ImportStatement[] {
     const imports: ImportStatement[] = [];
-    
+
     // using Alias = Namespace.Type;
     const aliasMatch = line.match(/^\s*using\s+(\w+)\s*=\s*([\w.]+)\s*;/);
     if (aliasMatch) {
@@ -624,11 +645,11 @@ export class DependencyAnalyzer {
         symbols: [alias],
         isDefault: true,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // using static Namespace.Type;
     const staticMatch = line.match(/^\s*using\s+static\s+([\w.]+)\s*;/);
     if (staticMatch) {
@@ -638,11 +659,11 @@ export class DependencyAnalyzer {
         symbols: ['*'],
         isDefault: false,
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // using Namespace; or using Namespace.SubNamespace;
     const usingMatch = line.match(/^\s*using\s+([\w.]+)\s*;/);
     if (usingMatch) {
@@ -652,10 +673,10 @@ export class DependencyAnalyzer {
         symbols: [module.split('.').pop() || module],
         isDefault: true,
         line: lineNum,
-        raw: line
+        raw: line,
       });
     }
-    
+
     return imports;
   }
 
@@ -665,24 +686,24 @@ export class DependencyAnalyzer {
    */
   private parseGoImports(line: string, lineNum: number): ImportStatement[] {
     const imports: ImportStatement[] = [];
-    
+
     // Single import: import "pkg" or import alias "pkg" or import . "pkg" or import _ "pkg"
     const singleImportMatch = line.match(/^\s*import\s+(?:([\w._]+)\s+)?"([^"]+)"/);
     if (singleImportMatch) {
       const alias = singleImportMatch[1] || '';
       const module = singleImportMatch[2];
       const pkgName = module.split('/').pop() || module;
-      
+
       imports.push({
         module,
         symbols: alias === '.' ? ['*'] : alias === '_' ? [] : [alias || pkgName],
         isDefault: alias !== '.' && alias !== '_',
         line: lineNum,
-        raw: line
+        raw: line,
       });
       return imports;
     }
-    
+
     // Line inside import block: "pkg" or alias "pkg"
     // (import blocks are handled line-by-line, so each line inside gets parsed separately)
     const blockLineMatch = line.match(/^\s*(?:([\w._]+)\s+)?"([^"]+)"\s*$/);
@@ -690,16 +711,16 @@ export class DependencyAnalyzer {
       const alias = blockLineMatch[1] || '';
       const module = blockLineMatch[2];
       const pkgName = module.split('/').pop() || module;
-      
+
       imports.push({
         module,
         symbols: alias === '.' ? ['*'] : alias === '_' ? [] : [alias || pkgName],
         isDefault: alias !== '.' && alias !== '_',
         line: lineNum,
-        raw: line
+        raw: line,
       });
     }
-    
+
     return imports;
   }
 
@@ -709,11 +730,11 @@ export class DependencyAnalyzer {
   private resolveModulePath(module: string, sourceFile: string, allFiles: string[]): string | null {
     const sourceDir = path.dirname(sourceFile);
     const extension = path.extname(sourceFile);
-    
+
     // Verbose dependency resolution logging removed for performance
-    
+
     // Handle Python package imports (e.g., "acme_shop.cycle_simple_b")
-    let moduleVariants = [module];
+    const moduleVariants = [module];
     if (module.includes('.')) {
       const parts = module.split('.');
       // Add individual parts for resolution
@@ -722,9 +743,9 @@ export class DependencyAnalyzer {
       moduleVariants.push(parts.join('/')); // Convert dots to slashes
       moduleVariants.push(parts.join(path.sep)); // Platform-specific separator
     }
-    
+
     const candidates: string[] = [];
-    
+
     // Try all module variants
     for (const moduleVariant of moduleVariants) {
       candidates.push(
@@ -734,35 +755,35 @@ export class DependencyAnalyzer {
         path.resolve(sourceDir, moduleVariant + '.py'),
         path.resolve(sourceDir, moduleVariant + '.ts'),
         path.resolve(sourceDir, moduleVariant + '.js'),
-        
+
         // Look for files with matching names anywhere in workspace
-        ...allFiles.filter(f => {
+        ...allFiles.filter((f) => {
           const fileName = path.basename(f, path.extname(f));
           const filePath = f;
-          
+
           // Exact filename match
           if (fileName === moduleVariant) {
             return true;
           }
-          
+
           // Path contains the module
           if (filePath.includes(moduleVariant)) {
             return true;
           }
-          
+
           // For package imports, check if path matches package structure
           if (module.includes('.')) {
             const packagePath = module.replace(/\./g, path.sep);
             if (filePath.includes(packagePath)) {
               return true;
             }
-            
+
             // Check if the file path ends with the expected structure
             const expectedPath = packagePath + path.extname(f);
             if (filePath.endsWith(expectedPath)) {
               return true;
             }
-            
+
             // Special case: when we're inside a package directory and importing from same package
             // e.g., we're in /acme_shop/ and importing "acme_shop.other_module"
             const parts = module.split('.');
@@ -773,54 +794,56 @@ export class DependencyAnalyzer {
               }
             }
           }
-          
+
           return false;
-        })
+        }),
       );
     }
-    
+
     // Remove duplicates and normalize paths
-    const uniqueCandidates = [...new Set(candidates.map(c => path.normalize(c)))];
-    
+    const uniqueCandidates = [...new Set(candidates.map((c) => path.normalize(c)))];
+
     // Find the first candidate that exists in allFiles
     for (const candidate of uniqueCandidates) {
       // Check exact match first
       if (allFiles.includes(candidate)) {
         return candidate;
       }
-      
+
       // Check case-insensitive match (for cross-platform compatibility)
-      const match = allFiles.find(f => path.normalize(f).toLowerCase() === candidate.toLowerCase());
+      const match = allFiles.find(
+        (f) => path.normalize(f).toLowerCase() === candidate.toLowerCase(),
+      );
       if (match) {
         return match;
       }
     }
-    
+
     // Fallback: find by filename only (for cases where path resolution fails)
     for (const moduleVariant of moduleVariants) {
-      const match = allFiles.find(f => {
+      const match = allFiles.find((f) => {
         const fileName = path.basename(f, path.extname(f));
-        
+
         // Direct filename match
         if (fileName === moduleVariant) {
           return true;
         }
-        
+
         // For Python package imports, also check if we're in the same package directory
         if (module.includes('.')) {
           const parts = module.split('.');
           const lastPart = parts[parts.length - 1];
-          
+
           if (fileName === lastPart) {
             // Check if this file is in a directory that matches the package structure
             const sourcePackageDir = path.dirname(sourceFile);
             const candidatePackageDir = path.dirname(f);
-            
+
             // If both files are in the same directory and that directory contains the package name
             if (sourcePackageDir === candidatePackageDir && sourcePackageDir.includes(parts[0])) {
               return true;
             }
-            
+
             // Also check if the file path contains the expected package structure
             const packageStructure = parts.join(path.sep);
             if (f.includes(packageStructure)) {
@@ -828,14 +851,14 @@ export class DependencyAnalyzer {
             }
           }
         }
-        
+
         return false;
       });
       if (match) {
         return match;
       }
     }
-    
+
     // No resolution found
     return null;
   }
@@ -845,20 +868,22 @@ export class DependencyAnalyzer {
    */
   private resolveCallTarget(callee: string, sourceFile: string, allFiles: string[]): string | null {
     // Simple heuristic: find files that might contain this function
-    return allFiles.find(file => {
-      const content = this.workspaceFiles.get(file);
-      if (!content) return false;
-      
-      // Look for function definitions
-      const patterns = [
-        new RegExp(`def\\s+${callee}\\s*\\(`, 'i'), // Python
-        new RegExp(`function\\s+${callee}\\s*\\(`, 'i'), // JavaScript
-        new RegExp(`${callee}\\s*\\(.*\\)\\s*{`, 'i'), // TypeScript/Java/C#
-        new RegExp(`${callee}\\s*=\\s*\\(`, 'i'), // Arrow functions
-      ];
-      
-      return patterns.some(pattern => pattern.test(content));
-    }) || null;
+    return (
+      allFiles.find((file) => {
+        const content = this.workspaceFiles.get(file);
+        if (!content) return false;
+
+        // Look for function definitions
+        const patterns = [
+          new RegExp(`def\\s+${callee}\\s*\\(`, 'i'), // Python
+          new RegExp(`function\\s+${callee}\\s*\\(`, 'i'), // JavaScript
+          new RegExp(`${callee}\\s*\\(.*\\)\\s*{`, 'i'), // TypeScript/Java/C#
+          new RegExp(`${callee}\\s*=\\s*\\(`, 'i'), // Arrow functions
+        ];
+
+        return patterns.some((pattern) => pattern.test(content));
+      }) || null
+    );
   }
 
   /**
@@ -869,7 +894,7 @@ export class DependencyAnalyzer {
     if (!this.fileIndex) {
       return null;
     }
-    
+
     const sourceDir = path.dirname(sourceFile);
     const extension = path.extname(sourceFile).toLowerCase();
     const { byBasename, byNormalizedPath, normalizedPathSet, byPackagePath } = this.fileIndex;
@@ -922,16 +947,17 @@ export class DependencyAnalyzer {
       return best;
     };
 
-    const stripKnownExt = (key: string): string => key.replace(/\.(ts|tsx|js|jsx|mjs|cjs|py|java|cs|go|rs|rb|php)$/i, '');
-    
+    const stripKnownExt = (key: string): string =>
+      key.replace(/\.(ts|tsx|js|jsx|mjs|cjs|py|java|cs|go|rs|rb|php)$/i, '');
+
     // Build module variants
-    let moduleVariants = [module];
+    const moduleVariants = [module];
     if (module.includes('.')) {
       const parts = module.split('.');
       moduleVariants.push(parts[parts.length - 1]); // Last part
       moduleVariants.push(parts.join('/')); // Dots to slashes
     }
-    
+
     // Try relative path resolution first (O(1) lookup)
     for (const moduleVariant of moduleVariants) {
       const candidates: string[] = [];
@@ -939,7 +965,7 @@ export class DependencyAnalyzer {
       if (extension === '.py') {
         candidates.push(
           path.resolve(sourceDir, moduleVariant + '.py'),
-          path.resolve(sourceDir, moduleVariant, '__init__.py')
+          path.resolve(sourceDir, moduleVariant, '__init__.py'),
         );
       } else if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(extension)) {
         candidates.push(
@@ -952,7 +978,7 @@ export class DependencyAnalyzer {
           path.resolve(sourceDir, moduleVariant, 'index.ts'),
           path.resolve(sourceDir, moduleVariant, 'index.tsx'),
           path.resolve(sourceDir, moduleVariant, 'index.js'),
-          path.resolve(sourceDir, moduleVariant, 'index.jsx')
+          path.resolve(sourceDir, moduleVariant, 'index.jsx'),
         );
       } else if (extension === '.go') {
         // Go imports are package paths; try to find matching .go files
@@ -961,15 +987,15 @@ export class DependencyAnalyzer {
         candidates.push(
           path.resolve(sourceDir, moduleVariant + '.go'),
           path.resolve(sourceDir, pkgName + '.go'),
-          path.resolve(sourceDir, moduleVariant, pkgName + '.go')
+          path.resolve(sourceDir, moduleVariant, pkgName + '.go'),
         );
       } else {
         candidates.push(
           path.resolve(sourceDir, moduleVariant + extension),
-          path.resolve(sourceDir, moduleVariant, 'index' + extension)
+          path.resolve(sourceDir, moduleVariant, 'index' + extension),
         );
       }
-      
+
       for (const candidate of candidates) {
         const normalized = path.normalize(candidate);
         const normalizedLower = normalized.toLowerCase();
@@ -980,7 +1006,7 @@ export class DependencyAnalyzer {
         }
       }
     }
-    
+
     // Try basename index (O(1) average)
     for (const moduleVariant of moduleVariants) {
       const filesWithBasename = byBasename.get(moduleVariant.toLowerCase());
@@ -1020,7 +1046,7 @@ export class DependencyAnalyzer {
         if (chosen) return chosen;
       }
     }
-    
+
     return null;
   }
 
@@ -1032,18 +1058,18 @@ export class DependencyAnalyzer {
     if (!this.fileIndex) {
       return null;
     }
-    
+
     // Extract the module part from callee (e.g., "module.function" -> "module")
     const parts = callee.split('.');
     if (parts.length < 2) {
       return null; // Not a qualified call
     }
-    
+
     const moduleName = parts[0];
-    
+
     // Try to find files matching the module name (O(1) lookup)
     const candidateFiles = this.fileIndex.byBasename.get(moduleName) || [];
-    
+
     // Search only candidate files instead of all files
     const patterns = [
       new RegExp(`def\\s+${parts[parts.length - 1]}\\s*\\(`, 'i'),
@@ -1051,14 +1077,14 @@ export class DependencyAnalyzer {
       new RegExp(`${parts[parts.length - 1]}\\s*\\(.*\\)\\s*{`, 'i'),
       new RegExp(`${parts[parts.length - 1]}\\s*=\\s*\\(`, 'i'),
     ];
-    
+
     for (const file of candidateFiles) {
       const content = this.workspaceFiles.get(file);
-      if (content && patterns.some(pattern => pattern.test(content))) {
+      if (content && patterns.some((pattern) => pattern.test(content))) {
         return file;
       }
     }
-    
+
     return null;
   }
 
@@ -1070,7 +1096,7 @@ export class DependencyAnalyzer {
     if (callExpr.startsWith('this.') || callExpr.startsWith('self.')) {
       return false;
     }
-    
+
     // Look for module-qualified calls
     const hasModulePrefix = /^\w+\.\w+/.test(callExpr);
     return hasModulePrefix;
@@ -1081,15 +1107,15 @@ export class DependencyAnalyzer {
    */
   private calculateImportStrength(imp: ImportStatement): number {
     let strength = 0.7; // Base strength
-    
+
     // More symbols = stronger dependency
     strength += Math.min(0.2, imp.symbols.length * 0.05);
-    
+
     // Default imports are typically stronger
     if (imp.isDefault) {
       strength += 0.1;
     }
-    
+
     return Math.min(1.0, strength);
   }
 
@@ -1098,7 +1124,7 @@ export class DependencyAnalyzer {
    */
   private detectCircularDependencies(links: DependencyLink[]): void {
     const graph: Map<string, Set<string>> = new Map();
-    
+
     // Build adjacency list
     for (const link of links) {
       if (!graph.has(link.source)) {
@@ -1106,24 +1132,24 @@ export class DependencyAnalyzer {
       }
       graph.get(link.source)!.add(link.target);
     }
-    
+
     // Detect cycles using DFS
     const visited = new Set<string>();
     const recursionStack = new Set<string>();
-    
+
     const hasCycle = (node: string, path: string[]): string[] | null => {
       if (recursionStack.has(node)) {
         const cycleStart = path.indexOf(node);
         return path.slice(cycleStart);
       }
-      
+
       if (visited.has(node)) {
         return null;
       }
-      
+
       visited.add(node);
       recursionStack.add(node);
-      
+
       const neighbors = graph.get(node) || new Set();
       for (const neighbor of neighbors) {
         const cycle = hasCycle(neighbor, [...path, node]);
@@ -1131,11 +1157,11 @@ export class DependencyAnalyzer {
           return cycle;
         }
       }
-      
+
       recursionStack.delete(node);
       return null;
     };
-    
+
     // Mark circular dependencies
     for (const [node, _] of graph) {
       if (!visited.has(node)) {
@@ -1145,8 +1171,8 @@ export class DependencyAnalyzer {
           for (let i = 0; i < cycle.length; i++) {
             const source = cycle[i];
             const target = cycle[(i + 1) % cycle.length];
-            
-            const link = links.find(l => l.source === source && l.target === target);
+
+            const link = links.find((l) => l.source === source && l.target === target);
             if (link) {
               link.type = 'circular';
               link.strength = Math.min(1.0, link.strength + 0.3);
@@ -1163,21 +1189,21 @@ export class DependencyAnalyzer {
   private mergeBidirectionalLinks(links: DependencyLink[]): void {
     for (let i = 0; i < links.length; i++) {
       const link1 = links[i];
-      
+
       // Find reverse link
-      const reverseIndex = links.findIndex((link2, j) => 
-        j > i && link2.source === link1.target && link2.target === link1.source
+      const reverseIndex = links.findIndex(
+        (link2, j) => j > i && link2.source === link1.target && link2.target === link1.source,
       );
-      
+
       if (reverseIndex !== -1) {
         const link2 = links[reverseIndex];
-        
+
         // Merge into bidirectional link
         link1.bidirectional = true;
         link1.symbols = [...new Set([...link1.symbols, ...link2.symbols])];
         link1.lines = [...link1.lines, ...link2.lines];
         link1.strength = Math.min(1.0, link1.strength + link2.strength * 0.5);
-        
+
         // Remove the reverse link
         links.splice(reverseIndex, 1);
       }
@@ -1188,9 +1214,12 @@ export class DependencyAnalyzer {
    * Load file contents into cache using fast filesystem reads.
    * Uses parallel batching for performance on large workspaces.
    */
-  private async loadFileContents(files: string[], onProgress?: DependencyProgressCallback): Promise<void> {
+  private async loadFileContents(
+    files: string[],
+    onProgress?: DependencyProgressCallback,
+  ): Promise<void> {
     this.workspaceFiles.clear();
-    
+
     // Process in parallel batches for performance
     const BATCH_SIZE = 50;
     for (let i = 0; i < files.length; i += BATCH_SIZE) {
@@ -1200,18 +1229,22 @@ export class DependencyAnalyzer {
           const uri = vscode.Uri.file(filePath);
           const content = await vscode.workspace.fs.readFile(uri);
           return { filePath, content: Buffer.from(content).toString('utf-8') };
-        })
+        }),
       );
-      
+
       for (const result of results) {
         if (result.status === 'fulfilled') {
           this.workspaceFiles.set(result.value.filePath, result.value.content);
         }
         // Skip failed files silently
       }
-      
+
       // Report progress
-      onProgress?.(Math.min(i + BATCH_SIZE, files.length), files.length, `Reading files (${Math.min(i + BATCH_SIZE, files.length)}/${files.length})...`);
+      onProgress?.(
+        Math.min(i + BATCH_SIZE, files.length),
+        files.length,
+        `Reading files (${Math.min(i + BATCH_SIZE, files.length)}/${files.length})...`,
+      );
     }
   }
 }
