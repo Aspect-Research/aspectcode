@@ -27,6 +27,9 @@ jobs:
       - name: Build core
         run: npm run build --workspace=packages/core
 
+      - name: Build emitters
+        run: npm run build --workspace=packages/emitters
+
       - name: Package VSIX
         run: npx @vscode/vsce package --pre-release
         working-directory: extension

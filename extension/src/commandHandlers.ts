@@ -5,15 +5,14 @@
  */
 
 import * as vscode from 'vscode';
+import type { AnalysisModel } from '@aspectcode/core';
+import { createInstructionsEmitter } from '@aspectcode/emitters';
 import { AspectCodeState } from './state';
 import { detectAssistants, AssistantId } from './assistants/detection';
-import {
-  generateInstructionFiles,
-  regenerateInstructionFilesOnly,
-  AssistantsOverride,
-} from './assistants/instructions';
+import type { AssistantsOverride } from './assistants/instructions';
 import { generateKnowledgeBase } from './assistants/kb';
 import { stopIgnoringGeneratedFilesCommand } from './services/gitignoreService';
+import { createVsCodeEmitterHost } from './services/vscodeEmitterHost';
 import {
   InstructionsMode,
   getAssistantsSettings,
@@ -227,7 +226,7 @@ export function activateCommands(
           );
           const assistants = await getAssistantsSettings(workspaceRoot, channel);
           if (assistants.copilot || assistants.cursor || assistants.claude || assistants.other) {
-            await regenerateInstructionFilesOnly(workspaceRoot, channel);
+            await emitInstructionFilesOnlyViaEmitters(workspaceRoot, channel);
           }
         }
       }
@@ -253,7 +252,7 @@ export function activateCommands(
                 assistants.claude ||
                 assistants.other
               ) {
-                await regenerateInstructionFilesOnly(workspaceRoot, channel);
+                await emitInstructionFilesOnlyViaEmitters(workspaceRoot, channel);
               }
             }
           })
@@ -456,6 +455,42 @@ async function handleConfigureAssistants(
   }
 }
 
+async function emitInstructionFilesOnlyViaEmitters(
+  workspaceRoot: vscode.Uri,
+  outputChannel: vscode.OutputChannel,
+  assistantsOverride?: AssistantsOverride,
+): Promise<number> {
+  const mode = await getInstructionsModeSetting(workspaceRoot, outputChannel);
+  const assistants = assistantsOverride ?? (await getAssistantsSettings(workspaceRoot, outputChannel));
+
+  const generatedAt = new Date().toISOString();
+  const model: AnalysisModel = {
+    schemaVersion: '0.1',
+    generatedAt,
+    repo: { root: workspaceRoot.fsPath },
+    files: [],
+    symbols: [],
+    graph: { nodes: [], edges: [] },
+    metrics: { hubs: [] },
+  };
+
+  const host = createVsCodeEmitterHost();
+  const emitter = createInstructionsEmitter();
+  const result = await emitter.emit(model, host, {
+    workspaceRoot: workspaceRoot.fsPath,
+    outDir: workspaceRoot.fsPath,
+    generatedAt,
+    instructionsMode: mode,
+    assistants,
+  });
+
+  outputChannel.appendLine(
+    `[Instructions] Emitters updated ${result.filesWritten.length} file(s) (mode=${mode})`,
+  );
+
+  return result.filesWritten.length;
+}
+
 /**
  * Handle aspectcode.generateInstructionFiles command.
  * Generates KB files and instruction files based on settings.
@@ -488,19 +523,28 @@ async function handleGenerateInstructionFiles(
 
     const workspaceRoot = workspaceFolders[0].uri;
 
-    // Generate instruction files directly using local analysis (no server needed)
-    // The generateInstructionFiles function handles KB generation internally
+    // Ensure KB exists (instructions reference .aspect/* files).
+    // Only generate KB if the primary file is missing.
+    const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
+    const architectureFile = vscode.Uri.joinPath(aspectDir, 'architecture.md');
+    let needsKbGeneration = false;
+    try {
+      await vscode.workspace.fs.stat(architectureFile);
+    } catch {
+      needsKbGeneration = true;
+    }
+
+    if (needsKbGeneration) {
+      outputChannel.appendLine('[Instructions] KB files not found, generating...');
+      await generateKnowledgeBase(workspaceRoot, state, outputChannel, context);
+    }
+
+    // Generate instruction files via @aspectcode/emitters (marker-based, idempotent).
     const tGen = Date.now();
-    await generateInstructionFiles(
-      workspaceRoot,
-      state,
-      outputChannel,
-      context,
-      assistantsOverride,
-    );
+    await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel, assistantsOverride);
     if (perfEnabled) {
       outputChannel.appendLine(
-        `[Perf][Instructions][cmd] generateInstructionFiles tookMs=${Date.now() - tGen}`,
+        `[Perf][Instructions][cmd] emitInstructionFilesOnlyViaEmitters tookMs=${Date.now() - tGen}`,
       );
     }
 
@@ -578,7 +622,7 @@ async function handleSetInstructionMode(
 
     if (hasEnabledAssistants) {
       // Regenerate instruction files only; do not run EXAMINE or KB generation.
-      await regenerateInstructionFilesOnly(workspaceRoot, outputChannel);
+      await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel);
     } else {
       // No assistants configured - nothing to regenerate.
       outputChannel.appendLine(
@@ -643,7 +687,7 @@ async function handleEditCustomInstructions(outputChannel: vscode.OutputChannel)
     const hasEnabledAssistants =
       assistants.copilot || assistants.cursor || assistants.claude || assistants.other;
     if (hasEnabledAssistants) {
-      await regenerateInstructionFilesOnly(workspaceRoot, outputChannel);
+      await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel);
     }
 
     const doc = await vscode.workspace.openTextDocument(customFile);

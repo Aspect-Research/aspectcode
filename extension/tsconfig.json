@@ -20,6 +20,7 @@
   },
   "exclude": ["src/panel/webview/**", "test/**"],
   "references": [
-    { "path": "../packages/core" }
+    { "path": "../packages/core" },
+    { "path": "../packages/emitters" }
   ]
 }

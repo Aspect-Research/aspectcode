@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { toPosix, type AnalysisModel } from '@aspectcode/core';
+import { runEmitters } from '@aspectcode/emitters';
 import { AspectCodeState } from '../state';
 import { DependencyAnalyzer, DependencyLink } from '../services/DependencyAnalyzer';
 import { loadGrammarsOnce, LoadedGrammars } from '../tsParser';
@@ -14,6 +16,7 @@ import {
   extractCSharpSymbols,
   ExtractedSymbol,
 } from '../importExtractors';
+import { createVsCodeEmitterHost } from '../services/vscodeEmitterHost';
 
 // ============================================================================
 // KB Size Budgets & Invariants
@@ -684,52 +687,72 @@ export async function generateKnowledgeBase(
     `[KB][Perf] getDetailedDependencyData: ${allLinks.length} links in ${Date.now() - tDeps}ms`,
   );
 
-  // Generate all KB files in parallel (V3: 3 files)
+  // Delegate artifact generation (KB + manifest) to @aspectcode/emitters.
+  // This keeps the extension as a thin wrapper, with deterministic output and
+  // transaction-style staging (manifest written last).
   const tWrite = Date.now();
   outputChannel.appendLine(
-    `[KB] Starting file generation: aspectCodeDir=${aspectCodeDir.fsPath}, files=${files.length}`,
+    `[KB] Starting emitter generation: outDir=${workspaceRoot.fsPath}, files=${files.length}`,
   );
+
+  const generatedAt = new Date().toISOString();
+  const rootFsPath = workspaceRoot.fsPath;
+  const rel = (absPath: string) => toPosix(path.relative(rootFsPath, absPath));
+
+  const model: AnalysisModel = {
+    schemaVersion: '0.1',
+    generatedAt,
+    repo: { root: rootFsPath },
+    files: files.map((abs) => {
+      const text = fileContentCache.get(abs) ?? '';
+      const lineCount = text ? text.split('\n').length : 0;
+      return {
+        relativePath: rel(abs),
+        language: 'unknown',
+        lineCount,
+        exports: [],
+        imports: [],
+      };
+    }),
+    symbols: [],
+    graph: {
+      nodes: [],
+      edges: allLinks.map((l) => ({
+        ...l,
+        source: rel(l.source),
+        target: rel(l.target),
+      })),
+    },
+    metrics: {
+      hubs: Array.from(depData.entries())
+        .map(([file, info]) => ({ file: rel(file), inDegree: info.inDegree, outDegree: info.outDegree }))
+        .sort((a, b) => (b.inDegree + b.outDegree) - (a.inDegree + a.outDegree) || a.file.localeCompare(b.file))
+        .slice(0, 10),
+    },
+  };
+
   try {
-    await Promise.all([
-      generateArchitectureFile(
-        aspectCodeDir,
-        state,
-        workspaceRoot,
-        files,
-        depData,
-        allLinks,
-        outputChannel,
-        fileContentCache,
-      ),
-      generateMapFile(
-        aspectCodeDir,
-        state,
-        workspaceRoot,
-        files,
-        depData,
-        allLinks,
-        outputChannel,
-        grammars,
-        fileContentCache,
-      ),
-      generateContextFile(
-        aspectCodeDir,
-        state,
-        workspaceRoot,
-        files,
-        allLinks,
-        outputChannel,
-        fileContentCache,
-      ),
-    ]);
-    outputChannel.appendLine(`[KB][Perf] write KB files: ${Date.now() - tWrite}ms`);
+    const host = createVsCodeEmitterHost();
+    const report = await runEmitters(model, host, {
+      workspaceRoot: rootFsPath,
+      outDir: rootFsPath,
+      generatedAt,
+      fileContents: fileContentCache,
+      // KB-only from this entry point; instruction generation is handled elsewhere.
+      assistants: {},
+      instructionsMode: 'off',
+    });
+
+    outputChannel.appendLine(
+      `[KB][Perf] emitter wrote ${report.wrote.length} files in ${Date.now() - tWrite}ms`,
+    );
   } catch (writeErr) {
-    outputChannel.appendLine(`[KB] ERROR writing KB files: ${writeErr}`);
+    outputChannel.appendLine(`[KB] ERROR running emitters: ${writeErr}`);
     throw writeErr;
   }
 
   outputChannel.appendLine(
-    `[KB] Knowledge base generation complete (3 files) in ${Date.now() - kbStart}ms`,
+    `[KB] Knowledge base generation complete (KB + manifest) in ${Date.now() - kbStart}ms`,
   );
 
   // Prompt user for .aspect/ gitignore preference AFTER KB is generated.

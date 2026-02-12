@@ -181,6 +181,7 @@
   },
   "dependencies": {
     "@aspectcode/core": "*",
+    "@aspectcode/emitters": "*",
     "diff": "^5.2.0",
     "tree-sitter-wasms": "0.1.13",
     "web-tree-sitter": "^0.21.0",
