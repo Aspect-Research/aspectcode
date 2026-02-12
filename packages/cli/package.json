@@ -1,0 +1,31 @@
+{
+  "name": "@aspectcode/cli",
+  "version": "0.0.1",
+  "private": true,
+  "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
+  "main": "dist/main.js",
+  "types": "dist/main.d.ts",
+  "bin": {
+    "aspectcode": "bin/aspectcode.js"
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@aspectcode/core": "*",
+    "@aspectcode/emitters": "*"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

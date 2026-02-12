@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-02-12T07:05:58.318Z",
+  "generatorVersion": "0.0.1",
+  "schemaVersion": "0.1",
+  "stats": {
+    "circularCount": 0,
+    "edgeCount": 0,
+    "fileCount": 27,
+    "languageCounts": {
+      "python": 1,
+      "typescript": 23,
+      "unknown": 3
+    },
+    "topHubs": [],
+    "totalLines": 17456
+  }
+}
