@@ -24,11 +24,20 @@ export interface CliFlags {
   /** --out / -o : output directory override. */
   out?: string;
 
-  /** --assistants : comma-separated list of assistant ids. */
-  assistants?: string;
+  /** --list-connections: print dependency connections in text form. */
+  listConnections: boolean;
+
+  /** --json: machine-readable output. */
+  json: boolean;
+
+  /** --file <path>: filter dependency output to one workspace file. */
+  file?: string;
 
   /** --force / -f : overwrite existing config during init. */
   force: boolean;
+
+  /** --mode: watch mode override. */
+  mode?: 'manual' | 'onChange' | 'idle';
 }
 
 /** Exit codes. */

@@ -21,13 +21,10 @@ extension/src/
 ├── state.ts                – Shared mutable state (AspectCodeState)
 ├── tsParser.ts             – Tree-sitter grammar loading
 ├── importExtractors.ts     – Language-specific import extraction
-├── newCommandsIntegration.ts
 ├── assistants/
 │   ├── kb.ts               – Knowledge-base generation (architecture, map, context)
 │   ├── instructions.ts     – AI-assistant instruction file generation
 │   └── detection.ts        – Detect installed AI assistants
-├── panel/
-│   └── PanelProvider.ts    – Webview panel (graph, UI, message handling)
 ├── services/
 │   ├── DependencyAnalyzer.ts
 │   ├── FileDiscoveryService.ts
@@ -45,7 +42,6 @@ extension/src/
 
 | Issue | Severity | Status |
 |-------|----------|--------|
-| `PanelProvider.ts` is 5,300+ LOC with inline HTML, CSS, JS | Critical | **Phase 4: remove entirely** |
 | `kb.ts` is 4,000+ LOC mixing analysis and generation | Critical | Partially delegated to emitters |
 | `state.ts` is a mutable singleton bag; hard to test | Medium | Open |
 | Legacy instruction/detection code duplicated with emitters | Low | Emitters are now canonical |
@@ -55,7 +51,7 @@ extension/src/
 ```
 ┌─────────────────────────────────┐
 │  extension/  (VS Code adapter:  │──▶ @aspectcode/core
-│  commands, lifecycle, panel)     │──▶ @aspectcode/emitters
+│  commands, lifecycle, watchers)  │──▶ @aspectcode/emitters
 ├─────────────────────────────────┤
 │  packages/cli/                  │──▶ @aspectcode/core
 │  (Node CLI entry point)         │──▶ @aspectcode/emitters
@@ -71,34 +67,44 @@ extension/src/
 Packages that now exist and are functional:
 - **`@aspectcode/core`** — `analyzeRepo()`, `discoverFiles()`, `DependencyAnalyzer`, tree-sitter grammars
 - **`@aspectcode/emitters`** — `runEmitters()`, KB emitter, instructions emitter, manifest, transactions
-- **`@aspectcode/cli`** — `aspectcode init`, `aspectcode generate`
+- **`@aspectcode/cli`** — `aspectcode init`, `aspectcode generate`, `aspectcode watch`, `aspectcode deps list`
 
 ### Phase 4 Target
 
 The extension will shell out to `aspectcode generate --json` and render
-the result. `PanelProvider.ts` (webview) will be removed entirely. The
-extension becomes a thin wrapper: lifecycle, commands, status bar.
+the result. The extension becomes a thin wrapper: lifecycle, commands,
+status bar.
+
+### CLI behavior baseline (must stay tested)
+
+- `aspectcode init` writes default `aspectcode.json` (safe mode + `updateRate: onChange`).
+- `aspectcode generate` writes KB/instruction artifacts.
+- `aspectcode generate --json` emits machine-readable write stats + connections.
+- `aspectcode generate --list-connections` prints dependency connections.
+- `aspectcode generate --json --file <path>` or `--list-connections --file <path>` filters connections to one workspace file.
+- `aspectcode watch` runs as a long-lived watcher and regenerates by mode (`onChange`/`idle`/`manual`).
+- `aspectcode deps list` prints dependency connections without artifact generation, and supports `--file <path>` filtering.
+- Legacy config compatibility is preserved (`autoRegenerateKb` mapping).
+
+All migration work should preserve this baseline through CLI tests first.
 
 ## Layering Rules (enforced in CI)
 
 These rules are checked by `npm run check:boundaries`:
 
 1. **`services/`** is the lowest layer in the current structure.
-   - `services/` must NOT import from `panel/`, `assistants/`,
+  - `services/` must NOT import from `assistants/`,
      `commandHandlers`, or `extension.ts`.
    - `services/` MAY import from other `services/` files.
 
-2. **`assistants/`** may import from `services/` but NOT from `panel/`.
+2. **`assistants/`** may import from `services/`.
 
-3. **`panel/`** may import from `services/` and `assistants/` (read-only
-   data), but should not contain domain logic.
-
-4. **`extension.ts`** and **`commandHandlers.ts`** are the wiring layer.
+3. **`extension.ts`** and **`commandHandlers.ts`** are the wiring layer.
    They may import from anywhere.
 
-5. **No file** may import from `dist/`.
+4. **No file** may import from `dist/`.
 
-6. **Test files** are exempt from boundary rules.
+5. **Test files** are exempt from boundary rules.
 
 ### Cross-package Rules (enforced structurally)
 
@@ -109,11 +115,7 @@ These rules are checked by `npm run check:boundaries`:
 
 ### Soft Rules (warn only, future ratchets)
 
-These are logged as warnings by `npm run check:boundaries` but do not
-fail CI yet:
-
-- `panel/` should not import from `commandHandlers` or `extension.ts`
-- `assistants/` should not import from `panel/`
+No soft boundary rules are currently configured.
 
 ## Naming Conventions
 
@@ -155,10 +157,14 @@ All tests run offline. No network access required.
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 10 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 78 | KB, instructions, manifest, transaction |
-| `@aspectcode/cli` | mocha + ts-node | 27 | parseArgs, config, init, generate e2e |
+| `@aspectcode/cli` | mocha + ts-node | 37 | parseArgs, config compatibility, init, generate, deps |
 | Extension | VS Code test harness | 1+ | `kb.test.ts` |
 
 Run all: `npm test --workspaces`
+
+CLI-only (preferred first step during migration):
+
+`cd packages/cli && npm test`
 
 ### Fixture repo
 

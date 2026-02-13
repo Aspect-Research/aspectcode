@@ -49,11 +49,11 @@ export class WorkspaceFingerprint implements vscode.Disposable {
   private readonly IDLE_DEBOUNCE_MS = 30000; // 30 seconds
   private readonly STALE_THRESHOLD_PERCENT = 5; // 5% of files changed = stale
 
-  // onSave debounce (shorter than idle)
+  // onChange debounce (shorter than idle)
   private saveTimer: NodeJS.Timeout | null = null;
   private readonly SAVE_DEBOUNCE_MS = 2000; // 2 seconds after last save
 
-  private autoRegenMode: AutoRegenerateKbMode = 'onSave';
+  private autoRegenMode: AutoRegenerateKbMode = 'onChange';
 
   // Cached fingerprint
   private cachedFingerprint: string | null = null;
@@ -245,13 +245,13 @@ export class WorkspaceFingerprint implements vscode.Disposable {
   }
 
   /**
-   * Notify that a file was saved.
-   * This triggers debounced KB regeneration if autoRegenerateKb === 'onSave'.
+   * Notify that a file was saved/changed.
+   * This triggers debounced KB regeneration if updateRate === 'onChange'.
    */
   onFileSaved(filePath: string): void {
     this.lastEditTime = Date.now();
 
-    if (this.autoRegenMode !== 'onSave' || !this.kbRegenerateCallback) {
+    if (this.autoRegenMode !== 'onChange' || !this.kbRegenerateCallback) {
       // Still mark stale if not auto-regenerating
       this.onFileEdited();
       return;
@@ -289,7 +289,7 @@ export class WorkspaceFingerprint implements vscode.Disposable {
       this.regenerationInProgress = true;
       const startTime = Date.now();
       this.outputChannel.appendLine(
-        `[WorkspaceFingerprint] Auto-regenerating KB (onSave trigger, file: ${path.basename(lastSavedFile)})...`,
+        `[WorkspaceFingerprint] Auto-regenerating KB (onChange trigger, file: ${path.basename(lastSavedFile)})...`,
       );
 
       await this.kbRegenerateCallback!();
@@ -297,7 +297,7 @@ export class WorkspaceFingerprint implements vscode.Disposable {
       const duration = Date.now() - startTime;
       this.outputChannel.appendLine(`[WorkspaceFingerprint] KB regenerated in ${duration}ms`);
     } catch (e) {
-      this.outputChannel.appendLine(`[WorkspaceFingerprint] onSave regeneration failed: ${e}`);
+      this.outputChannel.appendLine(`[WorkspaceFingerprint] onChange regeneration failed: ${e}`);
     } finally {
       this.regenerationInProgress = false;
     }

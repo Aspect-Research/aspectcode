@@ -48,8 +48,15 @@ export function createKBEmitter(kbOptions?: KBEmitterOptions): Emitter {
       // Absolute file paths
       const files = model.files.map((f) => host.join(workspaceRoot, f.relativePath));
 
-      // Build file content cache from options or empty
-      const fileContentCache: Map<string, string> = options.fileContents ?? new Map();
+      // Build file content cache from options or empty.
+      // Normalize keys so both CLI (relative paths) and extension (absolute paths)
+      // resolve consistently in downstream KB builders.
+      const fileContentCache = normalizeFileContentCache(
+        options.fileContents,
+        workspaceRoot,
+        model.files.map((f) => f.relativePath),
+        host,
+      );
 
       // Build dependency links (absolute paths)
       const allLinks: DependencyLink[] = model.graph.edges.map((e) => ({
@@ -115,4 +122,45 @@ export function createKBEmitter(kbOptions?: KBEmitterOptions): Emitter {
       };
     },
   };
+}
+
+function normalizeFileContentCache(
+  source: Map<string, string> | undefined,
+  workspaceRoot: string,
+  relativePaths: string[],
+  host: EmitterHost,
+): Map<string, string> {
+  const normalized = new Map<string, string>();
+  if (!source || source.size === 0) return normalized;
+
+  for (const [key, value] of source.entries()) {
+    normalized.set(key, value);
+  }
+
+  for (const relPath of relativePaths) {
+    const relPosix = relPath.replace(/\\/g, '/');
+    const relWindows = relPath.replace(/\//g, '\\');
+    const absPath = host.join(workspaceRoot, relPath);
+    const absPosix = absPath.replace(/\\/g, '/');
+    const absWindows = absPath.replace(/\//g, '\\');
+
+    const content =
+      normalized.get(absPath) ??
+      normalized.get(absPosix) ??
+      normalized.get(absWindows) ??
+      normalized.get(relPath) ??
+      normalized.get(relPosix) ??
+      normalized.get(relWindows);
+
+    if (content === undefined) continue;
+
+    normalized.set(absPath, content);
+    normalized.set(absPosix, content);
+    normalized.set(absWindows, content);
+    normalized.set(relPath, content);
+    normalized.set(relPosix, content);
+    normalized.set(relWindows, content);
+  }
+
+  return normalized;
 }

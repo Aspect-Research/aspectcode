@@ -1,7 +1,7 @@
 /**
  * Aspect Settings Service
  *
- * Manages user preferences stored in .aspect/.settings.json.
+ * Manages user preferences stored in aspectcode.json.
  * This keeps Aspect Code settings local to the project (not in .vscode/settings.json)
  * and allows per-file gitignore opt-in decisions.
  */
@@ -13,7 +13,8 @@ import type { ExclusionSettings } from './DirectoryExclusion';
 export type { ExclusionSettings } from './DirectoryExclusion';
 
 export type InstructionsMode = 'safe' | 'permissive' | 'custom' | 'off';
-export type AutoRegenerateKbMode = 'off' | 'onSave' | 'idle';
+export type UpdateRateMode = 'manual' | 'onChange' | 'idle';
+export type AutoRegenerateKbMode = UpdateRateMode | 'off' | 'onSave';
 
 export interface AssistantsSettings {
   copilot?: boolean;
@@ -40,7 +41,7 @@ export const ALL_GITIGNORE_TARGETS: GitignoreTarget[] = [
 ];
 
 /**
- * Schema for .aspect/.settings.json
+ * Schema for aspectcode.json
  */
 export interface AspectSettings {
   /**
@@ -59,10 +60,14 @@ export interface AspectSettings {
   assistants?: AssistantsSettings;
 
   /**
-   * Auto-regenerate KB files.
-   * Mirrors aspectcode.autoRegenerateKb.
+  * Update trigger mode.
    */
-  autoRegenerateKb?: AutoRegenerateKbMode;
+  updateRate?: UpdateRateMode;
+
+  /**
+  * Legacy key (kept for backward compatibility with older configs).
+  */
+  autoRegenerateKb?: 'off' | 'onSave' | 'idle';
 
   /**
    * Instructions mode: 'safe' or 'permissive'
@@ -82,7 +87,7 @@ export interface AspectSettings {
   excludeDirectories?: ExclusionSettings;
 }
 
-const SETTINGS_FILENAME = '.settings.json';
+const SETTINGS_FILENAME = 'aspectcode.json';
 
 const SETTINGS_CACHE_TTL_MS = 250;
 const SETTINGS_CACHE = new Map<string, { loadedAtMs: number; settings: AspectSettings }>();
@@ -92,13 +97,20 @@ function cacheKey(workspaceRoot: vscode.Uri): string {
 }
 
 function normalizeInstructionsMode(value: unknown): InstructionsMode | undefined {
-  return value === 'permissive' || value === 'safe' || value === 'custom' || value === 'off'
-    ? value
-    : undefined;
+  return value === 'safe' ? 'safe' : undefined;
 }
 
-function normalizeAutoRegenerateKbMode(value: unknown): AutoRegenerateKbMode | undefined {
-  return value === 'off' || value === 'onSave' || value === 'idle' ? value : undefined;
+function normalizeAutoRegenerateKbMode(value: unknown): UpdateRateMode | undefined {
+  if (value === 'manual' || value === 'onChange' || value === 'idle') {
+    return value;
+  }
+  if (value === 'off') {
+    return 'manual';
+  }
+  if (value === 'onSave') {
+    return 'onChange';
+  }
+  return undefined;
 }
 
 /**
@@ -116,14 +128,14 @@ export async function aspectDirExists(workspaceRoot: vscode.Uri): Promise<boolea
 }
 
 /**
- * Get the path to the .aspect/.settings.json file for a workspace
+ * Get the path to aspectcode.json for a workspace
  */
 function getSettingsPath(workspaceRoot: vscode.Uri): vscode.Uri {
-  return vscode.Uri.joinPath(workspaceRoot, '.aspect', SETTINGS_FILENAME);
+  return vscode.Uri.joinPath(workspaceRoot, SETTINGS_FILENAME);
 }
 
 /**
- * Read settings from .aspect/.settings.json
+ * Read settings from aspectcode.json
  * Returns empty object if file doesn't exist or is invalid
  */
 export async function readAspectSettings(workspaceRoot: vscode.Uri): Promise<AspectSettings> {
@@ -149,22 +161,13 @@ export async function readAspectSettings(workspaceRoot: vscode.Uri): Promise<Asp
 }
 
 /**
- * Write settings to .aspect/.settings.json
- * Creates .aspect/ directory if it doesn't exist
+ * Write settings to aspectcode.json
  */
 export async function writeAspectSettings(
   workspaceRoot: vscode.Uri,
   settings: AspectSettings,
 ): Promise<void> {
-  const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
   const settingsPath = getSettingsPath(workspaceRoot);
-
-  // Ensure .aspect/ directory exists
-  try {
-    await vscode.workspace.fs.createDirectory(aspectDir);
-  } catch {
-    // Directory may already exist
-  }
 
   const content = JSON.stringify(settings, null, 2) + '\n';
   await vscode.workspace.fs.writeFile(settingsPath, Buffer.from(content, 'utf8'));
@@ -174,16 +177,14 @@ export async function writeAspectSettings(
 
 export interface UpdateAspectSettingsOptions {
   /**
-   * If false, skip the update if .aspect/ directory doesn't exist.
-   * This prevents auto-creating .aspect/.settings.json on startup or toggle
-   * when KB hasn't been explicitly generated yet.
+   * If false, skip the update if aspectcode.json doesn't exist.
    * Default: true (create if missing for backwards compat)
    */
   createIfMissing?: boolean;
 }
 
 /**
- * Update a specific setting in .aspect/.settings.json
+ * Update a specific setting in aspectcode.json
  * Merges with existing settings
  */
 export async function updateAspectSettings(
@@ -193,11 +194,17 @@ export async function updateAspectSettings(
 ): Promise<AspectSettings | null> {
   const { createIfMissing = true } = options;
 
-  // If createIfMissing is false, check if .aspect/ exists first
+  // If createIfMissing is false, check if settings file exists first.
   if (!createIfMissing) {
-    const exists = await aspectDirExists(workspaceRoot);
+    const settingsPath = getSettingsPath(workspaceRoot);
+    let exists = true;
+    try {
+      await vscode.workspace.fs.stat(settingsPath);
+    } catch {
+      exists = false;
+    }
     if (!exists) {
-      return null; // Skip - don't create .aspect/ implicitly
+      return null; // Skip - don't create config implicitly
     }
   }
 
@@ -219,6 +226,11 @@ export async function updateAspectSettings(
       ...existing.excludeDirectories,
       ...update.excludeDirectories,
     },
+    updateRate:
+      update.updateRate ??
+      normalizeAutoRegenerateKbMode(update.autoRegenerateKb) ??
+      existing.updateRate ??
+      normalizeAutoRegenerateKbMode(existing.autoRegenerateKb),
     autoRegenerateKb: update.autoRegenerateKb ?? existing.autoRegenerateKb,
     instructionsMode: update.instructionsMode ?? existing.instructionsMode,
     extensionEnabled: update.extensionEnabled ?? existing.extensionEnabled,
@@ -247,7 +259,7 @@ async function readVSCodeWorkspaceSettingsJson(
 
 /**
  * One-time-ish migration: copy selected aspectcode.* settings from .vscode/settings.json
- * into .aspect/.settings.json (only when the .aspect setting is not already set).
+ * into aspectcode.json.
  */
 export async function migrateAspectSettingsFromVSCode(
   workspaceRoot: vscode.Uri,
@@ -270,11 +282,11 @@ export async function migrateAspectSettingsFromVSCode(
     }
   }
 
-  // autoRegenerateKb mode
-  if (current.autoRegenerateKb === undefined) {
+  // updateRate mode
+  if (current.updateRate === undefined) {
     const migrated = normalizeAutoRegenerateKbMode(vsSettings['aspectcode.autoRegenerateKb']);
     if (migrated) {
-      update.autoRegenerateKb = migrated;
+      update.updateRate = migrated;
       changed = true;
     }
   }
@@ -304,15 +316,9 @@ export async function migrateAspectSettingsFromVSCode(
 
   if (!changed) return false;
 
-  // Only write if .aspect/ already exists - don't create it during migration
-  const dirExists = await aspectDirExists(workspaceRoot);
-  if (!dirExists) {
-    return false;
-  }
-
   await updateAspectSettings(workspaceRoot, update);
   outputChannel?.appendLine(
-    '[Settings] Migrated Aspect Code settings from .vscode/settings.json to .aspect/.settings.json',
+    '[Settings] Migrated Aspect Code settings from .vscode/settings.json to aspectcode.json',
   );
   return true;
 }
@@ -322,15 +328,14 @@ export async function getInstructionsModeSetting(
   outputChannel?: vscode.OutputChannel,
 ): Promise<InstructionsMode> {
   await migrateAspectSettingsFromVSCode(workspaceRoot, outputChannel);
-  const settings = await readAspectSettings(workspaceRoot);
-  return normalizeInstructionsMode(settings.instructionsMode) ?? 'safe';
+  return 'safe';
 }
 
 export async function setInstructionsModeSetting(
   workspaceRoot: vscode.Uri,
-  mode: InstructionsMode,
+  _mode: InstructionsMode,
 ): Promise<void> {
-  await updateAspectSettings(workspaceRoot, { instructionsMode: mode });
+  await updateAspectSettings(workspaceRoot, { instructionsMode: 'safe' });
 }
 
 export async function getAutoRegenerateKbSetting(
@@ -339,7 +344,9 @@ export async function getAutoRegenerateKbSetting(
 ): Promise<AutoRegenerateKbMode> {
   await migrateAspectSettingsFromVSCode(workspaceRoot, outputChannel);
   const settings = await readAspectSettings(workspaceRoot);
-  return normalizeAutoRegenerateKbMode(settings.autoRegenerateKb) ?? 'onSave';
+  return (
+    settings.updateRate ?? normalizeAutoRegenerateKbMode(settings.autoRegenerateKb) ?? 'onChange'
+  );
 }
 
 export async function setAutoRegenerateKbSetting(
@@ -347,7 +354,8 @@ export async function setAutoRegenerateKbSetting(
   mode: AutoRegenerateKbMode,
   options: UpdateAspectSettingsOptions = {},
 ): Promise<void> {
-  await updateAspectSettings(workspaceRoot, { autoRegenerateKb: mode }, options);
+  const normalized = normalizeAutoRegenerateKbMode(mode) ?? 'onChange';
+  await updateAspectSettings(workspaceRoot, { updateRate: normalized }, options);
 }
 
 export async function getExtensionEnabledSetting(workspaceRoot: vscode.Uri): Promise<boolean> {

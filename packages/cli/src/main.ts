@@ -12,6 +12,8 @@ import { createLogger, fmt } from './logger';
 import { getVersion } from './version';
 import { runInit } from './commands/init';
 import { runGenerate } from './commands/generate';
+import { runDepsList } from './commands/deps';
+import { runWatch } from './commands/watch';
 
 // ── Argv parsing ─────────────────────────────────────────────
 
@@ -21,6 +23,8 @@ export function parseArgs(argv: string[]): CliArgs {
     version: false,
     verbose: false,
     quiet: false,
+    listConnections: false,
+    json: false,
     force: false,
   };
   const positionals: string[] = [];
@@ -50,10 +54,24 @@ export function parseArgs(argv: string[]): CliArgs {
       flags.out = args[++i];
     } else if (arg.startsWith('--out=')) {
       flags.out = arg.slice('--out='.length);
-    } else if (arg === '--assistants') {
-      flags.assistants = args[++i];
-    } else if (arg.startsWith('--assistants=')) {
-      flags.assistants = arg.slice('--assistants='.length);
+    } else if (arg === '--list-connections') {
+      flags.listConnections = true;
+    } else if (arg === '--json') {
+      flags.json = true;
+    } else if (arg === '--file') {
+      flags.file = args[++i];
+    } else if (arg.startsWith('--file=')) {
+      flags.file = arg.slice('--file='.length);
+    } else if (arg === '--mode') {
+      const v = args[++i];
+      if (v === 'manual' || v === 'onChange' || v === 'idle') {
+        flags.mode = v;
+      }
+    } else if (arg.startsWith('--mode=')) {
+      const v = arg.slice('--mode='.length);
+      if (v === 'manual' || v === 'onChange' || v === 'idle') {
+        flags.mode = v;
+      }
     } else if (arg.startsWith('-')) {
       // Unknown flag — ignore for forward compat
     } else if (!command) {
@@ -79,12 +97,17 @@ ${fmt.bold('USAGE')}
 
 ${fmt.bold('COMMANDS')}
   init        Create an ${fmt.cyan('aspectcode.json')} config file
-  generate    Discover, analyze, and emit KB artifacts
+  generate    Discover, analyze, and emit KB artifacts (+ ${fmt.cyan('AGENTS.md')})
+  watch       Watch source files and regenerate on changes
+  deps list   List dependency connections
 
 ${fmt.bold('OPTIONS')}
   -r, --root <path>          Workspace root (default: cwd)
   -o, --out <path>           Output directory override
-      --assistants <list>    Comma-separated: copilot,cursor,claude,other
+      --list-connections     Print dependency connections
+      --json                 Print JSON output (for automation)
+      --file <path>          Filter dependency connection output to one workspace file
+      --mode <mode>          Watch mode override: manual|onChange|idle
   -f, --force                Overwrite existing config (init)
   -v, --verbose              Show debug output
   -q, --quiet                Suppress non-error output
@@ -94,7 +117,13 @@ ${fmt.bold('OPTIONS')}
 ${fmt.bold('EXAMPLES')}
   aspectcode init
   aspectcode generate
-  aspectcode generate --root ./my-project --assistants copilot,cursor
+  aspectcode generate --list-connections
+  aspectcode generate --json
+  aspectcode generate --json --file src/app.ts
+  aspectcode watch
+  aspectcode watch --mode idle
+  aspectcode deps list
+  aspectcode deps list --file src/app.ts
   aspectcode generate -o build/kb
 `.trimStart());
 }
@@ -137,6 +166,24 @@ async function main(): Promise<void> {
     case 'generate': {
       const config = loadConfig(root);
       result = await runGenerate(root, flags, config, log);
+      break;
+    }
+
+    case 'deps': {
+      const config = loadConfig(root);
+      const sub = parsed.positionals[0] ?? 'list';
+      if (sub !== 'list') {
+        log.error(`Unknown deps subcommand: ${fmt.bold(sub)}`);
+        result = { exitCode: ExitCode.USAGE };
+        break;
+      }
+      result = await runDepsList(root, flags, config, log);
+      break;
+    }
+
+    case 'watch': {
+      const config = loadConfig(root);
+      result = await runWatch(root, flags, config, log);
       break;
     }
 

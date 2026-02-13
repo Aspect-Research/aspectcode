@@ -47,14 +47,50 @@ describe('parseArgs', () => {
     assert.equal(r.flags.out, 'build/kb');
   });
 
-  it('parses --assistants', () => {
+  it('ignores removed --assistants flag', () => {
     const r = parseArgs([...base, 'generate', '--assistants', 'copilot,cursor']);
-    assert.equal(r.flags.assistants, 'copilot,cursor');
+    assert.equal(r.command, 'generate');
+    assert.deepEqual(r.positionals, ['copilot,cursor']);
   });
 
-  it('parses --assistants= with equals', () => {
-    const r = parseArgs([...base, 'generate', '--assistants=claude,other']);
-    assert.equal(r.flags.assistants, 'claude,other');
+  it('parses --list-connections', () => {
+    const r = parseArgs([...base, 'generate', '--list-connections']);
+    assert.equal(r.flags.listConnections, true);
+  });
+
+  it('parses --json', () => {
+    const r = parseArgs([...base, 'generate', '--json']);
+    assert.equal(r.flags.json, true);
+  });
+
+  it('parses --file with separate value', () => {
+    const r = parseArgs([...base, 'deps', 'list', '--file', 'src/app.ts']);
+    assert.equal(r.flags.file, 'src/app.ts');
+  });
+
+  it('parses --file= with equals syntax', () => {
+    const r = parseArgs([...base, 'deps', 'list', '--file=src/app.ts']);
+    assert.equal(r.flags.file, 'src/app.ts');
+  });
+
+  it('parses watch command', () => {
+    const r = parseArgs([...base, 'watch']);
+    assert.equal(r.command, 'watch');
+  });
+
+  it('parses --mode with separate value', () => {
+    const r = parseArgs([...base, 'watch', '--mode', 'idle']);
+    assert.equal(r.flags.mode, 'idle');
+  });
+
+  it('parses --mode= with equals syntax', () => {
+    const r = parseArgs([...base, 'watch', '--mode=manual']);
+    assert.equal(r.flags.mode, 'manual');
+  });
+
+  it('ignores invalid mode values', () => {
+    const r = parseArgs([...base, 'watch', '--mode=invalid']);
+    assert.equal(r.flags.mode, undefined);
   });
 
   it('parses --force / -f', () => {
@@ -77,6 +113,12 @@ describe('parseArgs', () => {
   it('collects positionals after command', () => {
     const r = parseArgs([...base, 'generate', 'extra1', 'extra2']);
     assert.deepEqual(r.positionals, ['extra1', 'extra2']);
+  });
+
+  it('parses deps list subcommand as positional', () => {
+    const r = parseArgs([...base, 'deps', 'list']);
+    assert.equal(r.command, 'deps');
+    assert.deepEqual(r.positionals, ['list']);
   });
 
   it('returns empty command when none given', () => {

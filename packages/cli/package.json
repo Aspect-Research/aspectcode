@@ -6,7 +6,8 @@
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
   "bin": {
-    "aspectcode": "bin/aspectcode.js"
+    "aspectcode": "bin/aspectcode.js",
+    "aspect": "bin/aspectcode.js"
   },
   "files": [
     "bin",
@@ -19,7 +20,8 @@
   },
   "dependencies": {
     "@aspectcode/core": "*",
-    "@aspectcode/emitters": "*"
+    "@aspectcode/emitters": "*",
+    "chokidar": "^4.0.3"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

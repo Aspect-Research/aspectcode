@@ -13,7 +13,6 @@ import {
 import {
   createNodeEmitterHost,
   runEmitters,
-  detectAssistants,
 } from '@aspectcode/emitters';
 import type { EmitOptions, AssistantFlags } from '@aspectcode/emitters';
 import type { CliFlags, CommandResult } from '../cli';
@@ -21,6 +20,7 @@ import { ExitCode } from '../cli';
 import type { AspectCodeConfig } from '../config';
 import type { Logger } from '../logger';
 import { fmt } from '../logger';
+import { collectConnections, filterConnectionsByFile } from './deps';
 
 export async function runGenerate(
   root: string,
@@ -52,11 +52,13 @@ export async function runGenerate(
   // ── 3. Read file contents ─────────────────────────────────
   log.debug('Reading file contents…');
   const fileContents = new Map<string, string>();
+    // const absFileContents = new Map<string, string>();
   for (const abs of discoveredPaths) {
     const rel = path.relative(root, abs).replace(/\\/g, '/');
     try {
       const content = fs.readFileSync(abs, 'utf-8');
       fileContents.set(rel, content);
+        // absFileContents.set(abs, content);
     } catch {
       log.debug(`  skip (unreadable): ${rel}`);
     }
@@ -64,23 +66,17 @@ export async function runGenerate(
 
   // ── 4. Analyze ────────────────────────────────────────────
   log.debug('Analyzing repository…');
-  const model = analyzeRepo(root, fileContents);
+    const model = analyzeRepo(root, fileContents);
   log.info(
     `Analyzed: ${fmt.bold(String(model.files.length))} files, ` +
     `${fmt.bold(String(model.graph.edges.length))} edges`,
   );
 
-  // ── 5. Detect assistants ──────────────────────────────────
+  // ── 5. Resolve instruction target (AGENTS.md only) ───────
   const host = createNodeEmitterHost();
-  const assistants = resolveAssistants(flags, config, await detectAssistants(host, root));
-  const instructionsMode = config?.instructionsMode ?? 'safe';
-
-  const assistantNames = Object.entries(assistants)
-    .filter(([, v]) => v)
-    .map(([k]) => k);
-  if (assistantNames.length > 0) {
-    log.info(`Assistants: ${assistantNames.map((n) => fmt.cyan(n)).join(', ')}`);
-  }
+  const assistants: AssistantFlags = { other: true };
+  const instructionsMode = 'safe';
+  log.info(`Instructions target: ${fmt.cyan('AGENTS.md')}`);
 
   // ── 6. Emit artifacts ─────────────────────────────────────
   log.blank();
@@ -96,12 +92,43 @@ export async function runGenerate(
 
   const report = await runEmitters(model, host, emitOpts);
 
+  let connections: Awaited<ReturnType<typeof collectConnections>> | undefined;
+  if (flags.listConnections || flags.json) {
+    const allConnections = await collectConnections(root, config, log);
+    const filtered = filterConnectionsByFile(allConnections, root, flags.file);
+
+    if (filtered.error) {
+      log.error(filtered.error);
+      return { exitCode: ExitCode.USAGE };
+    }
+
+    if (filtered.fileFilter && !flags.json) {
+      log.info(`Filtering dependency connections by file: ${fmt.cyan(filtered.fileFilter)}`);
+    }
+
+    connections = filtered.connections;
+  }
+
   // ── 7. Report ─────────────────────────────────────────────
   const elapsedMs = Date.now() - startMs;
 
-  for (const w of report.wrote) {
-    const rel = path.relative(root, w.path).replace(/\\/g, '/');
-    log.success(`${rel} (${formatBytes(w.bytes)})`);
+  if (flags.json) {
+    const payload = {
+      schemaVersion: report.schemaVersion,
+      wrote: report.wrote.map((w) => ({
+        path: path.relative(root, w.path).replace(/\\/g, '/'),
+        bytes: w.bytes,
+      })),
+      skipped: report.skipped,
+      stats: report.stats,
+      connections,
+    };
+    console.log(JSON.stringify(payload, null, 2));
+  } else {
+    for (const w of report.wrote) {
+      const rel = path.relative(root, w.path).replace(/\\/g, '/');
+      log.success(`${rel} (${formatBytes(w.bytes)})`);
+    }
   }
 
   if (report.skipped) {
@@ -110,45 +137,29 @@ export async function runGenerate(
     }
   }
 
-  log.blank();
-  log.info(
-    fmt.dim(`Done in ${(elapsedMs / 1000).toFixed(1)}s — `) +
-    `${report.wrote.length} files written`,
-  );
+  if (flags.listConnections && !flags.json) {
+    log.blank();
+    log.info(fmt.bold('Dependency connections:'));
+    for (const row of connections ?? []) {
+      const symbols = row.symbols.length > 0 ? ` [${row.symbols.join(', ')}]` : '';
+      const lineInfo = row.lines.length > 0 ? ` @${row.lines.join(',')}` : '';
+      const bidi = row.bidirectional ? ' <->' : '';
+      log.info(
+        `${fmt.cyan(row.source)} -> ${fmt.cyan(row.target)} ` +
+          `(${row.type}, ${row.strength.toFixed(2)})${bidi}${symbols}${lineInfo}`,
+      );
+    }
+  }
+
+  if (!flags.json) {
+    log.blank();
+    log.info(
+      fmt.dim(`Done in ${(elapsedMs / 1000).toFixed(1)}s — `) +
+        `${report.wrote.length} files written`,
+    );
+  }
 
   return { exitCode: ExitCode.OK, report };
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-
-function resolveAssistants(
-  flags: CliFlags,
-  config: AspectCodeConfig | undefined,
-  detected: Set<string>,
-): AssistantFlags {
-  // CLI flag takes priority: --assistants copilot,cursor
-  if (flags.assistants) {
-    const names = flags.assistants.split(',').map((s) => s.trim().toLowerCase());
-    return {
-      copilot: names.includes('copilot'),
-      cursor: names.includes('cursor'),
-      claude: names.includes('claude'),
-      other: names.includes('other'),
-    };
-  }
-
-  // Config file next
-  if (config?.assistants) {
-    return config.assistants;
-  }
-
-  // Auto-detect as fallback
-  return {
-    copilot: detected.has('copilot'),
-    cursor: detected.has('cursor'),
-    claude: detected.has('claude'),
-    other: detected.has('other'),
-  };
 }
 
 function formatBytes(bytes: number): string {

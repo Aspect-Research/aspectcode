@@ -16,18 +16,18 @@ type HistoryItem = {
   meta: Record<string, any>;
 };
 
-type PanelUIState = {
+type ExtensionUIState = {
   activeTab: string;
   lastValidationFiles?: string[]; // Track files validated in last smart validation
   autoValidationEnabled?: boolean; // Track if auto-validation is enabled
 };
 
-// --- PANEL STATE DEFINITION ---
+// --- EXTENSION STATE DEFINITION ---
 
 /**
- * Defines the complete in-memory state of the panel.
+ * Defines the complete in-memory extension state.
  */
-export type PanelState = {
+export type ExtensionState = {
   // --- Ephemeral State ---
   // (Reset on every load)
   busy: boolean;
@@ -38,13 +38,13 @@ export type PanelState = {
   // (Saved and reloaded)
   snapshot?: SnapshotStats;
   history: HistoryItem[];
-  ui: PanelUIState;
+  ui: ExtensionUIState;
 };
 
 /**
  * The default state for a new session.
  */
-const DEFAULT_STATE: PanelState = {
+const DEFAULT_STATE: ExtensionState = {
   // Ephemeral fields are reset
   busy: false,
   error: undefined,
@@ -61,18 +61,19 @@ const DEFAULT_STATE: PanelState = {
 };
 
 /**
- * Keys from PanelState that we want to save to globalState.
+ * Keys from ExtensionState that we want to save to globalState.
  * EVERYTHING ELSE will be reset on load.
  */
-const PERSISTENT_KEYS: (keyof PanelState)[] = ['snapshot', 'history', 'ui'];
+const PERSISTENT_KEYS: (keyof ExtensionState)[] = ['snapshot', 'history', 'ui'];
 
 // --- STATE MANAGER CLASS ---
 
 export class AspectCodeState {
-  private _state: PanelState;
-  private readonly storageKey = 'aspectcode.panel.v1';
+  private _state: ExtensionState;
+  private readonly storageKey = 'aspectcode.state.v1';
+  private readonly legacyStorageKey = 'aspectcode.panel.v1';
 
-  readonly _onDidChange = new vscode.EventEmitter<PanelState>();
+  readonly _onDidChange = new vscode.EventEmitter<ExtensionState>();
   readonly onDidChange = this._onDidChange.event;
 
   constructor(private ctx: vscode.ExtensionContext) {
@@ -93,7 +94,9 @@ export class AspectCodeState {
    */
   load() {
     // 1. Load the *saved* (and incomplete) state from storage
-    const persistentState = this.ctx.globalState.get<Partial<PanelState>>(this.storageKey, {});
+    const persistentState =
+      this.ctx.globalState.get<Partial<ExtensionState>>(this.storageKey) ??
+      this.ctx.globalState.get<Partial<ExtensionState>>(this.legacyStorageKey, {});
 
     // 2. Create the new in-memory state
     this._state = {
@@ -113,7 +116,7 @@ export class AspectCodeState {
    * Updates the in-memory state, saves the persistent parts,
    * and notifies listeners.
    */
-  update(patch: Partial<PanelState>) {
+  update(patch: Partial<ExtensionState>) {
     // 1. Update the in-memory state
     this._state = { ...this._state, ...patch };
 
@@ -129,7 +132,7 @@ export class AspectCodeState {
    * and saves it to globalState.
    */
   private savePersistentState() {
-    const stateToPersist: Partial<PanelState> = {};
+    const stateToPersist: Partial<ExtensionState> = {};
 
     for (const key of PERSISTENT_KEYS) {
       if (this._state[key] !== undefined) {

@@ -1,7 +1,7 @@
 # System Architecture
 
 > Source-of-truth for layering, package responsibilities, and data flow.
-> Last updated: 2026-02-12 (after PR 5a — CLI scaffold).
+> Last updated: 2026-02-12 (CLI-first migration, test-first execution).
 
 ---
 
@@ -98,21 +98,31 @@ Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
 Node.js command-line interface. Depends on both `core` and `emitters`.
 No external command framework — hand-rolled argv parser.
 
-| Command | Purpose |
-|---------|---------|
-| `aspectcode init` | Create `aspectcode.json` config file |
-| `aspectcode generate` | Discover → analyze → emit (full pipeline) |
+| Command | Purpose | Output mode |
+|---------|---------|-------------|
+| `aspectcode init` | Create `aspectcode.json` config file | human-readable |
+| `aspectcode generate` | Discover → analyze → emit (full pipeline) | human-readable by default, JSON with `--json`; dependency output can be scoped by `--file` |
+| `aspectcode watch` | Watch files and trigger `generate` by mode | long-running process |
+| `aspectcode deps list` | Compute and list dependency connections only | human-readable; supports `--file` filter |
 
-Key flags: `--root`, `--out`, `--assistants`, `--force`, `--verbose`,
-`--quiet`, `--help`, `--version`.
+Key flags:
+- Global-ish: `--root`, `--verbose`, `--quiet`, `--help`, `--version`
+- `init`: `--force`
+- `generate`: `--out`, `--list-connections`, `--json`, `--file` (for connection filtering)
+- `deps list`: `--file` (connection filtering)
+- `watch`: `--mode` (`manual|onChange|idle`)
 
-Config file: `aspectcode.json` (replaces `.aspect/.settings.json` for
-CLI usage).
+Config file: `aspectcode.json`.
+
+Current config compatibility rules:
+- Canonical update key: `updateRate` (`manual | onChange | idle`)
+- Legacy key accepted: `autoRegenerateKb` (`off | onSave | idle`) and mapped to canonical values
+- Instruction mode is safe-only (`instructionsMode: "safe"` enforced)
 
 ### extension/
 
 VS Code extension. Thin adapter: lifecycle, commands, file watchers,
-tree-sitter initialization, panel webview. Delegates analysis and
+tree-sitter initialization. Delegates analysis and
 generation to `core` and `emitters`.
 
 In Phase 4 the extension will shell out to the CLI binary
@@ -123,7 +133,7 @@ inline generation logic.
 
 ## Data Flow
 
-### CLI Pipeline
+### CLI Pipeline (`generate`)
 
 ```
 aspectcode generate
@@ -131,11 +141,32 @@ aspectcode generate
   ├─ 1. discoverFiles(root)              @aspectcode/core
   ├─ 2. fs.readFileSync each file        Node built-in
   ├─ 3. analyzeRepo(root, fileMap)        @aspectcode/core  (sync)
-  ├─ 4. detectAssistants(host, root)      @aspectcode/emitters
-  └─ 5. runEmitters(model, host, opts)    @aspectcode/emitters
+  └─ 4. runEmitters(model, host, opts)    @aspectcode/emitters
        ├─ KB emitter → .aspect/{architecture,map,context}.md
        ├─ Manifest writer → .aspect/manifest.json
-       └─ Instructions emitter → copilot/cursor/claude/agents files
+       └─ Instructions emitter → AGENTS.md
+```
+
+### CLI Pipeline (`deps list`)
+
+```
+aspectcode deps list
+  │
+  ├─ 1. discoverFiles(root)                     @aspectcode/core
+  ├─ 2. read file contents into cache           Node built-in
+  ├─ 3. DependencyAnalyzer.analyzeDependencies  @aspectcode/core
+  └─ 4. print normalized connection rows        CLI formatter
+```
+
+### CLI Pipeline (`watch`)
+
+```
+aspectcode watch
+  │
+  ├─ 1. start filesystem watchers (ignore generated/vendor paths)
+  ├─ 2. apply mode timing (`onChange` debounce / `idle` timeout / `manual` no auto-run)
+  ├─ 3. trigger `runGenerate(...)` on eligible events
+  └─ 4. keep process alive until SIGINT/SIGTERM
 ```
 
 ### Extension Pipeline (current)
@@ -146,7 +177,7 @@ User action (click / save / idle)
   ├─ regenerateEverything()   extension/src/assistants/kb.ts
   │   ├─ build AnalysisModel from workspace
   │   └─ runEmitters(model, vscodeHost, opts)
-  └─ Status bar + panel update
+  └─ Status bar update
 ```
 
 ### Extension Pipeline (Phase 4 target)
@@ -157,7 +188,7 @@ User action (click / save / idle)
   ├─ child_process.exec("aspectcode generate --json")
   │   └─ stdout → EmitReport JSON
   ├─ Render summary in status bar / notification
-  └─ (webview removed)
+  └─ dependency listing via CLI (`aspectcode deps list`)
 ```
 
 ---
@@ -206,11 +237,20 @@ This prevents partial/corrupt output if a write fails mid-generation.
 
 ## Testing
 
+### Migration policy: CLI tests first
+
+For all upcoming CLI-first migration work, implement tests before behavior changes:
+1. Add/extend CLI tests that fail for the desired behavior.
+2. Implement command/config changes in CLI.
+3. Re-run CLI tests; only then wire extension integration.
+
+This keeps extension changes low-risk while command behavior stabilizes.
+
 | Package | Runner | Count | Notes |
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 10 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 78 | KB, instructions, manifest, transaction |
-| `@aspectcode/cli` | mocha + ts-node | 27 | parseArgs, config, init, generate e2e |
+| `@aspectcode/cli` | mocha + ts-node | 37 | parseArgs, config compatibility, init, generate, deps |
 | Extension | mocha (VS Code test harness) | 1+ | `kb.test.ts` |
 
 All tests are offline. Temp directories via `os.tmpdir()`, fixed
@@ -239,13 +279,13 @@ npm test --workspaces
 
 ## Phase 4 Plan (Next)
 
-> Extension calls CLI; webview removed.
+> Extension calls CLI for generation and dependency listing; CLI behavior is validated first via tests.
 
-1. Add `--json` flag to `aspectcode generate` (stdout EmitReport as JSON)
-2. Extension spawns `aspectcode generate --json` via `child_process`
-3. Extension renders EmitReport summary (status bar / notification)
-4. Remove `PanelProvider.ts` webview entirely
-5. Extension code shrinks massively — no 5k-line UI file
+1. Expand CLI test coverage for all current command modes/flags.
+2. Implement new CLI functionality behind those tests.
+3. Extension spawns `aspectcode generate --json` via `child_process`.
+4. Extension renders EmitReport summary (status bar / notification).
+5. Keep extension UI minimal (status + commands only).
 
 Optional: `aspectcode watch --json` with streaming updates (newline-
 delimited JSON) for live regeneration without polling.

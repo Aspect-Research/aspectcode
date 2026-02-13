@@ -15,16 +15,11 @@ export interface AspectCodeConfig {
   /** Override output directory (relative to workspace root). */
   outDir?: string;
 
-  /** Which assistant instructions to manage. */
-  assistants?: {
-    copilot?: boolean;
-    cursor?: boolean;
-    claude?: boolean;
-    other?: boolean;
-  };
+  /** Instructions mode (safe-only for now). */
+  instructionsMode?: 'safe';
 
-  /** Instructions merge mode. */
-  instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
+  /** Auto-update trigger mode. */
+  updateRate?: 'manual' | 'onChange' | 'idle';
 
   /** Extra directories to exclude from analysis. */
   exclude?: string[];
@@ -33,13 +28,8 @@ export interface AspectCodeConfig {
 /** Default config written by `aspectcode init`. */
 export function defaultConfig(): AspectCodeConfig {
   return {
-    assistants: {
-      copilot: true,
-      cursor: false,
-      claude: false,
-      other: false,
-    },
     instructionsMode: 'safe',
+    updateRate: 'onChange',
   };
 }
 
@@ -53,7 +43,25 @@ export function loadConfig(root: string): AspectCodeConfig | undefined {
 
   const raw = fs.readFileSync(configPath, 'utf-8');
   try {
-    return JSON.parse(raw) as AspectCodeConfig;
+    const parsed = JSON.parse(raw) as AspectCodeConfig & {
+      autoRegenerateKb?: 'off' | 'onSave' | 'idle';
+      instructionsMode?: 'safe' | 'permissive' | 'custom' | 'off';
+    };
+
+    // Backward compat: extension-style mode key.
+    if (!parsed.updateRate && parsed.autoRegenerateKb) {
+      parsed.updateRate =
+        parsed.autoRegenerateKb === 'off'
+          ? 'manual'
+          : parsed.autoRegenerateKb === 'onSave'
+            ? 'onChange'
+            : 'idle';
+    }
+
+    // Safe-only policy.
+    parsed.instructionsMode = 'safe';
+
+    return parsed;
   } catch {
     throw new Error(`Failed to parse ${CONFIG_FILE_NAME}: invalid JSON`);
   }

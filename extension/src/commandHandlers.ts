@@ -21,7 +21,6 @@ import {
   updateAspectSettings,
   getExtensionEnabledSetting,
   setExtensionEnabledSetting,
-  aspectDirExists,
 } from './services/aspectSettings';
 import { cancelAndResetAllInFlightWork } from './services/enablementCancellation';
 
@@ -71,8 +70,8 @@ export function activateCommands(
       const enabled = await getExtensionEnabledSetting(root);
       const nextEnabled = !enabled;
 
-      // Only persist to .aspect/.settings.json if .aspect/ already exists
-      // Don't create .aspect/ just for the enable/disable toggle
+      // Only persist if aspectcode.json already exists
+      // Don't create project config just for enable/disable toggle
       await setExtensionEnabledSetting(root, nextEnabled, { createIfMissing: false });
 
       if (!nextEnabled) {
@@ -98,22 +97,6 @@ export function activateCommands(
       if (!(await requireExtensionEnabled())) return;
       return await handleSetInstructionMode('safe', channel);
     }),
-    vscode.commands.registerCommand('aspectcode.enablePermissiveMode', async () => {
-      if (!(await requireExtensionEnabled())) return;
-      return await handleSetInstructionMode('permissive', channel);
-    }),
-    vscode.commands.registerCommand('aspectcode.enableCustomMode', async () => {
-      if (!(await requireExtensionEnabled())) return;
-      return await handleSetInstructionMode('custom', channel);
-    }),
-    vscode.commands.registerCommand('aspectcode.enableOffMode', async () => {
-      if (!(await requireExtensionEnabled())) return;
-      return await handleSetInstructionMode('off', channel);
-    }),
-    vscode.commands.registerCommand('aspectcode.editCustomInstructions', async () => {
-      if (!(await requireExtensionEnabled())) return;
-      return await handleEditCustomInstructions(channel);
-    }),
     vscode.commands.registerCommand('aspectcode.copyKbReceiptPrompt', async () => {
       if (!(await requireExtensionEnabled())) return;
       return await handleCopyKbReceiptPrompt(channel);
@@ -124,14 +107,13 @@ export function activateCommands(
     }),
   );
 
-  // Watch for .aspect/ folder and instruction file changes to update the '+' button visibility
+  // Watch for .aspect/ folder and instruction file changes to keep setup status current.
   // Track if we've recently shown the notification to avoid spamming
   let lastNotificationTime = 0;
   const NOTIFICATION_DEBOUNCE_MS = 5000;
   const SUPPRESS_DELETED_NOTIFICATION_KEY = 'aspectcode.suppressDeletedNotification';
 
   const updateInstructionFilesStatus = async (showNotificationOnMissing: boolean = false) => {
-    const panelProvider = (state as any)._panelProvider;
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
     if (!workspaceRoot) {
       return;
@@ -145,13 +127,8 @@ export function activateCommands(
     instructionAssistants.delete('aspectKB');
     const hasInstructionFiles = instructionAssistants.size > 0;
 
-    // Show + button if either is missing
+    // Setup is complete only when KB and instruction files both exist.
     const setupComplete = hasAspectKB && hasInstructionFiles;
-
-    // Update panel if available
-    if (panelProvider && typeof panelProvider.post === 'function') {
-      panelProvider.post({ type: 'INSTRUCTION_FILES_STATUS', hasFiles: setupComplete });
-    }
 
     // Show notification if setup is incomplete and we should notify
     if (showNotificationOnMissing && !setupComplete) {
@@ -210,7 +187,7 @@ export function activateCommands(
     debouncedInstructionUpdate(false);
   });
   aspectWatcher.onDidChange(async (uri) => {
-    // Handle custom instructions deletion check
+    // Safe-only mode: ensure instructions mode remains safe if legacy custom/off appears.
     if (uri.fsPath.endsWith('instructions.md')) {
       try {
         await vscode.workspace.fs.stat(uri);
@@ -219,10 +196,10 @@ export function activateCommands(
         const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
         if (!workspaceRoot) return;
         const mode = await getInstructionsModeSetting(workspaceRoot, channel);
-        if (mode === 'custom') {
-          await setInstructionsModeSetting(workspaceRoot, 'off');
+        if (mode !== 'safe') {
+          await setInstructionsModeSetting(workspaceRoot, 'safe');
           channel.appendLine(
-            '[Instructions] Custom instructions missing; auto-switched instructions.mode=off',
+            '[Instructions] Legacy mode detected; auto-switched instructions.mode=safe',
           );
           const assistants = await getAssistantsSettings(workspaceRoot, channel);
           if (assistants.copilot || assistants.cursor || assistants.claude || assistants.other) {
@@ -234,16 +211,16 @@ export function activateCommands(
   });
   aspectWatcher.onDidDelete((uri) => {
     channel.appendLine(`[Watcher] .aspect deleted: ${uri.fsPath}`);
-    // Handle custom instructions auto-switch to off
+    // Safe-only mode: keep mode pinned to safe.
     if (uri.fsPath.endsWith('instructions.md')) {
       const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
       if (workspaceRoot) {
         getInstructionsModeSetting(workspaceRoot, channel)
           .then(async (mode) => {
-            if (mode === 'custom') {
-              await setInstructionsModeSetting(workspaceRoot, 'off');
+            if (mode !== 'safe') {
+              await setInstructionsModeSetting(workspaceRoot, 'safe');
               channel.appendLine(
-                '[Instructions] Custom instructions missing; auto-switched instructions.mode=off',
+                '[Instructions] Legacy mode detected; auto-switched instructions.mode=safe',
               );
               const assistants = await getAssistantsSettings(workspaceRoot, channel);
               if (
@@ -277,7 +254,7 @@ export function activateCommands(
   assistantConfigWatcher.onDidDelete(() => debouncedInstructionUpdate(true));
   context.subscriptions.push(assistantConfigWatcher);
 
-  // Startup check intentionally disabled: panel UI handles setup prompts.
+  // Startup check intentionally disabled to avoid noisy prompts at activation.
 }
 
 /**
@@ -364,17 +341,8 @@ async function handleConfigureAssistants(
     }
 
     if (!selected) {
-      // User cancelled - re-check instruction files status so '+' button reappears if needed
-      const panelProvider = (state as any)._panelProvider;
-      const detected = await detectAssistants(workspaceRoot);
-      const hasAspectKB = detected.has('aspectKB');
-      const instructionAssistants = new Set(detected);
-      instructionAssistants.delete('aspectKB');
-      const hasInstructionFiles = instructionAssistants.size > 0;
-      const setupComplete = hasAspectKB && hasInstructionFiles;
-      if (panelProvider && typeof panelProvider.post === 'function') {
-        panelProvider.post({ type: 'INSTRUCTION_FILES_STATUS', hasFiles: setupComplete });
-      }
+      // User cancelled - re-check instruction files status.
+      await detectAssistants(workspaceRoot);
       return;
     }
 
@@ -574,7 +542,7 @@ async function handleGenerateInstructionFiles(
 }
 
 async function handleSetInstructionMode(
-  mode: InstructionsMode,
+  _mode: InstructionsMode,
   outputChannel: vscode.OutputChannel,
 ): Promise<void> {
   try {
@@ -586,32 +554,10 @@ async function handleSetInstructionMode(
 
     const workspaceRoot = workspaceFolders[0].uri;
 
-    if (mode === 'off') {
-      const confirmed = await vscode.window.showWarningMessage(
-        'Aspect Code: Turn off instructions? This will remove only the Aspect Code block (between the ASPECT_CODE_START/END markers) from any existing instruction files.',
-        { modal: true },
-        'Turn Off',
-      );
-      if (confirmed !== 'Turn Off') {
-        return;
-      }
-    }
-
-    if (mode === 'custom') {
-      const customFile = vscode.Uri.joinPath(workspaceRoot, '.aspect', 'instructions.md');
-      try {
-        await vscode.workspace.fs.stat(customFile);
-      } catch {
-        vscode.window.showErrorMessage(
-          'Aspect Code: Custom mode requires .aspect/instructions.md to exist.',
-        );
-        return;
-      }
-    }
-
-    await setInstructionsModeSetting(workspaceRoot, mode);
+    const resolvedMode: InstructionsMode = 'safe';
+    await setInstructionsModeSetting(workspaceRoot, resolvedMode);
     outputChannel.appendLine(
-      `[Instructions] Set instructions.mode=${mode} in .aspect/.settings.json`,
+      `[Instructions] Set instructions.mode=${resolvedMode} in aspectcode.json`,
     );
 
     // Check if any assistants are enabled before regenerating
@@ -632,69 +578,6 @@ async function handleSetInstructionMode(
   } catch (error) {
     outputChannel.appendLine(`[Instructions] Failed to set instruction mode: ${error}`);
     vscode.window.showErrorMessage(`Failed to set instruction mode: ${error}`);
-  }
-}
-
-async function handleEditCustomInstructions(outputChannel: vscode.OutputChannel): Promise<void> {
-  try {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!workspaceRoot) {
-      vscode.window.showErrorMessage('No workspace folder open');
-      return;
-    }
-
-    const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
-    const customFile = vscode.Uri.joinPath(aspectDir, 'instructions.md');
-
-    let exists = true;
-    try {
-      await vscode.workspace.fs.stat(customFile);
-    } catch {
-      exists = false;
-    }
-
-    if (!exists) {
-      const confirmed = await vscode.window.showWarningMessage(
-        'Aspect Code: Create .aspect/instructions.md and switch to Custom mode? This file will be used as the content inserted into AI instruction files.',
-        { modal: true },
-        'Create & Edit',
-      );
-      if (confirmed !== 'Create & Edit') {
-        return;
-      }
-
-      try {
-        await vscode.workspace.fs.createDirectory(aspectDir);
-      } catch {
-        // ignore
-      }
-
-      const template =
-        `## Aspect Code Custom Instructions\n\n` +
-        `Edit this file to control the instructions inserted into your AI assistant instruction files.\n` +
-        `This content will be placed inside the Aspect Code markers (ASPECT_CODE_START/END).\n`;
-      await vscode.workspace.fs.writeFile(customFile, Buffer.from(template, 'utf-8'));
-      outputChannel.appendLine('[Instructions] Created .aspect/instructions.md');
-    }
-
-    // Activate custom mode (no prompt when already exists).
-    await setInstructionsModeSetting(workspaceRoot, 'custom');
-    outputChannel.appendLine(
-      '[Instructions] Set instructions.mode=custom in .aspect/.settings.json',
-    );
-
-    const assistants = await getAssistantsSettings(workspaceRoot, outputChannel);
-    const hasEnabledAssistants =
-      assistants.copilot || assistants.cursor || assistants.claude || assistants.other;
-    if (hasEnabledAssistants) {
-      await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel);
-    }
-
-    const doc = await vscode.workspace.openTextDocument(customFile);
-    await vscode.window.showTextDocument(doc, { preview: false });
-  } catch (error) {
-    outputChannel.appendLine(`[Instructions] Failed to edit custom instructions: ${error}`);
-    vscode.window.showErrorMessage(`Failed to edit custom instructions: ${error}`);
   }
 }
 

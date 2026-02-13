@@ -18,7 +18,13 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { analyzeRepo, AnalysisModel, computeModelStats, toPosix } from '../src/index';
+import {
+  analyzeRepo,
+  analyzeRepoWithDependencies,
+  AnalysisModel,
+  computeModelStats,
+  toPosix,
+} from '../src/index';
 
 // Mocha globals
 declare function describe(name: string, fn: () => void): void;
@@ -127,6 +133,39 @@ describe('analyzeRepo determinism', () => {
     };
 
     assert.deepStrictEqual(strip(run1), strip(run2));
+  });
+});
+
+describe('analyzeRepoWithDependencies', () => {
+  it('adds dependency edges and hub metrics from absolute file map', async () => {
+    const root = path.resolve('C:/tmp/aspect-core-test');
+    const absMain = path.join(root, 'src', 'main.ts');
+    const absUtil = path.join(root, 'src', 'util.ts');
+
+    const relativeFiles = new Map<string, string>([
+      ['src/main.ts', "import { format } from './util';\nexport const run = () => format('x');\n"],
+      ['src/util.ts', "export function format(v: string){ return v.toUpperCase(); }\n"],
+    ]);
+
+    const absoluteFiles = new Map<string, string>([
+      [absMain, relativeFiles.get('src/main.ts')!],
+      [absUtil, relativeFiles.get('src/util.ts')!],
+    ]);
+
+    const model = await analyzeRepoWithDependencies(root, relativeFiles, absoluteFiles);
+
+    assert.ok(model.graph.edges.length > 0, 'expected dependency edges to be present');
+    assert.ok(
+      model.graph.edges.some(
+        (edge) => edge.source === 'src/main.ts' && edge.target === 'src/util.ts',
+      ),
+      'expected main.ts -> util.ts edge',
+    );
+    assert.ok(model.metrics.hubs.length > 0, 'expected hub metrics to be present');
+    assert.ok(
+      model.metrics.hubs.some((hub) => hub.file === 'src/util.ts'),
+      'expected util.ts to appear in hubs',
+    );
   });
 });
 

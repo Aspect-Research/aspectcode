@@ -48,25 +48,6 @@
     "onStartupFinished"
   ],
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "aspectcode-container",
-          "title": "Aspect Code",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "aspectcode-container": [
-        {
-          "type": "webview",
-          "id": "aspectcode.panel",
-          "name": "Extension Panel",
-          "icon": "$(beaker)"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "aspectcode.toggleExtensionEnabled",
@@ -102,22 +83,6 @@
         "title": "Aspect Code: Enable Safe Mode"
       },
       {
-        "command": "aspectcode.enablePermissiveMode",
-        "title": "Aspect Code: Enable Permissive Mode"
-      },
-      {
-        "command": "aspectcode.enableCustomMode",
-        "title": "Aspect Code: Enable Custom Mode"
-      },
-      {
-        "command": "aspectcode.enableOffMode",
-        "title": "Aspect Code: Disable Instruction Files"
-      },
-      {
-        "command": "aspectcode.editCustomInstructions",
-        "title": "Aspect Code: Edit Custom Instructions"
-      },
-      {
         "command": "aspectcode.copyKbReceiptPrompt",
         "title": "Aspect Code: Copy KB Receipt Prompt"
       }
@@ -128,20 +93,20 @@
       "properties": {
         "aspectcode.autoRegenerateKb": {
           "type": "string",
-          "enum": ["off", "onSave", "idle"],
-          "default": "onSave",
-          "description": "Auto-regenerate KB files: 'off' = manual only, 'onSave' = regenerate on file save (debounced), 'idle' = regenerate after 30s of inactivity"
+          "enum": ["manual", "onChange", "idle"],
+          "default": "onChange",
+          "description": "Auto-regenerate KB files: 'manual' = command only, 'onChange' = regenerate on file changes (debounced), 'idle' = regenerate after 30s of inactivity"
         },
         "aspectcode.instructions.mode": {
           "type": "string",
-          "enum": ["safe", "permissive", "custom", "off"],
+          "enum": ["safe"],
           "default": "safe",
-          "description": "Instruction generation mode: 'safe' is more restrictive; 'permissive' is shorter and less restrictive; 'custom' uses .aspect/instructions.md; 'off' disables instruction file generation."
+          "description": "Instruction generation mode (safe-only)."
         },
         "aspectcode.devLogs": {
           "type": "boolean",
           "default": false,
-          "description": "Enable verbose panel logs for debugging"
+          "description": "Enable verbose extension logs for debugging"
         }
       }
     }
@@ -154,7 +119,7 @@
     "watch": "npm run watch:extension",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --watch",
     "compile": "npm run build",
-    "test:e2e": "ts-node ./test/e2e/run.ts",
+    "test:e2e": "mocha --require ts-node/register --ui tdd \"src/test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ --max-warnings 200",
     "lint:fix": "eslint src/ --fix --max-warnings 200",

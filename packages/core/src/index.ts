@@ -6,6 +6,8 @@
  * VS Code extension equally.
  */
 
+import * as path from 'path';
+
 // ── Re-exports: types ────────────────────────────────────────
 
 export type {
@@ -89,6 +91,7 @@ export type {
 
 import type { AnalysisModel, AnalyzedFile } from './model';
 import { toPosix } from './paths';
+import { DependencyAnalyzer } from './analysis/index';
 
 /**
  * @deprecated Use `AnalysisModel` instead.
@@ -135,6 +138,48 @@ export function analyzeRepo(
     graph: { nodes: [], edges: [] },
     metrics: { hubs: [] },
   };
+}
+
+/**
+ * Analyze repository files and enrich the model with dependency links and hubs.
+ *
+ * @param rootDir            Absolute path to the workspace root
+ * @param relativeFiles      Map of relative-path → file content
+ * @param absoluteFiles      Map of absolute-path → file content (for dependency analysis)
+ */
+export async function analyzeRepoWithDependencies(
+  rootDir: string,
+  relativeFiles: Map<string, string>,
+  absoluteFiles: Map<string, string>,
+): Promise<AnalysisModel> {
+  const model = analyzeRepo(rootDir, relativeFiles);
+  if (absoluteFiles.size === 0) {
+    return model;
+  }
+
+  const analyzer = new DependencyAnalyzer();
+  analyzer.setFileContentsCache(absoluteFiles);
+  const absolutePaths = Array.from(absoluteFiles.keys());
+  const absoluteEdges = await analyzer.analyzeDependencies(absolutePaths);
+
+  const toRel = (p: string): string => toPosix(path.relative(rootDir, p));
+  const edges = absoluteEdges.map((edge) => ({
+    ...edge,
+    source: toRel(edge.source),
+    target: toRel(edge.target),
+  }));
+
+  model.graph = {
+    nodes: model.files.map((f) => ({
+      id: f.relativePath,
+      path: f.relativePath,
+      language: f.language,
+    })),
+    edges,
+  };
+  model.metrics = { hubs: computeHubs(edges) };
+
+  return model;
 }
 
 // ── Internal helpers ─────────────────────────────────────────
@@ -191,4 +236,31 @@ function extractImportModules(content: string, language: string): string[] {
     }
   }
   return [...new Set(modules)];
+}
+
+function computeHubs(
+  edges: Array<{ source: string; target: string }>,
+): Array<{ file: string; inDegree: number; outDegree: number }> {
+  const stats = new Map<string, { inDegree: number; outDegree: number }>();
+
+  for (const edge of edges) {
+    const source = stats.get(edge.source) ?? { inDegree: 0, outDegree: 0 };
+    source.outDegree += 1;
+    stats.set(edge.source, source);
+
+    const target = stats.get(edge.target) ?? { inDegree: 0, outDegree: 0 };
+    target.inDegree += 1;
+    stats.set(edge.target, target);
+  }
+
+  return Array.from(stats.entries())
+    .map(([file, value]) => ({ file, inDegree: value.inDegree, outDegree: value.outDegree }))
+    .sort(
+      (a, b) =>
+        b.inDegree +
+          b.outDegree -
+          (a.inDegree + a.outDegree) ||
+        a.file.localeCompare(b.file),
+    )
+    .slice(0, 10);
 }

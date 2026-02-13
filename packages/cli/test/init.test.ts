@@ -17,6 +17,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     version: false,
     verbose: false,
     quiet: true, // suppress output in tests
+    listConnections: false,
+    json: false,
     force: false,
     ...overrides,
   };
@@ -43,7 +45,7 @@ describe('init command', () => {
 
     const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     assert.equal(parsed.instructionsMode, 'safe');
-    assert.equal(parsed.assistants.copilot, true);
+    assert.equal(parsed.updateRate, 'onChange');
   });
 
   it('does not overwrite without --force', async () => {
@@ -68,6 +70,6 @@ describe('init command', () => {
 
     const parsed = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     assert.equal(parsed.custom, undefined);
-    assert.equal(parsed.assistants.copilot, true);
+    assert.equal(parsed.updateRate, 'onChange');
   });
 });

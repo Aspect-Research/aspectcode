@@ -9,7 +9,6 @@ import Parser from 'web-tree-sitter';
 import { activateCommands } from './commandHandlers';
 import { WorkspaceFingerprint } from './services/WorkspaceFingerprint';
 import { computeImpactSummaryForFile } from './assistants/kb';
-import { AspectCodePanelProvider } from './panel/PanelProvider';
 import {
   getAssistantsSettings,
   getAutoRegenerateKbSetting,
@@ -17,7 +16,6 @@ import {
   readAspectSettings,
   setAutoRegenerateKbSetting,
   getExtensionEnabledSetting,
-  aspectDirExists,
 } from './services/aspectSettings';
 import { getEnablementCancellationToken } from './services/enablementCancellation';
 import {
@@ -612,7 +610,7 @@ async function applyUnifiedDiffToWorkspace(repoRoot: string, patchedDiff: string
 }
 
 // Server-dependent functions removed:
-// - sendProgressToPanel (panel UI)
+// - sendProgressToUi (legacy UI)
 // - examineFullRepository (server validation)
 // - showRepositoryStatus (server snapshots API)
 
@@ -836,36 +834,19 @@ export async function activate(context: vscode.ExtensionContext) {
   const state = new AspectCodeState(context);
   state.load();
 
-  // Register panel provider
-  const panelProvider = new AspectCodePanelProvider(context, state, outputChannel);
-  (state as AspectCodeState & { _panelProvider?: AspectCodePanelProvider })._panelProvider =
-    panelProvider;
-  context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('aspectcode.panel', panelProvider, {
-      webviewOptions: { retainContextWhenHidden: true },
-    }),
-  );
-
   // Migrate project-scoped Aspect Code settings from .vscode/settings.json (if present)
-  // into .aspect/.settings.json, and ensure reasonable defaults exist there.
-  // IMPORTANT: Only write to .aspect/.settings.json if .aspect/ already exists.
-  // We don't want to auto-create .aspect/ on extension startup - that should only
-  // happen when user explicitly generates KB via '+' button.
+  // into aspectcode.json, and ensure reasonable defaults exist there.
   try {
     const root = await getWorkspaceRoot();
     if (root) {
       const rootUri = vscode.Uri.file(root);
 
-      // Only migrate/set defaults if .aspect/ already exists
-      const dirExists = await aspectDirExists(rootUri);
-      if (dirExists) {
-        await migrateAspectSettingsFromVSCode(rootUri, outputChannel);
+      await migrateAspectSettingsFromVSCode(rootUri, outputChannel);
 
-        // Ensure a default autoRegenerateKb is present in .aspect/.settings.json.
-        const settings = await readAspectSettings(rootUri);
-        if (settings.autoRegenerateKb === undefined) {
-          await setAutoRegenerateKbSetting(rootUri, 'onSave');
-        }
+      // Ensure a default updateRate is present in aspectcode.json.
+      const settings = await readAspectSettings(rootUri);
+      if (settings.updateRate === undefined && settings.autoRegenerateKb === undefined) {
+        await setAutoRegenerateKbSetting(rootUri, 'onChange');
       }
     }
   } catch (e) {
@@ -894,10 +875,8 @@ export async function activate(context: vscode.ExtensionContext) {
       workspaceFingerprint.setAutoRegenerateKbMode(mode);
     } catch {}
 
-    // Use **/ glob pattern to match the settings file from the workspace root.
-    const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/.aspect/.settings.json',
-    );
+    // Watch aspectcode.json for settings changes.
+    const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher('**/aspectcode.json');
     const refreshKbMode = () => {
       void (async () => {
         try {
@@ -914,16 +893,16 @@ export async function activate(context: vscode.ExtensionContext) {
     aspectSettingsWatcher.onDidChange(refreshKbMode);
     aspectSettingsWatcher.onDidCreate(refreshKbMode);
     aspectSettingsWatcher.onDidDelete(() => {
-      workspaceFingerprint?.setAutoRegenerateKbMode('onSave');
+      workspaceFingerprint?.setAutoRegenerateKbMode('onChange');
     });
     context.subscriptions.push(aspectSettingsWatcher);
 
-    // Update panel when KB staleness changes
+    // Track staleness transitions.
     workspaceFingerprint.onStaleStateChanged((stale) => {
-      panelProvider.setKbStale(stale);
+      outputChannel.appendLine(`[KB] stale=${stale}`);
     });
 
-    // Set up KB regeneration callback for idle/onSave auto-regeneration
+    // Set up KB regeneration callback for idle/onChange auto-regeneration
     workspaceFingerprint.setKbRegenerateCallback(async () => {
       try {
         const regenStart = Date.now();
@@ -936,9 +915,6 @@ export async function activate(context: vscode.ExtensionContext) {
         if (result.regenerated) {
           // Pass the discovered files to markKbFresh to avoid rediscovery
           await workspaceFingerprint?.markKbFresh(result.files);
-
-          // Refresh dependency graph in panel
-          panelProvider.refreshDependencyGraph();
 
           outputChannel.appendLine(
             `[KB] Auto-regeneration complete in ${Date.now() - regenStart}ms`,
@@ -962,7 +938,7 @@ export async function activate(context: vscode.ExtensionContext) {
   // Note: Server-dependent commands removed.
 
   // Generate/refresh KB files (.aspect/*.md) based on current state.
-  // Used by the panel “Regenerate KB” button.
+  // Used by command palette/manual workflows.
   context.subscriptions.push(
     vscode.commands.registerCommand('aspectcode.generateKB', async () => {
       const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -1000,7 +976,7 @@ export async function activate(context: vscode.ExtensionContext) {
         } else {
           outputChannel?.appendLine('=== REGENERATE KB: Skipped (.aspect/ not yet created) ===');
           vscode.window.showInformationMessage(
-            'Knowledge base not yet initialized. Use the + button to create it.',
+            'Knowledge base not yet initialized. Run “Aspect Code: Configure AI Assistants” first.',
           );
         }
       } catch (e) {
@@ -1010,14 +986,14 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // Refresh dependency analysis caches and re-render the panel graph.
+  // Refresh dependency analysis caches (CLI-driven dependency listing).
   // This is a purely local operation (no KB generation, no network).
   context.subscriptions.push(
     vscode.commands.registerCommand('aspectcode.forceReindex', async () => {
       try {
-        panelProvider.invalidateDependencyCache();
-        panelProvider.refreshDependencyGraph();
-        vscode.window.showInformationMessage('Aspect Code: dependency graph refreshed.');
+        vscode.window.showInformationMessage(
+          'Aspect Code: dependency graph view moved to CLI. Run `aspectcode deps list`.',
+        );
       } catch (e) {
         vscode.window.showErrorMessage(`Aspect Code: failed to refresh dependency graph: ${e}`);
       }
@@ -1168,12 +1144,12 @@ export async function activate(context: vscode.ExtensionContext) {
       if (event.contentChanges.length > 0) {
         workspaceFingerprint?.onFileEdited();
 
-        // If autoRegenerateKb === 'onSave', also trigger regeneration for bulk edits
+        // If updateRate === 'onChange', also trigger regeneration for bulk edits
         // (common when an LLM applies a change), even if the editor isn't explicitly saved.
         const autoRegen = workspaceRoot
           ? await getAutoRegenerateKbSetting(vscode.Uri.file(workspaceRoot))
-          : 'onSave';
-        if (autoRegen === 'onSave' && isBulkEdit(event.contentChanges)) {
+          : 'onChange';
+        if (autoRegen === 'onChange' && isBulkEdit(event.contentChanges)) {
           workspaceFingerprint?.onFileSaved(filePath);
         }
       }
@@ -1181,7 +1157,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Also mark stale on save (users expect this signal on save).
-  // If autoRegenerateKb === 'onSave', this will trigger debounced KB regeneration.
+  // If updateRate === 'onChange', this triggers debounced KB regeneration.
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
       const filePath = doc.fileName;
@@ -1193,7 +1169,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // Also watch for on-disk changes (e.g., git revert/checkout, bulk updates) so
-  // autoRegenerateKb='onSave' works even when files change outside normal saves.
+  // updateRate='onChange' works even when files change outside normal saves.
   const kbFsWatcher = vscode.workspace.createFileSystemWatcher(
     '**/*.{py,ts,tsx,js,jsx,mjs,cjs,java,cpp,c,cs,go,rs}',
   );

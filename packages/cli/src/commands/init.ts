@@ -40,7 +40,7 @@ export async function runInit(
   log.success(`Created ${fmt.cyan(CONFIG_FILE_NAME)}`);
   log.info('');
   log.info(`  Next step: run ${fmt.bold('aspectcode generate')} to build the knowledge base.`);
-  log.info(`  Edit ${fmt.cyan(CONFIG_FILE_NAME)} to customise assistants, exclusions, etc.`);
+  log.info(`  Edit ${fmt.cyan(CONFIG_FILE_NAME)} to customise output and exclusions.`);
 
   return { exitCode: ExitCode.OK };
 }

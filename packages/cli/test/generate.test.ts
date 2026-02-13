@@ -16,6 +16,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     version: false,
     verbose: false,
     quiet: true,
+    listConnections: false,
+    json: false,
     force: false,
     ...overrides,
   };
@@ -85,41 +87,15 @@ describe('generate command', () => {
     assert.ok(fs.existsSync(aspectDir), '.aspect under outDir');
   });
 
-  it('respects config assistants', async () => {
+  it('writes AGENTS.md instructions by default', async () => {
     writeSourceFiles(tmpDir);
 
-    const config = {
-      assistants: { copilot: true, cursor: false, claude: false, other: false },
-      instructionsMode: 'safe' as const,
-    };
-
-    const result = await runGenerate(tmpDir, makeFlags(), config, log);
+    const result = await runGenerate(tmpDir, makeFlags(), undefined, log);
     assert.equal(result.exitCode, 0);
     assert.ok(result.report);
 
-    // Should have written copilot instructions
-    const copilotWritten = result.report.wrote.some((w) =>
-      w.path.includes('copilot-instructions'),
-    );
-    assert.ok(copilotWritten, 'copilot instructions written');
-  });
-
-  it('respects --assistants flag override', async () => {
-    writeSourceFiles(tmpDir);
-
-    const result = await runGenerate(
-      tmpDir,
-      makeFlags({ assistants: 'copilot,cursor' }),
-      undefined,
-      log,
-    );
-    assert.equal(result.exitCode, 0);
-    assert.ok(result.report);
-
-    const hasInstructions = result.report.wrote.some(
-      (w) => w.path.includes('copilot') || w.path.includes('cursor'),
-    );
-    assert.ok(hasInstructions, 'assistant instructions written');
+    const agentsWritten = result.report.wrote.some((w) => w.path.endsWith('AGENTS.md'));
+    assert.ok(agentsWritten, 'AGENTS.md instructions written');
   });
 
   it('report contains stats', async () => {
@@ -129,5 +105,98 @@ describe('generate command', () => {
     assert.ok(result.report);
     assert.equal(typeof result.report.stats.files, 'number');
     assert.ok(result.report.stats.files >= 2);
+    assert.equal(typeof result.report.stats.edges, 'number');
+    assert.ok(Number.isFinite(result.report.stats.edges));
+    assert.ok(result.report.stats.edges >= 0);
+    assert.ok(Array.isArray(result.report.stats.hubsTop));
+  });
+
+  it('supports --list-connections', async () => {
+    writeSourceFiles(tmpDir);
+    const result = await runGenerate(
+      tmpDir,
+      makeFlags({ listConnections: true }),
+      undefined,
+      log,
+    );
+    assert.equal(result.exitCode, 0);
+    assert.ok(result.report);
+  });
+
+  it('supports --json output payload', async () => {
+    writeSourceFiles(tmpDir);
+
+    const originalLog = console.log;
+    const captured: string[] = [];
+    console.log = (...args: unknown[]) => {
+      captured.push(args.map(String).join(' '));
+    };
+
+    try {
+      const result = await runGenerate(tmpDir, makeFlags({ json: true }), undefined, log);
+      assert.equal(result.exitCode, 0);
+      assert.ok(result.report);
+    } finally {
+      console.log = originalLog;
+    }
+
+    assert.ok(captured.length > 0, 'json output was printed');
+    const payload = JSON.parse(captured.join('\n')) as {
+      schemaVersion: string;
+      wrote: Array<{ path: string; bytes: number }>;
+      skipped: unknown[];
+      stats: { files: number };
+      connections: unknown[];
+    };
+
+    assert.equal(typeof payload.schemaVersion, 'string');
+    assert.ok(Array.isArray(payload.wrote));
+    assert.ok(Array.isArray(payload.connections));
+    assert.ok(payload.stats.files >= 2);
+  });
+
+  it('supports --json with --file filter for connections', async () => {
+    writeSourceFiles(tmpDir);
+
+    const originalLog = console.log;
+    const captured: string[] = [];
+    console.log = (...args: unknown[]) => {
+      captured.push(args.map(String).join(' '));
+    };
+
+    try {
+      const result = await runGenerate(
+        tmpDir,
+        makeFlags({ json: true, file: 'index.ts' }),
+        undefined,
+        log,
+      );
+      assert.equal(result.exitCode, 0);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const payload = JSON.parse(captured.join('\n')) as {
+      connections: Array<{ source: string; target: string }>;
+    };
+
+    assert.ok(payload.connections.length > 0);
+    assert.ok(
+      payload.connections.every(
+        (row) => row.source === 'index.ts' || row.target === 'index.ts',
+      ),
+      'expected all connections to be filtered to index.ts',
+    );
+  });
+
+  it('returns usage for --file outside workspace when listing connections', async () => {
+    writeSourceFiles(tmpDir);
+    const result = await runGenerate(
+      tmpDir,
+      makeFlags({ listConnections: true, file: '../outside.ts' }),
+      undefined,
+      log,
+    );
+    assert.equal(result.exitCode, 2);
   });
 });

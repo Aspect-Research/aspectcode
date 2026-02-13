@@ -9,14 +9,22 @@ import { runEmitters } from '../src';
 
 const FIXED_TIMESTAMP = '2026-02-11T00:00:00.000Z';
 
-function makeModel(workspaceRoot: string): { model: AnalysisModel; fileContents: Map<string, string> } {
+function makeModel(
+  workspaceRoot: string,
+  keyMode: 'absolute' | 'relative' = 'absolute',
+): { model: AnalysisModel; fileContents: Map<string, string> } {
   const fileContents = new Map<string, string>();
 
   const absApp = path.join(workspaceRoot, 'src', 'app.ts');
   const absUtil = path.join(workspaceRoot, 'src', 'utils.ts');
 
-  fileContents.set(absApp, `import { format } from './utils';\nexport function main(){ return format('x'); }\n`);
-  fileContents.set(absUtil, `export function format(x: string){ return x.toUpperCase(); }\n`);
+  const relApp = 'src/app.ts';
+  const relUtil = 'src/utils.ts';
+  const appKey = keyMode === 'absolute' ? absApp : relApp;
+  const utilKey = keyMode === 'absolute' ? absUtil : relUtil;
+
+  fileContents.set(appKey, `import { format } from './utils';\nexport function main(){ return format('x'); }\n`);
+  fileContents.set(utilKey, `export function format(x: string){ return x.toUpperCase(); }\n`);
 
   const model: AnalysisModel = {
     schemaVersion: '0.1',
@@ -129,5 +137,28 @@ describe('runEmitters', () => {
     assert.ok(threw, 'Expected runEmitters to throw');
     assert.equal(fs.readFileSync(archPath, 'utf8'), 'OLD ARCH\n', 'Existing output must not be overwritten');
     assert.ok(!fs.existsSync(path.join(outDir, '.aspect', 'manifest.json')), 'Manifest should not be written');
+  });
+
+  it('supports relative fileContents keys (CLI-compatible)', async () => {
+    workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-ws-'));
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-out-'));
+
+    const host = createNodeEmitterHost();
+    const { model, fileContents } = makeModel(workspaceDir, 'relative');
+
+    await runEmitters(model, host, {
+      workspaceRoot: workspaceDir,
+      outDir,
+      generatedAt: FIXED_TIMESTAMP,
+      fileContents,
+      instructionsMode: 'safe',
+      assistants: { copilot: true },
+    });
+
+    const mapPath = path.join(outDir, '.aspect', 'map.md');
+    const mapContent = fs.readFileSync(mapPath, 'utf8');
+
+    assert.ok(mapContent.includes('`main`'), 'Expected symbol index to include main function');
+    assert.ok(mapContent.includes('`format`'), 'Expected symbol index to include format function');
   });
 });

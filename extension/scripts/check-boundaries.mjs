@@ -7,14 +7,13 @@
  * Fails CI if layering rules are violated in import statements.
  *
  * Hard rules (exit 1):
- *   1. services/ files must NOT import from panel/ or assistants/
+ *   1. services/ files must NOT import from assistants/
  *   2. services/ files must NOT import from commandHandlers or extension.ts
  *   3. No file may import from dist/
  *   4. test/ files may import anything (excluded from checks)
  *
  * Soft rules (warn only — future ratchets):
- *   W1. panel/ should not import from commandHandlers or extension.ts
- *   W2. assistants/ should not import from panel/
+ *   (none currently)
  *
  * Usage: node scripts/check-boundaries.mjs
  */
@@ -24,11 +23,6 @@ import { join, relative } from 'path';
 
 // ── Configuration ────────────────────────────────────────────
 const HARD_RULES = [
-  {
-    name: 'services/ must not import from panel/',
-    sourcePattern: /^src\/services\//,
-    forbiddenImport: /from\s+['"]\.\.\/panel\//,
-  },
   {
     name: 'services/ must not import from assistants/',
     sourcePattern: /^src\/services\//,
@@ -52,23 +46,7 @@ const HARD_RULES = [
 ];
 
 // Soft rules: warn only, do not fail CI. Track as future ratchets.
-const SOFT_RULES = [
-  {
-    name: 'panel/ should not import from commandHandlers (future: use core API)',
-    sourcePattern: /^src\/panel\//,
-    forbiddenImport: /from\s+['"]\.\.\/commandHandlers/,
-  },
-  {
-    name: 'panel/ should not import from extension.ts (future: use core API)',
-    sourcePattern: /^src\/panel\//,
-    forbiddenImport: /from\s+['"]\.\.\/extension/,
-  },
-  {
-    name: 'assistants/ should not import from panel/',
-    sourcePattern: /^src\/assistants\//,
-    forbiddenImport: /from\s+['"]\.\.\/panel\//,
-  },
-];
+const SOFT_RULES = [];
 
 // Files to skip
 const SKIP = /^src\/test\//;

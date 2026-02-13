@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { toPosix, type AnalysisModel } from '@aspectcode/core';
+import * as aspectCore from '@aspectcode/core';
 import { runEmitters } from '@aspectcode/emitters';
 import { AspectCodeState } from '../state';
 import { DependencyAnalyzer, DependencyLink } from '../services/DependencyAnalyzer';
@@ -17,6 +18,7 @@ import {
   ExtractedSymbol,
 } from '../importExtractors';
 import { createVsCodeEmitterHost } from '../services/vscodeEmitterHost';
+import { buildRelativeFileContentMap } from './kbShared';
 
 // ============================================================================
 // KB Size Budgets & Invariants
@@ -561,12 +563,12 @@ function getKBEnrichments(
 
 /**
  * SINGLE entry point for all KB regeneration in the extension.
- * Called by: onSave auto-regen, reload button, generateKB command.
+ * Called by: onChange/idle auto-regen and generateKB command.
  *
  * This function:
- * 1. Checks if .aspect/ exists (skips if not - use '+' button to initialize)
+ * 1. Checks if .aspect/ exists (skips if not - run configureAssistants first)
  * 2. Regenerates KB files (architecture.md, map.md, context.md)
- * 3. Does NOT regenerate instruction files (those require '+' button quickpick)
+ * 3. Does NOT regenerate instruction files (those require configureAssistants)
  *
  * @returns Object with regenerated flag and discovered files (for markKbFresh)
  */
@@ -589,14 +591,14 @@ export async function regenerateEverything(
   const workspaceRoot = workspaceFolders[0].uri;
 
   // Check if .aspect/ already exists - don't auto-create
-  // Users must explicitly generate via '+' button or configureAssistants command
+  // Users must explicitly initialize via configureAssistants command
   try {
     const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
     await vscode.workspace.fs.stat(aspectDir);
   } catch {
     // .aspect/ doesn't exist - skip regeneration
     outputChannel.appendLine(
-      '[KB] regenerateEverything: Skipped (.aspect/ not yet created - use + button to initialize)',
+      '[KB] regenerateEverything: Skipped (.aspect/ not yet created - run configureAssistants to initialize)',
     );
     return { regenerated: false, files: [] };
   }
@@ -676,15 +678,29 @@ export async function generateKnowledgeBase(
     `[KB][Perf] preloadFileContents: ${fileContentCache.size} files cached in ${Date.now() - tCache}ms`,
   );
 
-  const tDeps = Date.now();
-  const { stats: depData, links: allLinks } = await getDetailedDependencyData(
-    workspaceRoot,
-    files,
-    outputChannel,
+  const generatedAt = new Date().toISOString();
+  const rootFsPath = workspaceRoot.fsPath;
+  const tAnalyze = Date.now();
+  const relativeFileContents = buildRelativeFileContentMap(files, rootFsPath, fileContentCache);
+  const sharedAnalyze = (aspectCore as {
+    analyzeRepoWithDependencies?: (
+      rootDir: string,
+      relativeFiles: Map<string, string>,
+      absoluteFiles: Map<string, string>,
+    ) => Promise<AnalysisModel>;
+  }).analyzeRepoWithDependencies;
+  if (typeof sharedAnalyze !== 'function') {
+    throw new Error('Installed @aspectcode/core does not expose analyzeRepoWithDependencies');
+  }
+
+  const model: AnalysisModel = await sharedAnalyze(
+    rootFsPath,
+    relativeFileContents,
     fileContentCache,
   );
+  model.generatedAt = generatedAt;
   outputChannel.appendLine(
-    `[KB][Perf] getDetailedDependencyData: ${allLinks.length} links in ${Date.now() - tDeps}ms`,
+    `[KB][Perf] analyzeRepoWithDependencies(shared): ${model.graph.edges.length} edges in ${Date.now() - tAnalyze}ms`,
   );
 
   // Delegate artifact generation (KB + manifest) to @aspectcode/emitters.
@@ -695,41 +711,6 @@ export async function generateKnowledgeBase(
     `[KB] Starting emitter generation: outDir=${workspaceRoot.fsPath}, files=${files.length}`,
   );
 
-  const generatedAt = new Date().toISOString();
-  const rootFsPath = workspaceRoot.fsPath;
-  const rel = (absPath: string) => toPosix(path.relative(rootFsPath, absPath));
-
-  const model: AnalysisModel = {
-    schemaVersion: '0.1',
-    generatedAt,
-    repo: { root: rootFsPath },
-    files: files.map((abs) => {
-      const text = fileContentCache.get(abs) ?? '';
-      const lineCount = text ? text.split('\n').length : 0;
-      return {
-        relativePath: rel(abs),
-        language: 'unknown',
-        lineCount,
-        exports: [],
-        imports: [],
-      };
-    }),
-    symbols: [],
-    graph: {
-      nodes: [],
-      edges: allLinks.map((l) => ({
-        ...l,
-        source: rel(l.source),
-        target: rel(l.target),
-      })),
-    },
-    metrics: {
-      hubs: Array.from(depData.entries())
-        .map(([file, info]) => ({ file: rel(file), inDegree: info.inDegree, outDegree: info.outDegree }))
-        .sort((a, b) => (b.inDegree + b.outDegree) - (a.inDegree + a.outDegree) || a.file.localeCompare(b.file))
-        .slice(0, 10),
-    },
-  };
 
   try {
     const host = createVsCodeEmitterHost();

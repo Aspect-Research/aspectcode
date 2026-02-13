@@ -11,6 +11,8 @@
 declare function suite(name: string, fn: () => void): void;
 declare function test(name: string, fn: () => void): void;
 
+import { buildRelativeFileContentMap } from '../assistants/kbShared';
+
 // ============================================================================
 // KB Content Invariants
 // ============================================================================
@@ -297,6 +299,44 @@ suite('KB Generation Invariants', () => {
     const invalidResult = validateArchitectureSections(invalidContent);
     if (invalidResult.valid) {
       throw new Error('Should detect missing Entry Points section');
+    }
+  });
+});
+
+suite('KB Shared Analysis Preparation', () => {
+  test('buildRelativeFileContentMap converts absolute paths to workspace-relative posix keys', () => {
+    const workspaceRoot = 'C:\\repo';
+    const files = ['C:\\repo\\src\\main.ts', 'C:\\repo\\lib\\util.ts'];
+    const cache = new Map<string, string>([
+      ['C:\\repo\\src\\main.ts', 'export const main = 1;'],
+      ['C:\\repo\\lib\\util.ts', 'export const util = 2;'],
+    ]);
+
+    const result = buildRelativeFileContentMap(files, workspaceRoot, cache);
+
+    if (!result.has('src/main.ts')) {
+      throw new Error('Expected src/main.ts key in relative map');
+    }
+    if (!result.has('lib/util.ts')) {
+      throw new Error('Expected lib/util.ts key in relative map');
+    }
+    if (Array.from(result.keys()).some((k) => k.includes('\\'))) {
+      throw new Error('Expected all keys to use forward slashes');
+    }
+  });
+
+  test('buildRelativeFileContentMap skips files missing from cache', () => {
+    const workspaceRoot = '/repo';
+    const files = ['/repo/src/a.ts', '/repo/src/b.ts'];
+    const cache = new Map<string, string>([['/repo/src/a.ts', 'export const a = 1;']]);
+
+    const result = buildRelativeFileContentMap(files, workspaceRoot, cache);
+
+    if (!result.has('src/a.ts')) {
+      throw new Error('Expected src/a.ts to be included');
+    }
+    if (result.has('src/b.ts')) {
+      throw new Error('Expected src/b.ts to be excluded when content is missing');
     }
   });
 });

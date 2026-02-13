@@ -19,14 +19,12 @@ const DEFAULT_MAX_LINES = 400;
 // Grandfathered files: current size rounded up to nearest 100.
 // Each Phase-N PR must reduce these caps as files are split.
 const GRANDFATHERED = {
-  'src/panel/PanelProvider.ts': 5600,
   'src/assistants/kb.ts': 4600,
   'src/services/DependencyAnalyzer.ts': 75,
   'src/extension.ts': 1300,
   'src/services/gitignoreService.ts': 800,
   'src/services/FileDiscoveryService.ts': 620,
   'src/test/kb.test.ts': 700,
-  'src/newCommandsIntegration.ts': 700,
   'src/commandHandlers.ts': 700,
   'src/assistants/instructions.ts': 700,
   'src/services/aspectSettings.ts': 600,
