@@ -2,29 +2,15 @@
  * Analysis module — dependency analysis with no vscode coupling.
  */
 
-// Import parsers
+// Import parsers (types only — functions are internal)
 export type { ImportStatement, CallSite } from './importParsers';
-export {
-  calculateImportStrength,
-  analyzeFileCalls,
-} from './importParsers';
 
-// Module resolver
+// Module resolver (types only — functions are internal)
 export type { FileIndex } from './moduleResolver';
-export {
-  buildFileIndex,
-  resolveModulePathFast,
-  resolveCallTargetFast,
-} from './moduleResolver';
 
 // Analyzer
 export type { DependencyProgressCallback, DependencyWarningCallback } from './analyzer';
 export { DependencyAnalyzer } from './analyzer';
 
-// Dependency adapter registry
+// Dependency adapter registry (types only — functions are internal)
 export type { DependencyLanguageAdapter } from './dependencyAdapters';
-export {
-  analyzeDependenciesForFile,
-  getDependencyAdapterForFile,
-  getRegisteredDependencyAdapters,
-} from './dependencyAdapters';

@@ -13,7 +13,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { type AnalysisModel } from '@aspectcode/core';
 import * as aspectCore from '@aspectcode/core';
-import { runEmitters } from '@aspectcode/emitters';
+import { runEmitters, classifyFile } from '@aspectcode/emitters';
 import { AspectCodeState } from '../state';
 import { DependencyAnalyzer, type DependencyLink } from '../services/DependencyAnalyzer';
 import { loadGrammarsOnce, type LoadedGrammars } from '../tsParser';
@@ -406,52 +406,6 @@ async function computeImpactSummaryInProcess(
 // ============================================================================
 // Internal Helpers
 // ============================================================================
-
-type FileKind = 'app' | 'test' | 'third_party';
-
-/**
- * Classify a file as app code, test code, or third-party/environment.
- */
-function classifyFile(absPathOrRel: string, workspaceRoot: string): FileKind {
-  const rel = makeRelativePath(absPathOrRel, workspaceRoot).toLowerCase().replace(/\\/g, '/');
-
-  const thirdPartyPatterns = [
-    '/.venv/', '/venv/', '/env/', '/.tox/', '/site-packages/',
-    '/node_modules/', '/__pycache__/', '/.pytest_cache/', '/.mypy_cache/',
-    '/dist/', '/build/', '/.next/', '/.turbo/', '/coverage/',
-    '/.cache/', '/dist-packages/', '/.git/', '/.hg/',
-  ];
-  const thirdPartyPrefixes = [
-    '.venv/', 'venv/', 'env/', '.tox/', 'site-packages/',
-    'node_modules/', '__pycache__/', '.pytest_cache/', '.mypy_cache/',
-    'dist/', 'build/', '.next/', '.turbo/', 'coverage/',
-    '.cache/', 'dist-packages/', '.git/', '.hg/',
-  ];
-
-  if (
-    thirdPartyPatterns.some((p) => rel.includes(p)) ||
-    thirdPartyPrefixes.some((p) => rel.startsWith(p))
-  ) {
-    return 'third_party';
-  }
-
-  const parts = rel.split('/');
-  const filename = parts[parts.length - 1] || '';
-  if (
-    parts.some((p) => p === 'test' || p === 'tests' || p === 'spec' || p === '__tests__') ||
-    filename.startsWith('test_') ||
-    filename.endsWith('_test.py') ||
-    filename.endsWith('.test.ts') || filename.endsWith('.test.tsx') ||
-    filename.endsWith('.test.js') || filename.endsWith('.test.jsx') ||
-    filename.endsWith('.spec.ts') || filename.endsWith('.spec.tsx') ||
-    filename.endsWith('.spec.js') || filename.endsWith('.spec.jsx') ||
-    filename.includes('.spec.') || filename.includes('.test.')
-  ) {
-    return 'test';
-  }
-
-  return 'app';
-}
 
 async function getDetailedDependencyData(
   workspaceRoot: vscode.Uri,

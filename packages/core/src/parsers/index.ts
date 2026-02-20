@@ -8,10 +8,7 @@ export type { LoadedGrammars, GrammarSummary, LogFn } from './grammarLoader';
 
 // Language registry
 export {
-	LANGUAGE_SPECS,
 	createEmptyGrammarSummary,
-	getGrammarFileMap,
-	getSupportedSourceExtensions,
 } from './languages';
 export type { LanguageSpec, GrammarLanguageId } from './languages';
 

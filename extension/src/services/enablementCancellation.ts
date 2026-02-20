@@ -2,11 +2,7 @@ import * as vscode from 'vscode';
 
 let currentCts = new vscode.CancellationTokenSource();
 
-export function getEnablementCancellationToken(): vscode.CancellationToken {
-  return currentCts.token;
-}
-
-export function cancelAllInFlightWork(): void {
+function cancelAllInFlightWork(): void {
   try {
     currentCts.cancel();
   } catch {
@@ -14,7 +10,7 @@ export function cancelAllInFlightWork(): void {
   }
 }
 
-export function resetEnablementCancellationToken(): void {
+function resetEnablementCancellationToken(): void {
   try {
     currentCts.dispose();
   } catch {

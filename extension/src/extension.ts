@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { SUPPORTED_EXTENSIONS } from '@aspectcode/core';
 import { loadGrammarsOnce, getLoadedGrammarsSummary } from './tsParser';
 import { AspectCodeState } from './state';
 import { activateCommands } from './commandHandlers';
@@ -203,15 +204,6 @@ export async function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // Refresh dependency analysis caches (CLI-driven dependency listing).
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aspectcode.forceReindex', async () => {
-      vscode.window.showInformationMessage(
-        'Aspect Code: dependency graph view moved to CLI. Run `aspectcode deps list`.',
-      );
-    }),
-  );
-
   // Copy a short impact summary for the current file to clipboard.
   context.subscriptions.push(
     vscode.commands.registerCommand('aspectcode.copyImpactAnalysisCurrentFile', async () => {
@@ -289,11 +281,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const shouldTrackFileForKb = (filePath: string): boolean => {
     const ext = path.extname(filePath).toLowerCase();
-    const sourceExtensions = [
-      '.py', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-      '.java', '.cpp', '.c', '.cs', '.go', '.rs',
-    ];
-    if (!sourceExtensions.includes(ext)) {
+    if (!SUPPORTED_EXTENSIONS.includes(ext)) {
       return false;
     }
 
@@ -363,17 +351,6 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(kbFsWatcher);
 
   context.subscriptions.push(diag, outputChannel);
-  const codeActionProvider: vscode.CodeActionProvider = {
-    provideCodeActions() {
-      return [];
-    },
-  };
-  context.subscriptions.push(
-    vscode.languages.registerCodeActionsProvider(
-      { scheme: 'file', language: 'python' },
-      codeActionProvider,
-    ),
-  );
 
   // Activate command handlers
   activateCommands(context, state, outputChannel);

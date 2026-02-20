@@ -61,7 +61,4 @@ export function getLoadedGrammarsSummary(): GrammarSummary {
   return { ...grammarSummary };
 }
 
-export function resetGrammarCache(): void {
-  initOnce = null;
-  grammarSummary = createEmptyGrammarSummary();
-}
+

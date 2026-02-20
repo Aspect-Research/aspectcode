@@ -1,17 +1,13 @@
 /**
- * DirectoryExclusion - Types and legacy compatibility layer
+ * DirectoryExclusion  types and discovery helpers.
  *
- * The actual exclusion logic has moved to FileDiscoveryService.
- * This module now provides:
+ * The actual exclusion logic lives in FileDiscoveryService.
+ * This module provides:
  * - Type definitions (ExclusionSettings)
- * - Legacy compatibility wrapper (discoverSourceFiles)
- * - Static helper functions
- *
- * All new code should use FileDiscoveryService directly.
+ * - Legacy-compatible discoverSourceFiles() wrapper
  */
 
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { getFileDiscoveryService } from './FileDiscoveryService';
 import {
   PACKAGE_MANAGER_DIRS,
@@ -40,112 +36,9 @@ export interface ExclusionSettings {
   };
 }
 
-export interface ExclusionResult {
-  /** Glob pattern for vscode.workspace.findFiles exclude parameter */
-  excludeGlob: string;
-  /** List of excluded directory paths (relative to workspace) */
-  excludedDirs: string[];
-  /** Directories that would be excluded but are in 'never' list */
-  overriddenDirs: string[];
-}
-
 // ============================================================================
-// DirectoryExclusionService (Legacy Compatibility)
+// Discovery
 // ============================================================================
-
-/**
- * @deprecated Use FileDiscoveryService instead.
- * This class is kept for backwards compatibility during transition.
- */
-export class DirectoryExclusionService {
-  constructor(
-    private workspaceRoot: string,
-    private outputChannel?: vscode.OutputChannel,
-  ) {}
-
-  /**
-   * Get exclusions using FileDiscoveryService if available, otherwise compute locally.
-   */
-  async computeExclusions(settings?: ExclusionSettings): Promise<ExclusionResult> {
-    const service = getFileDiscoveryService();
-    if (service) {
-      const exclusions = await service.getExclusions();
-      return {
-        excludeGlob: exclusions.excludeGlob,
-        excludedDirs: exclusions.excludedDirs,
-        overriddenDirs: [],
-      };
-    }
-
-    // Fallback: compute locally (shouldn't happen in normal operation)
-    const allDirs = DirectoryExclusionService.getDefaultExclusionNames();
-    const neverSet = new Set((settings?.never ?? []).map((p) => p.replace(/\\/g, '/')));
-    const excludedDirs = allDirs.filter((d) => !neverSet.has(d));
-    const overriddenDirs = allDirs.filter((d) => neverSet.has(d));
-
-    this.outputChannel?.appendLine(
-      `[DirectoryExclusion] Computed exclusions: ${excludedDirs.length} dirs, ${overriddenDirs.length} overridden`,
-    );
-
-    return {
-      excludeGlob: this.buildExcludeGlob(excludedDirs),
-      excludedDirs,
-      overriddenDirs,
-    };
-  }
-
-  invalidateCache(): void {
-    const service = getFileDiscoveryService();
-    service?.invalidate();
-  }
-
-  static getDefaultExcludeGlob(): string {
-    const allDirs = DirectoryExclusionService.getDefaultExclusionNames();
-    const unique = [...new Set(allDirs)];
-    return `**/{${unique.join(',')}}/**`;
-  }
-
-  static getDefaultExclusionNames(): string[] {
-    return [
-      ...PACKAGE_MANAGER_DIRS,
-      ...BUILD_OUTPUT_DIRS,
-      ...VENV_DIRS,
-      ...CACHE_DIRS,
-      ...VCS_IDE_DIRS,
-      ...TEST_OUTPUT_DIRS,
-      ...GENERATED_DIRS,
-    ];
-  }
-
-  private buildExcludeGlob(dirs: string[]): string {
-    if (dirs.length === 0) return '';
-    const escaped = dirs.map((d) => d.replace(/[{}[\]()]/g, '\\$&'));
-    return `**/{${escaped.join(',')}}/**`;
-  }
-}
-
-// ============================================================================
-// Convenience Functions
-// ============================================================================
-
-/**
- * Get the default exclusion glob pattern (static, no auto-detection).
- * Use this for quick operations where you don't need settings customization.
- */
-export function getDefaultExcludeGlob(): string {
-  return DirectoryExclusionService.getDefaultExcludeGlob();
-}
-
-/**
- * Create a configured exclusion service for a workspace.
- * @deprecated Use FileDiscoveryService instead.
- */
-export function createExclusionService(
-  workspaceRoot: string,
-  outputChannel?: vscode.OutputChannel,
-): DirectoryExclusionService {
-  return new DirectoryExclusionService(workspaceRoot, outputChannel);
-}
 
 /**
  * Discover all source files in the workspace with proper exclusions.
@@ -173,6 +66,24 @@ export async function discoverSourceFiles(
     '[FileDiscovery] Warning: FileDiscoveryService not initialized, using fallback',
   );
   return discoverSourceFilesFallback(workspaceRoot, outputChannel, onProgress);
+}
+
+// ============================================================================
+// Internal helpers
+// ============================================================================
+
+function getDefaultExcludeGlob(): string {
+  const allDirs = [
+    ...PACKAGE_MANAGER_DIRS,
+    ...BUILD_OUTPUT_DIRS,
+    ...VENV_DIRS,
+    ...CACHE_DIRS,
+    ...VCS_IDE_DIRS,
+    ...TEST_OUTPUT_DIRS,
+    ...GENERATED_DIRS,
+  ];
+  const unique = [...new Set(allDirs)];
+  return `**/{${unique.join(',')}}/**`;
 }
 
 /**
@@ -211,7 +122,7 @@ async function discoverSourceFilesFallback(
     '**/*.php',
   ];
 
-  const explicitExclude = DirectoryExclusionService.getDefaultExcludeGlob();
+  const explicitExclude = getDefaultExcludeGlob();
   outputChannel?.appendLine(`[FileDiscovery] Using default exclusion glob (fallback)`);
 
   const maxResultsPerPattern = 10000;

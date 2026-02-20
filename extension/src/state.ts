@@ -18,8 +18,6 @@ type HistoryItem = {
 
 type ExtensionUIState = {
   activeTab: string;
-  lastValidationFiles?: string[]; // Track files validated in last smart validation
-  autoValidationEnabled?: boolean; // Track if auto-validation is enabled
 };
 
 // --- EXTENSION STATE DEFINITION ---
@@ -32,7 +30,6 @@ export type ExtensionState = {
   // (Reset on every load)
   busy: boolean;
   error?: string;
-  dependencyGraphCache?: Map<string, any>; // Cache for dependency graph data
 
   // --- Persistent State ---
   // (Saved and reloaded)
@@ -48,15 +45,12 @@ const DEFAULT_STATE: ExtensionState = {
   // Ephemeral fields are reset
   busy: false,
   error: undefined,
-  dependencyGraphCache: new Map<string, any>(),
 
   // Persistent fields have defaults
   snapshot: undefined,
   history: [],
   ui: {
     activeTab: 'overview',
-    lastValidationFiles: [],
-    autoValidationEnabled: true,
   },
 };
 

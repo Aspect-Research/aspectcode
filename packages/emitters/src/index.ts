@@ -25,11 +25,6 @@ export type { EmitReport } from './report';
 // ── Manifest ─────────────────────────────────────────────────
 
 export type { Manifest, ManifestStats } from './manifest';
-export { buildManifest, writeManifest } from './manifest';
-
-// ── Stable JSON ─────────────────────────────────────────────
-
-export { stableStringify } from './stableJson';
 
 // ── KB helpers ───────────────────────────────────────────────
 

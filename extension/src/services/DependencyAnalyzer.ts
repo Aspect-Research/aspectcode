@@ -9,14 +9,14 @@ import * as vscode from 'vscode';
 import {
   DependencyAnalyzer as CoreAnalyzer,
   type DependencyProgressCallback as CoreProgressCallback,
-  type GraphEdge,
+  type DependencyLink,
   type CoreHost,
   createNodeHost,
 } from '@aspectcode/core';
 
 //  Re-exports (backward compat) 
 
-export type DependencyLink = GraphEdge;
+export type { DependencyLink } from '@aspectcode/core';
 export type { ImportStatement, CallSite } from '@aspectcode/core';
 export type DependencyProgressCallback = CoreProgressCallback;
 

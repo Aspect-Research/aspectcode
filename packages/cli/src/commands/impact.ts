@@ -12,6 +12,7 @@ import {
   DependencyAnalyzer,
   createNodeHostForWorkspace,
 } from '@aspectcode/core';
+import { classifyFile } from '@aspectcode/emitters';
 import type { CliFlags, CommandResult } from '../cli';
 import { ExitCode } from '../cli';
 import type { AspectCodeConfig } from '../config';
@@ -19,8 +20,6 @@ import type { Logger } from '../logger';
 import { fmt, createSpinner } from '../logger';
 
 // ── Types ────────────────────────────────────────────────────
-
-type FileKind = 'app' | 'test' | 'third_party';
 
 interface ImpactSummary {
   file: string;
@@ -167,47 +166,6 @@ function outputSummary(
     }
   }
   return { exitCode: ExitCode.OK };
-}
-
-function classifyFile(absPathOrRel: string, workspaceRoot: string): FileKind {
-  const relative = rel(absPathOrRel, workspaceRoot).toLowerCase().replace(/\\/g, '/');
-
-  const thirdPartyPatterns = [
-    '/.venv/', '/venv/', '/env/', '/.tox/', '/site-packages/',
-    '/node_modules/', '/__pycache__/', '/.pytest_cache/', '/.mypy_cache/',
-    '/dist/', '/build/', '/.next/', '/.turbo/', '/coverage/',
-    '/.cache/', '/dist-packages/', '/.git/', '/.hg/',
-  ];
-  const thirdPartyPrefixes = [
-    '.venv/', 'venv/', 'env/', '.tox/', 'site-packages/',
-    'node_modules/', '__pycache__/', '.pytest_cache/', '.mypy_cache/',
-    'dist/', 'build/', '.next/', '.turbo/', 'coverage/',
-    '.cache/', 'dist-packages/', '.git/', '.hg/',
-  ];
-
-  if (
-    thirdPartyPatterns.some((p) => relative.includes(p)) ||
-    thirdPartyPrefixes.some((p) => relative.startsWith(p))
-  ) {
-    return 'third_party';
-  }
-
-  const parts = relative.split('/');
-  const filename = parts[parts.length - 1] || '';
-  if (
-    parts.some((p) => p === 'test' || p === 'tests' || p === 'spec' || p === '__tests__') ||
-    filename.startsWith('test_') ||
-    filename.endsWith('_test.py') ||
-    filename.endsWith('.test.ts') || filename.endsWith('.test.tsx') ||
-    filename.endsWith('.test.js') || filename.endsWith('.test.jsx') ||
-    filename.endsWith('.spec.ts') || filename.endsWith('.spec.tsx') ||
-    filename.endsWith('.spec.js') || filename.endsWith('.spec.jsx') ||
-    filename.includes('.spec.') || filename.includes('.test.')
-  ) {
-    return 'test';
-  }
-
-  return 'app';
 }
 
 function rel(absPath: string, workspaceRoot: string): string {
