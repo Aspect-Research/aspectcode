@@ -1,6 +1,6 @@
 {
   "name": "@aspectcode/cli",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
   "license": "MIT",
   "main": "dist/main.js",
@@ -27,6 +27,9 @@
     "static-analysis",
     "dependency-graph"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/nicobailey/aspectcode.git",
@@ -39,8 +42,8 @@
     "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "@aspectcode/core": "0.0.1",
-    "@aspectcode/emitters": "0.0.1",
+    "@aspectcode/core": "0.1.0",
+    "@aspectcode/emitters": "0.1.0",
     "chokidar": "^4.0.3"
   },
   "devDependencies": {

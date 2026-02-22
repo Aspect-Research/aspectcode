@@ -37,10 +37,14 @@ function hasTreeSitterRuntime(wasmDir: string): boolean {
  */
 export function resolveWasmDirForWorkspace(workspaceRoot: string): string | undefined {
   const candidates = [
+    // Installed via npm — parsers bundled inside @aspectcode/core
+    path.resolve(__dirname, '..', 'parsers'),
+    // Workspace-local overrides
     path.join(workspaceRoot, 'parsers'),
     path.join(workspaceRoot, 'extension', 'parsers'),
     path.join(process.cwd(), 'parsers'),
     path.join(process.cwd(), 'extension', 'parsers'),
+    // Monorepo dev layout
     path.resolve(__dirname, '../../../extension/parsers'),
     path.resolve(__dirname, '../../../../extension/parsers'),
   ];
