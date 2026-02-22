@@ -1,6 +1,6 @@
 {
   "name": "@aspectcode/core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pure-logic core for Aspect Code — no VS Code dependency",
   "license": "MIT",
   "main": "dist/index.js",

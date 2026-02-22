@@ -1,5 +1,11 @@
 # @aspectcode/core
 
+## 0.2.1
+
+### Patch Changes
+
+- [#3](https://github.com/asashepard/aspectcode/pull/3) [`711ef83`](https://github.com/asashepard/aspectcode/commit/711ef8399b9b4f8b2132398e5f812bb9c7d2530d) Thanks [@asashepard](https://github.com/asashepard)! - Fix release pipeline: mark extension as private to prevent accidental npm publish, add VSIX build and GitHub Release attachment to CI/CD.
+
 ## 0.2.0
 
 ### Minor Changes
