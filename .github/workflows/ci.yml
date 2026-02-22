@@ -78,3 +78,8 @@ jobs:
       # ---- Cross-cutting checks ----
       - name: Parser parity check
         run: node scripts/check-parser-parity.mjs
+
+      - name: Changeset version dry-run
+        run: npx changeset version 2>&1 && git checkout -- .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
