@@ -56,7 +56,7 @@ aspectcode/
 ├── packages/
 │   ├── core/        @aspectcode/core      Pure analysis engine
 │   ├── emitters/    @aspectcode/emitters   Artifact generation
-│   └── cli/         @aspectcode/cli        CLI entry point
+│   └── cli/         aspectcode             CLI entry point
 ├── extension/                              VS Code extension
 └── docs/                                   Architecture & guides
 ```

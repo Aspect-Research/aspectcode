@@ -1,5 +1,5 @@
 /**
- * @aspectcode/cli — zero-dependency logger with optional color.
+ * aspectcode CLI — zero-dependency logger with optional color.
  *
  * Respects NO_COLOR / FORCE_COLOR environment variables and --no-color flag.
  */

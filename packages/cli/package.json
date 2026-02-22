@@ -1,5 +1,5 @@
 {
-  "name": "@aspectcode/cli",
+  "name": "aspectcode",
   "version": "0.1.0",
   "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
   "license": "MIT",
@@ -27,12 +27,9 @@
     "static-analysis",
     "dependency-graph"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicobailey/aspectcode.git",
+    "url": "https://github.com/asashepard/aspectcode.git",
     "directory": "packages/cli"
   },
   "scripts": {

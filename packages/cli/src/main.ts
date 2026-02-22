@@ -1,5 +1,5 @@
 /**
- * @aspectcode/cli — main entry point.
+ * aspectcode CLI — main entry point.
  *
  * Hand-rolled argv parser (no external deps). Routes to command handlers.
  * Flag definitions live in cli.ts (FLAG_DEFS) — parseArgs and printHelp

@@ -1,5 +1,5 @@
 /**
- * @aspectcode/cli — version helper.
+ * aspectcode CLI — version helper.
  *
  * Reads the version from cli/package.json at runtime, so it stays in sync
  * without a build step.

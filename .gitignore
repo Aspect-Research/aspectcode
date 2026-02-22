@@ -89,6 +89,7 @@ AGENTS.md
 
 # GitHub Actions workflows (except release.yml)
 .github/workflows/*
+!.github/workflows/ci.yml
 !.github/workflows/release.yml
 !.github/workflows/ci-pr.yml
 !.github/workflows/nightly-cli-repos.yml

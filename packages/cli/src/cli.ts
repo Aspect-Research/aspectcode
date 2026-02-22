@@ -1,5 +1,5 @@
 /**
- * @aspectcode/cli — shared types, flag definitions, and interfaces.
+ * aspectcode CLI — shared types, flag definitions, and interfaces.
  */
 
 import type { EmitReport } from '@aspectcode/emitters';

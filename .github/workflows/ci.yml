@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Checks & Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ---- Build (dependency order) ----
+      - name: Build core
+        run: npm run build --workspace=packages/core
+
+      - name: Build emitters
+        run: npm run build --workspace=packages/emitters
+
+      - name: Build CLI
+        run: npm run build --workspace=packages/cli
+
+      # ---- Tests ----
+      - name: Test core
+        run: npm test --workspace=packages/core
+
+      - name: Test emitters
+        run: npm test --workspace=packages/emitters
+
+      - name: Test CLI
+        run: npm test --workspace=packages/cli
+
+      # ---- Extension checks ----
+      - name: Typecheck extension
+        run: npm run typecheck
+        working-directory: extension
+
+      - name: Lint extension
+        run: npm run lint
+        working-directory: extension
+
+      - name: Format check
+        run: npm run format:check
+        working-directory: extension
+
+      - name: File size limits
+        run: npm run check:filesize
+        working-directory: extension
+
+      - name: Dependency boundaries
+        run: npm run check:boundaries
+        working-directory: extension
+
+      - name: Build extension
+        run: npm run build
+        working-directory: extension
+
+      - name: Test extension CLI adapter
+        run: npm run test:integration:cli-adapter --workspace=extension
+
+      # ---- Cross-cutting checks ----
+      - name: Parser parity check
+        run: node scripts/check-parser-parity.mjs

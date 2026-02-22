@@ -24,7 +24,7 @@ Development Host.
 ```
 packages/core/        @aspectcode/core      Pure analysis (no vscode)
 packages/emitters/    @aspectcode/emitters   Artifact generation
-packages/cli/         @aspectcode/cli        CLI entry point
+packages/cli/         aspectcode             CLI entry point
 extension/                                   VS Code extension
 docs/                                        Architecture & guides
 ```
@@ -132,14 +132,17 @@ them for inspection.
 
 ## CI Test Tiers
 
-Aspect Code now uses two CI tiers for CLI reliability:
+Aspect Code uses three CI tiers:
 
+- **Main CI (`.github/workflows/ci.yml`)** — runs on every push to `main` and every PR
+  - Builds and tests all packages (core, emitters, cli)
+  - Extension typecheck, lint, format, filesize, boundaries, build
+  - Extension CLI adapter integration test
+  - Parser parity check (`extension/parsers/` ↔ `packages/core/parsers/`)
 - **PR CI (`.github/workflows/ci-pr.yml`)**
-   - Ubuntu: `packages/cli` + `packages/emitters` tests
-   - Ubuntu: extension CLI adapter integration test
-   - Windows: sandbox CLI smoke tests (`test:cli:fast`)
+  - Windows: sandbox CLI smoke tests (`test:cli:fast`)
 - **Nightly CI (`.github/workflows/nightly-cli-repos.yml`)**
-   - Windows: exhaustive multi-repo matrix (`test:cli:repos:fast`)
+  - Windows: exhaustive multi-repo matrix (`test:cli:repos:fast`)
 
 To reproduce PR CI locally:
 
@@ -152,6 +155,47 @@ To reproduce nightly multi-repo CI locally:
 ```bash
 npm run test:ci:repos
 ```
+
+## Releasing
+
+### npm packages (`@aspectcode/core`, `@aspectcode/emitters`, `aspectcode`)
+
+Versioning and publishing is automated via [changesets](https://github.com/changesets/changesets):
+
+1. On your feature branch, run `npm run changeset`. Select the affected
+   packages, choose a bump type (patch / minor / major), and write a
+   short summary. This creates a `.changeset/*.md` file — commit it with
+   your PR.
+2. When the PR merges to `main`, the Release workflow detects pending
+   changesets and opens a **"chore: version packages"** PR that bumps
+   versions, updates `CHANGELOG.md` files, and syncs internal dependency
+   versions.
+3. A maintainer reviews and merges that PR.
+4. The Release workflow runs again, sees new versions with no pending
+   changesets, and publishes to npm. GitHub Releases are created
+   automatically.
+
+To check the current changeset status: `npm run changeset:status`
+
+### VS Code extension
+
+The extension is versioned independently and published manually:
+
+```bash
+cd extension
+npx @vscode/vsce package          # produces .vsix
+npx @vscode/vsce publish          # publishes to Marketplace
+```
+
+### Parser WASM files
+
+Tree-sitter WASM files exist in two places:
+- `extension/parsers/` — shipped inside the VSIX
+- `packages/core/parsers/` — shipped inside the npm package
+
+These must always be identical. CI enforces this via
+`node scripts/check-parser-parity.mjs`. When updating parsers, copy the
+files to both directories.
 
 ## What to Work On
 

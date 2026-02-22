@@ -55,11 +55,11 @@ extension/src/
 ```
 ┌──────────────────────────────────────────────────┐
 │  extension/  (VS Code thin wrapper)              │
-│  Commands, lifecycle, watchers, status bar        │──▶ @aspectcode/cli (subprocess)
+│  Commands, lifecycle, watchers, status bar        │──▶ aspectcode (subprocess)
 │  CLI-first with in-process fallback              │──▶ @aspectcode/core (fallback)
 │                                                  │──▶ @aspectcode/emitters (fallback)
 ├──────────────────────────────────────────────────┤
-│  packages/cli/  (@aspectcode/cli)                │
+│  packages/cli/  (aspectcode)                     │
 │  init, generate, watch, impact, deps list        │──▶ @aspectcode/core
 │                                                  │──▶ @aspectcode/emitters
 ├──────────────────────────────────────────────────┤
@@ -76,7 +76,7 @@ extension/src/
 Packages that now exist and are functional:
 - **`@aspectcode/core`** — `analyzeRepo()`, `analyzeRepoWithDependencies()`, `discoverFiles()`, `DependencyAnalyzer`, tree-sitter grammars
 - **`@aspectcode/emitters`** — `runEmitters()`, KB emitter, instructions emitter, manifest, transactions
-- **`@aspectcode/cli`** — `aspectcode init`, `aspectcode generate`, `aspectcode watch`, `aspectcode impact`, `aspectcode deps list`
+- **`aspectcode`** — `aspectcode init`, `aspectcode generate`, `aspectcode watch`, `aspectcode impact`, `aspectcode deps list`
 
 ### Phase 4 — In Progress
 
@@ -177,7 +177,7 @@ All tests run offline. No network access required.
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 11 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 79 | KB, instructions, manifest, transaction |
-| `@aspectcode/cli` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
+| `aspectcode` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
 | Extension | mocha + ts-node | 10 | KB invariant + shared analysis tests |
 
 Run all: `npm test --workspaces`

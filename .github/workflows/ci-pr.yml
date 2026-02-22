@@ -8,35 +8,6 @@ permissions:
   contents: read
 
 jobs:
-  cli-and-emitters-tests:
-    name: CLI + Emitters tests (Ubuntu)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build core/emitters/cli
-        run: npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/cli
-
-      - name: Test CLI package
-        run: npm test --workspace=packages/cli
-
-      - name: Test emitters package
-        run: npm test --workspace=packages/emitters
-
-      - name: Test extension CLI adapter integration
-        run: npm run test:integration:cli-adapter --workspace=extension
-
   cli-sandbox-smoke:
     name: CLI sandbox smoke (Windows)
     runs-on: windows-latest

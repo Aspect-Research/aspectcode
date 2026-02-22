@@ -24,7 +24,7 @@ aspectcode/                         ← npm workspaces root
 ├── packages/
 │   ├── core/       @aspectcode/core      Pure analysis (no vscode)
 │   ├── emitters/   @aspectcode/emitters  Artifact generation
-│   └── cli/        @aspectcode/cli       CLI entry point
+│   └── cli/        aspectcode            CLI entry point (npm package)
 ├── extension/                            VS Code extension (thin adapter)
 └── docs/                                 This file, guides
 ```
@@ -33,7 +33,7 @@ aspectcode/                         ← npm workspaces root
 
 ```
   ┌────────────┐
-  │  extension  │──calls──▶ @aspectcode/cli (subprocess, preferred)
+  │  extension  │──calls──▶ aspectcode (subprocess, preferred)
   │  (VS Code)  │──uses──▶ @aspectcode/core (in-process fallback)
   │             │──uses──▶ @aspectcode/emitters (in-process fallback)
   └─────────────┘
@@ -95,7 +95,7 @@ stats. No `vscode` import. Target: ES2020 / CommonJS.
 Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
 `AssistantFlags`, `InstructionsMode`.
 
-### @aspectcode/cli
+### aspectcode (CLI)
 
 Node.js command-line interface. Depends on both `core` and `emitters`.
 No external command framework — hand-rolled argv parser.
@@ -206,7 +206,7 @@ User action (click / save / idle)
 
 CLI resolution order in `CliAdapter.resolveCliBin()`:
 1. Workspace-local: `<root>/packages/cli/bin/aspectcode.js`
-2. npm resolve: `require.resolve('@aspectcode/cli/bin/aspectcode.js')`
+2. npm resolve: `require.resolve('aspectcode/bin/aspectcode.js')`
 3. Global PATH: `aspectcode`
 
 ---
@@ -268,7 +268,7 @@ This keeps extension changes low-risk while command behavior stabilizes.
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 11 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 79 | KB, instructions, manifest, transaction |
-| `@aspectcode/cli` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
+| `aspectcode` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
 | Extension | mocha + ts-node | 10 | KB invariant + shared analysis tests |
 
 All tests are offline. Temp directories via `os.tmpdir()`, fixed

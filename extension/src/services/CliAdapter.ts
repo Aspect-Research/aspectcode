@@ -1,5 +1,5 @@
 /**
- * CLI process adapter — runs @aspectcode/cli as a subprocess.
+ * CLI process adapter — runs aspectcode as a subprocess.
  *
  * The extension delegates heavy lifting to the CLI so that all analysis,
  * detection, and artifact generation logic lives in shared packages. This
@@ -83,7 +83,7 @@ function resolveCliBin(workspaceRoot: string): { node: string; script: string } 
 
   // 2. Try resolving from node_modules (npm link / workspace hoisting)
   try {
-    const resolved = require.resolve('@aspectcode/cli/bin/aspectcode.js');
+    const resolved = require.resolve('aspectcode/bin/aspectcode.js');
     return { node: process.execPath, script: resolved };
   } catch {
     // Not installed.

@@ -1,5 +1,5 @@
 /**
- * @aspectcode/cli — config file handling.
+ * aspectcode CLI — config file handling.
  *
  * The CLI looks for `aspectcode.json` in the workspace root.
  * This replaces the extension's `.aspect/.settings.json`.

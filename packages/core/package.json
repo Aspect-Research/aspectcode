@@ -14,7 +14,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nicobailey/aspectcode.git",
+    "url": "https://github.com/asashepard/aspectcode.git",
     "directory": "packages/core"
   },
   "scripts": {

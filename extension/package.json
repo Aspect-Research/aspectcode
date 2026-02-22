@@ -1,5 +1,5 @@
 {
-  "name": "aspectcode",
+  "name": "aspectcode-vscode",
   "displayName": "Aspect Code",
   "description": "AI-powered static analysis with Tree-sitter for AI assistant integration",
   "version": "0.1.4",
