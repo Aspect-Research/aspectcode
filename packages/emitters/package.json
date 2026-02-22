@@ -1,11 +1,13 @@
 {
   "name": "@aspectcode/emitters",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Artifact emitters for Aspect Code — KB, instructions, manifest",
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "engines": {
     "node": ">=18"
   },
@@ -24,7 +26,7 @@
     "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "@aspectcode/core": "0.1.0"
+    "@aspectcode/core": "0.2.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

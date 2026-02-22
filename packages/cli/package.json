@@ -1,6 +1,6 @@
 {
   "name": "aspectcode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
   "license": "MIT",
   "main": "dist/main.js",
@@ -39,8 +39,8 @@
     "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "@aspectcode/core": "0.1.0",
-    "@aspectcode/emitters": "0.1.0",
+    "@aspectcode/core": "0.2.0",
+    "@aspectcode/emitters": "0.2.0",
     "chokidar": "^4.0.3"
   },
   "devDependencies": {
