@@ -17,6 +17,7 @@ import {
   initFileDiscoveryService,
   disposeFileDiscoveryService,
 } from './services/FileDiscoveryService';
+import { detectAssistants } from './assistants/detection';
 
 // ============================================================================
 // Module-level state
@@ -26,7 +27,10 @@ const diag = vscode.languages.createDiagnosticCollection('aspectcode');
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
 let workspaceFingerprint: WorkspaceFingerprint | null = null;
-const EXTENSION_VERSION = '0.0.1';
+
+/** Status bar visual states. */
+type StatusBarState = 'uninitialized' | 'fresh' | 'stale' | 'disabled';
+let currentStatusBarState: StatusBarState = 'uninitialized';
 
 export function getWorkspaceFingerprint(): WorkspaceFingerprint | null {
   return workspaceFingerprint;
@@ -37,6 +41,143 @@ async function getWorkspaceRoot(): Promise<string | undefined> {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
+/**
+ * Read the extension version from package.json at runtime so the fingerprint
+ * version-mismatch detection actually works.
+ */
+function getExtensionVersion(context: vscode.ExtensionContext): string {
+  try {
+    return (context.extension.packageJSON as { version?: string }).version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+// ============================================================================
+// Status Bar
+// ============================================================================
+
+/**
+ * Update the status bar icon, tooltip, and command to reflect extension state.
+ */
+async function updateStatusBar(): Promise<void> {
+  if (!statusBarItem) return;
+
+  const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (!rootUri) {
+    statusBarItem.hide();
+    return;
+  }
+
+  // 1. Check enabled
+  let enabled = true;
+  try {
+    enabled = await getExtensionEnabledSetting(rootUri);
+  } catch {
+    /* default to true */
+  }
+
+  if (!enabled) {
+    currentStatusBarState = 'disabled';
+    statusBarItem.text = '$(beaker)';
+    statusBarItem.tooltip = 'Aspect Code: Disabled — click to enable';
+    statusBarItem.command = 'aspectcode.toggleExtensionEnabled';
+    statusBarItem.backgroundColor = new vscode.ThemeColor(
+      'statusBarItem.warningBackground',
+    );
+    statusBarItem.show();
+    return;
+  }
+
+  // 2. Check if .aspect/ exists
+  const detected = await detectAssistants(rootUri);
+  const hasKB = detected.has('aspectKB');
+
+  if (!hasKB) {
+    currentStatusBarState = 'uninitialized';
+    statusBarItem.text = '$(beaker)';
+    statusBarItem.tooltip = 'Aspect Code: Not configured — click to set up';
+    statusBarItem.command = 'aspectcode.configureAssistants';
+    statusBarItem.backgroundColor = undefined;
+    statusBarItem.show();
+    return;
+  }
+
+  // 3. Check staleness
+  const isStale = (await workspaceFingerprint?.isKbStale()) ?? false;
+  if (isStale) {
+    currentStatusBarState = 'stale';
+    statusBarItem.text = '$(beaker)';
+    statusBarItem.tooltip = 'Aspect Code: KB is stale — click to regenerate';
+    statusBarItem.command = 'aspectcode.generate';
+    statusBarItem.backgroundColor = new vscode.ThemeColor(
+      'statusBarItem.warningBackground',
+    );
+    statusBarItem.show();
+    return;
+  }
+
+  // 4. Fresh
+  currentStatusBarState = 'fresh';
+  statusBarItem.text = '$(beaker)';
+  statusBarItem.tooltip = 'Aspect Code: Up to date';
+  statusBarItem.command = 'aspectcode.generate';
+  statusBarItem.backgroundColor = undefined;
+  statusBarItem.show();
+}
+
+// ============================================================================
+// First-open prompt
+// ============================================================================
+
+const DISMISSED_REPOS_KEY = 'aspectcode.dismissedRepos';
+
+async function maybeShowSetupPrompt(
+  context: vscode.ExtensionContext,
+  rootUri: vscode.Uri,
+): Promise<void> {
+  // Global suppression via VS Code setting
+  const globalSuppressed = vscode.workspace
+    .getConfiguration()
+    .get<boolean>('aspectcode.suppressSetupPrompt', false);
+  if (globalSuppressed) return;
+
+  // Per-repo suppression via globalState
+  const dismissedRepos = context.globalState.get<string[]>(DISMISSED_REPOS_KEY, []);
+  const repoKey = rootUri.toString();
+  if (dismissedRepos.includes(repoKey)) return;
+
+  // Check if repo already has Aspect Code artifacts
+  const detected = await detectAssistants(rootUri);
+  if (detected.has('aspectKB')) return; // .aspect/ exists
+
+  // Also skip if aspectcode.json exists (may have been CLI-initialized)
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.joinPath(rootUri, 'aspectcode.json'));
+    return;
+  } catch {
+    /* file doesn't exist — proceed with prompt */
+  }
+
+  const action = await vscode.window.showInformationMessage(
+    'This repo doesn\'t have Aspect Code configured. Set up AI assistant context?',
+    'Set Up',
+    'Not for This Repo',
+    'Never Ask',
+  );
+
+  if (action === 'Set Up') {
+    void vscode.commands.executeCommand('aspectcode.configureAssistants');
+  } else if (action === 'Not for This Repo') {
+    const updated = [...dismissedRepos, repoKey];
+    await context.globalState.update(DISMISSED_REPOS_KEY, updated);
+  } else if (action === 'Never Ask') {
+    await vscode.workspace
+      .getConfiguration()
+      .update('aspectcode.suppressSetupPrompt', true, vscode.ConfigurationTarget.Global);
+  }
+}
+
 // ============================================================================
 // Activation
 // ============================================================================
@@ -45,10 +186,11 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize output channel
   outputChannel = vscode.window.createOutputChannel('Aspect Code');
 
-  // Create status bar item immediately on activation (icon only)
+  const extensionVersion = getExtensionVersion(context);
+  outputChannel.appendLine(`[Startup] Aspect Code v${extensionVersion}`);
+
+  // Create status bar item (updated to reflect state below)
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, -100);
-  statusBarItem.command = 'aspectcode.generateKB';
-  statusBarItem.tooltip = 'Regenerate Aspect Code Knowledge Base';
   statusBarItem.text = '$(beaker)';
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -87,7 +229,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     workspaceFingerprint = new WorkspaceFingerprint(
       workspaceRoot,
-      EXTENSION_VERSION,
+      extensionVersion,
       outputChannel,
     );
     context.subscriptions.push(workspaceFingerprint);
@@ -98,31 +240,41 @@ export async function activate(context: vscode.ExtensionContext) {
       workspaceFingerprint.setAutoRegenerateKbMode(mode);
     } catch {}
 
-    // Watch aspectcode.json for settings changes.
+    // ── Watch aspectcode.json for settings changes ──────────────────────
     const aspectSettingsWatcher = vscode.workspace.createFileSystemWatcher('**/aspectcode.json');
-    const refreshKbMode = () => {
-      void (async () => {
-        try {
-          const mode = await getAutoRegenerateKbSetting(
-            vscode.Uri.file(workspaceRoot),
-            outputChannel,
-          );
-          workspaceFingerprint?.setAutoRegenerateKbMode(mode);
-        } catch {
-          // Ignore
-        }
-      })();
+
+    const refreshFromAspectSettings = async () => {
+      try {
+        const mode = await getAutoRegenerateKbSetting(
+          vscode.Uri.file(workspaceRoot),
+          outputChannel,
+        );
+        workspaceFingerprint?.setAutoRegenerateKbMode(mode);
+      } catch {
+        /* Ignore */
+      }
+      void updateStatusBar();
     };
-    aspectSettingsWatcher.onDidChange(refreshKbMode);
-    aspectSettingsWatcher.onDidCreate(refreshKbMode);
+
+    aspectSettingsWatcher.onDidChange(() => {
+      outputChannel.appendLine('[Watcher] aspectcode.json changed');
+      void refreshFromAspectSettings();
+    });
+    aspectSettingsWatcher.onDidCreate(() => {
+      outputChannel.appendLine('[Watcher] aspectcode.json created');
+      void refreshFromAspectSettings();
+    });
     aspectSettingsWatcher.onDidDelete(() => {
+      outputChannel.appendLine('[Watcher] aspectcode.json deleted');
       workspaceFingerprint?.setAutoRegenerateKbMode('onChange');
+      void updateStatusBar();
     });
     context.subscriptions.push(aspectSettingsWatcher);
 
-    // Track staleness transitions.
+    // Track staleness transitions → update status bar.
     workspaceFingerprint.onStaleStateChanged((stale) => {
       outputChannel.appendLine(`[KB] stale=${stale}`);
+      void updateStatusBar();
     });
 
     // Set up KB regeneration callback for idle/onChange auto-regeneration
@@ -131,17 +283,15 @@ export async function activate(context: vscode.ExtensionContext) {
         const regenStart = Date.now();
         outputChannel.appendLine('[KB] Auto-regenerating KB...');
 
-        // KB generation works offline (uses local dependency analysis)
         const { regenerateEverything } = await import('./assistants/kb');
         const result = await regenerateEverything(state, outputChannel, context);
 
         if (result.regenerated) {
-          // Pass the discovered files to markKbFresh to avoid rediscovery
           await workspaceFingerprint?.markKbFresh(result.files);
-
           outputChannel.appendLine(
             `[KB] Auto-regeneration complete in ${Date.now() - regenStart}ms`,
           );
+          void updateStatusBar();
         }
       } catch (e) {
         outputChannel.appendLine(`[KB] Auto-regeneration failed: ${e}`);
@@ -158,51 +308,6 @@ export async function activate(context: vscode.ExtensionContext) {
   }
 
   // ===== CORE COMMANDS =====
-
-  // Generate/refresh KB files (.aspect/*.md) based on current state.
-  context.subscriptions.push(
-    vscode.commands.registerCommand('aspectcode.generateKB', async () => {
-      const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-      if (!rootUri) {
-        vscode.window.showWarningMessage('No workspace folder open.');
-        return;
-      }
-
-      const enabled = await getExtensionEnabledSetting(rootUri);
-      if (!enabled) {
-        vscode.window.showInformationMessage('Aspect Code is disabled.', 'Enable').then((sel) => {
-          if (sel === 'Enable')
-            void vscode.commands.executeCommand('aspectcode.toggleExtensionEnabled');
-        });
-        return;
-      }
-
-      try {
-        const regenStart = Date.now();
-        outputChannel?.appendLine('=== REGENERATE KB: Using regenerateEverything() ===');
-
-        const { regenerateEverything } = await import('./assistants/kb');
-        const result = await regenerateEverything(state, outputChannel!, context);
-
-        if (result.regenerated) {
-          await workspaceFingerprint?.markKbFresh(result.files);
-
-          outputChannel?.appendLine(
-            `=== REGENERATE KB: Complete (${Date.now() - regenStart}ms) ===`,
-          );
-          vscode.window.showInformationMessage('Knowledge base regenerated successfully.');
-        } else {
-          outputChannel?.appendLine('=== REGENERATE KB: Skipped (.aspect/ not yet created) ===');
-          vscode.window.showInformationMessage(
-            'Knowledge base not yet initialized. Run "Aspect Code: Configure AI Assistants" first.',
-          );
-        }
-      } catch (e) {
-        outputChannel?.appendLine(`REGENERATE KB ERROR: ${e}`);
-        vscode.window.showErrorMessage(`KB regeneration failed: ${e}`);
-      }
-    }),
-  );
 
   // Copy a short impact summary for the current file to clipboard.
   context.subscriptions.push(
@@ -236,7 +341,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
       if (!summary) {
         vscode.window.showWarningMessage(
-          'Impact analysis unavailable. Try running "Aspect Code: Examine" first.',
+          'Impact analysis unavailable. Try running "Aspect Code: Generate" first.',
         );
         return;
       }
@@ -352,8 +457,17 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(diag, outputChannel);
 
-  // Activate command handlers
-  activateCommands(context, state, outputChannel);
+  // Activate command handlers (registers remaining commands + watchers)
+  activateCommands(context, state, outputChannel, updateStatusBar);
+
+  // Initial status bar update
+  void updateStatusBar();
+
+  // First-open prompt (delayed slightly to avoid startup noise)
+  const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+  if (rootUri) {
+    setTimeout(() => void maybeShowSetupPrompt(context, rootUri), 2000);
+  }
 }
 
 export function deactivate() {

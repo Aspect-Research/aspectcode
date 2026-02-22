@@ -53,12 +53,6 @@
         "command": "aspectcode.toggleExtensionEnabled",
         "title": "Aspect Code: Toggle Enabled"
       },
-
-      {
-        "command": "aspectcode.generateKB",
-        "title": "Aspect Code: Generate Knowledge Base",
-        "icon": "$(database)"
-      },
       {
         "command": "aspectcode.copyImpactAnalysisCurrentFile",
         "title": "Aspect Code: Copy Impact Analysis for Current File",
@@ -70,21 +64,9 @@
         "icon": "$(sparkle)"
       },
       {
-        "command": "aspectcode.generateInstructionFiles",
-        "title": "Aspect Code: Generate Instruction Files",
+        "command": "aspectcode.generate",
+        "title": "Aspect Code: Generate",
         "icon": "$(book)"
-      },
-      {
-        "command": "aspectcode.stopIgnoringGeneratedFiles",
-        "title": "Aspect Code: Stop ignoring generated files"
-      },
-      {
-        "command": "aspectcode.enableSafeMode",
-        "title": "Aspect Code: Enable Safe Mode"
-      },
-      {
-        "command": "aspectcode.copyKbReceiptPrompt",
-        "title": "Aspect Code: Copy KB Receipt Prompt"
       }
     ],
     "configuration": {
@@ -95,13 +77,12 @@
           "type": "string",
           "enum": ["manual", "onChange", "idle"],
           "default": "onChange",
-          "description": "Auto-regenerate KB files: 'manual' = command only, 'onChange' = regenerate on file changes (debounced), 'idle' = regenerate after 30s of inactivity"
+          "description": "Auto-regeneration mode for KB files. When aspectcode.json exists in the project root its 'updateRate' field takes precedence; this VS Code setting is used as the fallback."
         },
-        "aspectcode.instructions.mode": {
-          "type": "string",
-          "enum": ["safe"],
-          "default": "safe",
-          "description": "Instruction generation mode (safe-only)."
+        "aspectcode.suppressSetupPrompt": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, Aspect Code will never prompt you to set up new repositories. Individual repos can also be dismissed from the prompt itself."
         },
         "aspectcode.devLogs": {
           "type": "boolean",
