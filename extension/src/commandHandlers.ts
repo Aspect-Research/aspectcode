@@ -487,8 +487,9 @@ async function handleGenerate(
     // generic success toast so VS Code doesn't stack two competing notifications.
     // workspaceState so each repo gets the prompt once (not global forever).
     const UPDATE_RATE_PROMPTED_KEY = 'aspectcode.updateRatePrompted';
+    // eslint-disable-next-line eqeqeq -- intentional: != null checks both null and undefined
     const isFirstGeneration =
-      context !== null && !context.workspaceState.get<boolean>(UPDATE_RATE_PROMPTED_KEY, false);
+      context != null && !context.workspaceState.get<boolean>(UPDATE_RATE_PROMPTED_KEY, false);
 
     if (isFirstGeneration) {
       await context.workspaceState.update(UPDATE_RATE_PROMPTED_KEY, true);
