@@ -9,7 +9,7 @@
   on exit.
 
   This is the recommended way for humans and agents to manually exercise
-  the CLI during development - it prevents .aspect/ and AGENTS.md from
+  the CLI during development - it prevents kb.md and AGENTS.md from
   being written to the repo root.
 
 .PARAMETER SkipCleanup
@@ -100,33 +100,28 @@ if (-not $SkipBuild) {
 }))
 
 [void]$results.Add((Invoke-Step -Name 'CLI generate (--root sandbox --out _out)' -Action {
-  & node $cliBin generate --root $sandboxRoot --out $sandboxOut --quiet
+  & node $cliBin generate --kb --root $sandboxRoot --out $sandboxOut --quiet
   if ($LASTEXITCODE -ne 0) { throw 'generate failed' }
 }))
 
-[void]$results.Add((Invoke-Step -Name 'Verify .aspect/ in sandbox output' -Action {
-  $aspectDir = Join-Path $sandboxOut '.aspect'
-  if (-not (Test-Path $aspectDir)) {
-    throw ".aspect/ not found in sandbox output: $aspectDir"
+[void]$results.Add((Invoke-Step -Name 'Verify kb.md in sandbox output' -Action {
+  $kbFile = Join-Path $sandboxOut 'kb.md'
+  if (-not (Test-Path $kbFile)) {
+    throw "kb.md not found in sandbox output: $kbFile"
   }
-  $files = Get-ChildItem -Path $aspectDir -File
-  if ($files.Count -eq 0) {
-    throw ".aspect/ directory is empty"
-  }
-  Write-Host "  Found $($files.Count) file(s) in .aspect/" -ForegroundColor Gray
-  $files | ForEach-Object { Write-Host "    $($_.Name)" -ForegroundColor Gray }
+  Write-Host "  Found kb.md" -ForegroundColor Gray
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Verify repo root is clean' -Action {
-  $repoAspect = Join-Path $repoRoot '.aspect'
+  $repoKb = Join-Path $repoRoot 'kb.md'
   $repoAgents = Join-Path $repoRoot 'AGENTS.md'
-  if (Test-Path $repoAspect) {
-    throw "POLLUTION: .aspect/ exists at repo root: $repoAspect"
+  if (Test-Path $repoKb) {
+    throw "POLLUTION: kb.md exists at repo root: $repoKb"
   }
   if (Test-Path $repoAgents) {
     throw "POLLUTION: AGENTS.md exists at repo root: $repoAgents"
   }
-  Write-Host "  Repo root is clean (no .aspect/, no AGENTS.md)" -ForegroundColor Gray
+  Write-Host "  Repo root is clean (no kb.md, no AGENTS.md)" -ForegroundColor Gray
 }))
 
 [void]$results.Add((Invoke-Step -Name 'CLI generate --json (--root sandbox --out _out)' -Action {
@@ -143,10 +138,10 @@ if (-not $SkipBuild) {
   Write-Host "  JSON parsed OK" -ForegroundColor Gray
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI impact (--root sandbox)' -Action {
+[void]$results.Add((Invoke-Step -Name 'CLI deps impact (--root sandbox)' -Action {
   $targetFile = 'src\app.ts'
-  & node $cliBin impact --root $sandboxRoot --file $targetFile --quiet 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "impact --file $targetFile failed" }
+  & node $cliBin deps impact --root $sandboxRoot --file $targetFile --quiet 2>&1 | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "deps impact --file $targetFile failed" }
 }))
 
 [void]$results.Add((Invoke-Step -Name 'CLI deps list (--root sandbox)' -Action {
@@ -166,10 +161,10 @@ if (-not $SkipBuild) {
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Final repo-root cleanliness check' -Action {
-  $repoAspect = Join-Path $repoRoot '.aspect'
+  $repoKb = Join-Path $repoRoot 'kb.md'
   $repoAgents = Join-Path $repoRoot 'AGENTS.md'
-  if (Test-Path $repoAspect) {
-    throw "POLLUTION: .aspect/ exists at repo root after all tests"
+  if (Test-Path $repoKb) {
+    throw "POLLUTION: kb.md exists at repo root after all tests"
   }
   if (Test-Path $repoAgents) {
     throw "POLLUTION: AGENTS.md exists at repo root after all tests"

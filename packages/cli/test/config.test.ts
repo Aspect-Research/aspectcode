@@ -39,7 +39,6 @@ describe('config', () => {
     const d = defaultConfig();
     assert.equal(d.instructionsMode, 'safe');
     assert.equal(d.updateRate, 'onChange');
-    assert.equal(d.outDir, undefined);
   });
 
   it('maps legacy autoRegenerateKb values to updateRate', () => {

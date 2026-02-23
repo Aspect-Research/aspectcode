@@ -72,5 +72,5 @@ export type { ContextEmitterInput } from './contextEmitter';
 
 // ── KB orchestrator ──────────────────────────────────────────
 
-export { createKBEmitter } from './kbEmitter';
+export { createKBEmitter, KB_FILENAME } from './kbEmitter';
 export type { KBEmitterOptions } from './kbEmitter';

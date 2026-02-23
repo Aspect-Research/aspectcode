@@ -1,16 +1,16 @@
 # System Architecture
 
 > Source-of-truth for layering, package responsibilities, and data flow.
-> Last updated: 2026-02-13 (CLI-first migration complete, impact command added).
+> Last updated: 2026-02-13 (CLI trimmed: init removed, impact → deps impact, outDir persistence removed).
 
 ---
 
 ## Overview
 
-Aspect Code generates a project-local knowledge base (`.aspect/` directory)
+Aspect Code generates a project-local knowledge base (`kb.md`)
 that helps AI coding assistants understand a codebase before making changes.
-It produces `architecture.md`, `map.md`, `context.md`, a `manifest.json`,
-and optional assistant-specific instruction files.
+It produces a single `kb.md` file (opt-in via `--kb` flag or `generateKb` config)
+and an `AGENTS.md` instruction file.
 
 **Everything runs offline.** There are no network calls, no telemetry, no
 phone-home checks. WASM grammars ship in-repo; all analysis is local.
@@ -87,13 +87,12 @@ stats. No `vscode` import. Target: ES2020 / CommonJS.
 | `runEmitters(model, host, opts)` | Orchestrate all emitters → `EmitReport` |
 | `createNodeEmitterHost()` | Node fs-backed `EmitterHost` |
 | `createKBEmitter()` | KB content builder (architecture/map/context) |
-| `createInstructionsEmitter()` | Assistant instruction file manager |
+| `createInstructionsEmitter()` | AGENTS.md instruction file emitter |
 | `stableStringify(value)` | Deterministic JSON (sorted keys) |
 | `GenerationTransaction` | Atomic writes — temp files → rename, manifest last |
-| `detectAssistants(host, root)` | Detect installed AI assistants by config files |
 
 Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
-`AssistantFlags`, `InstructionsMode`.
+`InstructionsMode`.
 
 ### aspectcode (CLI)
 
@@ -102,21 +101,18 @@ No external command framework — hand-rolled argv parser.
 
 | Command | Purpose | Output mode |
 |---------|---------|-------------|
-| `aspectcode init` | Create `aspectcode.json` config file | human-readable |
 | `aspectcode generate` | Discover → analyze → emit (full pipeline) | human-readable by default, JSON with `--json`; dependency output can be scoped by `--file` |
 | `aspectcode watch` | Watch files and trigger `generate` by mode | long-running process |
-| `aspectcode impact` | Compute dependency impact for a single file | human-readable by default, JSON with `--json` |
 | `aspectcode deps list` | Compute and list dependency connections only | human-readable; supports `--file` filter |
+| `aspectcode deps impact` | Compute dependency impact for a single file | human-readable by default, JSON with `--json` |
 | `aspectcode show-config` | Print current `aspectcode.json` values | human-readable by default, JSON with `--json` |
 | `aspectcode set-update-rate` | Set canonical `updateRate` and remove legacy key | human-readable by default, JSON with `--json` |
-| `aspectcode set-out-dir` / `clear-out-dir` | Set or clear `outDir` | human-readable by default, JSON with `--json` |
 | `aspectcode add-exclude` / `remove-exclude` | Add or remove entries in `exclude` | human-readable by default, JSON with `--json` |
 
 Key flags:
 - Global-ish: `--root`, `--verbose`, `--quiet`, `--help`, `--version`
-- `init`: `--force`
-- `generate`: `--out`, `--list-connections`, `--json`, `--file`, `--kb-only`, `--copilot`, `--cursor`, `--claude`, `--other`, `--instructions-mode`
-- `impact`: `--file` (required), `--json`
+- `generate`: `--out`, `--list-connections`, `--json`, `--file`, `--kb-only`, `--instructions-mode`
+- `deps impact`: `--file` (required), `--json`
 - `deps list`: `--file` (connection filtering)
 - `watch`: `--mode` (`manual|onChange|idle`)
 - settings commands: positional value where required, `--json`
@@ -152,8 +148,7 @@ aspectcode generate
   ├─ 2. fs.readFileSync each file        Node built-in
   ├─ 3. analyzeRepo(root, fileMap)        @aspectcode/core  (sync)
   └─ 4. runEmitters(model, host, opts)    @aspectcode/emitters
-       ├─ KB emitter → .aspect/{architecture,map,context}.md
-       ├─ Manifest writer → .aspect/manifest.json
+       ├─ KB emitter → kb.md (when --kb or generateKb: true)
        └─ Instructions emitter → AGENTS.md
 ```
 
@@ -194,13 +189,13 @@ User action (click / save / idle)
   │           └─ runEmitters(model, vscodeHost)       @aspectcode/emitters
   │
   ├─ emitInstructionFilesOnlyViaEmitters()   commandHandlers.ts
-  │   ├─ TRY: cliGenerateWithInstructions(root, assistants)
-  │   │   (spawns: aspectcode generate --json --copilot --cursor …)
+  │   ├─ TRY: cliGenerateWithInstructions(root)
+  │   │   (spawns: aspectcode generate --json)
   │   └─ FALLBACK: createInstructionsEmitter().emit()
   │
   └─ computeImpactSummaryForFile()     extension/src/assistants/kb.ts
-      ├─ TRY: cliImpact(root, relPath)
-      │   (spawns: aspectcode impact --file <path> --json)
+      ├─ TRY: cliDepsImpact(root, relPath)
+      │   (spawns: aspectcode deps impact --file <path> --json)
       └─ FALLBACK: DependencyAnalyzer in-process
 ```
 
@@ -215,14 +210,8 @@ CLI resolution order in `CliAdapter.resolveCliBin()`:
 
 | File | Source | Content |
 |------|--------|---------|
-| `.aspect/architecture.md` | KB emitter | Hub files, directory tree, entry points |
-| `.aspect/map.md` | KB emitter | Data models, symbol index, conventions |
-| `.aspect/context.md` | KB emitter | Module clusters, integrations, data flow |
-| `.aspect/manifest.json` | Manifest writer | Schema version, stats, file list |
-| `.github/copilot-instructions.md` | Instructions emitter | Copilot rules (marker-wrapped) |
-| `.cursor/rules/aspect.mdc` | Instructions emitter | Cursor rules |
-| `CLAUDE.md` | Instructions emitter | Claude rules |
-| `AGENTS.md` | Instructions emitter | Generic agent rules |
+| `kb.md` | KB emitter | Architecture, map, context sections (opt-in) |
+| `AGENTS.md` | Instructions emitter | Agent rules (marker-wrapped) |
 
 Instruction files use `<!-- ASPECT_CODE_START -->` / `<!-- ASPECT_CODE_END -->`
 markers. User content outside the markers is preserved on regeneration.
@@ -268,7 +257,7 @@ This keeps extension changes low-risk while command behavior stabilizes.
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 11 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 79 | KB, instructions, manifest, transaction |
-| `aspectcode` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
+| `aspectcode` | mocha + ts-node | 44 | parseArgs, config, generate, deps, impact, settings, watch |
 | Extension | mocha + ts-node | 10 | KB invariant + shared analysis tests |
 
 All tests are offline. Temp directories via `os.tmpdir()`, fixed
@@ -302,11 +291,11 @@ npm test --workspaces
 
 **Done:**
 1. ✅ CLI test coverage expanded (49 tests covering all commands/flags).
-2. ✅ New CLI flags: `--kb-only`, `--copilot`, `--cursor`, `--claude`, `--other`, `--instructions-mode`.
-3. ✅ New CLI command: `aspectcode impact --file <path> --json`.
-4. ✅ Extension spawns CLI for KB generation (`generate --json --kb-only`).
-5. ✅ Extension spawns CLI for instructions (`generate --json --copilot …`).
-6. ✅ Extension spawns CLI for impact (`impact --file <path> --json`).
+2. ✅ New CLI flags: `--kb-only`, `--instructions-mode`.
+4. ✅ New CLI command: `aspectcode deps impact --file <path> --json`.
+5. ✅ Extension spawns CLI for KB generation (`generate --json --kb-only`).
+6. ✅ Extension spawns CLI for instructions (`generate --json`).
+7. ✅ Extension spawns CLI for impact (`deps impact --file <path> --json`).
 7. ✅ `CliAdapter.ts` with hybrid resolution (local → npm → PATH).
 
 **Remaining:**

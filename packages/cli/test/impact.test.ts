@@ -1,12 +1,12 @@
 /**
- * Tests for `aspectcode impact` command.
+ * Tests for `aspectcode deps impact` command.
  */
 
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { runImpact } from '../src/commands/impact';
+import { runDepsImpact } from '../src/commands/deps';
 import type { CliFlags, CommandContext } from '../src/cli';
 import { createLogger } from '../src/logger';
 
@@ -18,12 +18,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     quiet: true,
     listConnections: false,
     json: false,
-    force: false,
     kbOnly: false,
-    copilot: false,
-    cursor: false,
-    claude: false,
-    other: false,
+    kb: false,
     noColor: false,
     ...overrides,
   };
@@ -59,18 +55,18 @@ describe('impact command', () => {
   });
 
   it('returns USAGE when --file is not provided', async () => {
-    const result = await runImpact(makeCtx(tmpDir));
+    const result = await runDepsImpact(makeCtx(tmpDir));
     assert.equal(result.exitCode, 2);
   });
 
   it('returns ERROR when target file does not exist', async () => {
-    const result = await runImpact(makeCtx(tmpDir, { file: 'nonexistent.ts' }));
+    const result = await runDepsImpact(makeCtx(tmpDir, { file: 'nonexistent.ts' }));
     assert.equal(result.exitCode, 1);
   });
 
   it('returns OK for a valid file', async () => {
     writeSourceFiles(tmpDir);
-    const result = await runImpact(makeCtx(tmpDir, { file: 'utils.ts' }));
+    const result = await runDepsImpact(makeCtx(tmpDir, { file: 'utils.ts' }));
     assert.equal(result.exitCode, 0);
   });
 
@@ -85,7 +81,7 @@ describe('impact command', () => {
     }) as typeof process.stdout.write;
 
     try {
-      const result = await runImpact(makeCtx(tmpDir, { file: 'utils.ts', json: true }));
+      const result = await runDepsImpact(makeCtx(tmpDir, { file: 'utils.ts', json: true }));
       assert.equal(result.exitCode, 0);
       const parsed = JSON.parse(output.trim());
       assert.ok(typeof parsed.file === 'string');

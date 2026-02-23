@@ -3,12 +3,8 @@
  */
 
 import * as assert from 'assert';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import type { AnalysisModel } from '@aspectcode/core';
-import { buildManifest, writeManifest } from '../src/manifest';
-import { createNodeEmitterHost } from '../src/host';
+import { buildManifest } from '../src/manifest';
 
 declare function describe(name: string, fn: () => void): void;
 declare function it(name: string, fn: () => void | Promise<void>): void;
@@ -98,42 +94,3 @@ describe('buildManifest', () => {
   });
 });
 
-describe('writeManifest', () => {
-  let tmpDir: string;
-
-  afterEach(() => {
-    if (tmpDir) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('writes manifest.json to .aspect/ directory', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-test-'));
-    const host = createNodeEmitterHost();
-    const model = makeModel();
-
-    const manifestPath = await writeManifest(model, host, tmpDir, FIXED_TIMESTAMP);
-
-    assert.ok(manifestPath.endsWith('manifest.json'));
-    assert.ok(fs.existsSync(manifestPath));
-
-    const content = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-    assert.strictEqual(content.schemaVersion, '0.1');
-    assert.strictEqual(content.stats.fileCount, 3);
-  });
-
-  it('produces byte-identical output on consecutive writes', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-test-'));
-    const host = createNodeEmitterHost();
-    const model = makeModel();
-
-    await writeManifest(model, host, tmpDir, FIXED_TIMESTAMP);
-    const manifestPath = host.join(tmpDir, '.aspect', 'manifest.json');
-    const bytes1 = fs.readFileSync(manifestPath);
-
-    await writeManifest(model, host, tmpDir, FIXED_TIMESTAMP);
-    const bytes2 = fs.readFileSync(manifestPath);
-
-    assert.ok(bytes1.equals(bytes2), 'manifest should be byte-identical on consecutive writes');
-  });
-});

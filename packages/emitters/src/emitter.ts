@@ -11,16 +11,8 @@ import type { EmitterHost } from './host';
 
 // ── Options ──────────────────────────────────────────────────
 
-/** Flags controlling which assistant instruction files to emit. */
-export interface AssistantFlags {
-  copilot?: boolean;
-  cursor?: boolean;
-  claude?: boolean;
-  other?: boolean;
-}
-
 /** Mode for instruction content generation. */
-export type InstructionsMode = 'safe' | 'permissive' | 'custom' | 'off';
+export type InstructionsMode = 'safe' | 'permissive' | 'off';
 
 /** Options passed to every emitter. */
 export interface EmitOptions {
@@ -44,14 +36,19 @@ export interface EmitOptions {
    */
   generatedAt?: string;
 
-  /** Which assistant instruction files to generate. */
-  assistants?: AssistantFlags;
-
   /** Instruction content mode. */
   instructionsMode?: InstructionsMode;
 
   /** Pre-loaded file contents (avoids re-reading from disk). */
   fileContents?: Map<string, string>;
+
+  /**
+   * Whether to generate the KB file (`kb.md`).
+   *
+   * Defaults to `false`. When `false`, only instruction files are emitted.
+   * Set to `true` to generate the knowledge base.
+   */
+  generateKb?: boolean;
 }
 
 // ── Result ───────────────────────────────────────────────────

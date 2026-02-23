@@ -60,7 +60,7 @@ extension/src/
 │                                                  │──▶ @aspectcode/emitters (fallback)
 ├──────────────────────────────────────────────────┤
 │  packages/cli/  (aspectcode)                     │
-│  init, generate, watch, impact, deps list        │──▶ @aspectcode/core
+│  generate, watch, deps list, deps impact         │──▶ @aspectcode/core
 │                                                  │──▶ @aspectcode/emitters
 ├──────────────────────────────────────────────────┤
 │  packages/emitters/  (@aspectcode/emitters)      │
@@ -76,7 +76,7 @@ extension/src/
 Packages that now exist and are functional:
 - **`@aspectcode/core`** — `analyzeRepo()`, `analyzeRepoWithDependencies()`, `discoverFiles()`, `DependencyAnalyzer`, tree-sitter grammars
 - **`@aspectcode/emitters`** — `runEmitters()`, KB emitter, instructions emitter, manifest, transactions
-- **`aspectcode`** — `aspectcode init`, `aspectcode generate`, `aspectcode watch`, `aspectcode impact`, `aspectcode deps list`
+- **`aspectcode`** — `aspectcode generate`, `aspectcode watch`, `aspectcode deps list`, `aspectcode deps impact`
 
 ### Phase 4 — In Progress
 
@@ -87,21 +87,19 @@ CLI is unavailable. Three operations use this pattern today:
 | Operation | CLI command | Fallback |
 |-----------|-------------|----------|
 | KB generation | `aspectcode generate --json --kb-only` | `analyzeRepoWithDependencies()` + `runEmitters()` |
-| Instructions | `aspectcode generate --json --copilot …` | `createInstructionsEmitter().emit()` |
-| Impact analysis | `aspectcode impact --file <path> --json` | `DependencyAnalyzer` in-process |
+| Instructions | `aspectcode generate --json` | `createInstructionsEmitter().emit()` |
+| Impact analysis | `aspectcode deps impact --file <path> --json` | `DependencyAnalyzer` in-process |
 
 ### CLI behavior baseline (must stay tested)
 
-- `aspectcode init` writes default `aspectcode.json` (safe mode + `updateRate: onChange`).
-- `aspectcode generate` writes KB/instruction artifacts.
+- `aspectcode generate` writes KB/instruction artifacts; settings commands auto-create `aspectcode.json` when missing.
 - `aspectcode generate --json` emits machine-readable write stats + connections.
 - `aspectcode generate --list-connections` prints dependency connections.
 - `aspectcode generate --json --file <path>` or `--list-connections --file <path>` filters connections to one workspace file.
 - `aspectcode generate --kb-only` generates KB artifacts only (skips instruction files).
-- `aspectcode generate --copilot --cursor --claude --other` selects which instruction files to emit.
 - `aspectcode generate --instructions-mode safe|permissive|off` controls instruction content mode.
-- `aspectcode impact --file <path>` computes dependency impact for a single file.
-- `aspectcode impact --file <path> --json` emits machine-readable impact JSON.
+- `aspectcode deps impact --file <path>` computes dependency impact for a single file.
+- `aspectcode deps impact --file <path> --json` emits machine-readable impact JSON.
 - `aspectcode watch` runs as a long-lived watcher and regenerates by mode (`onChange`/`idle`/`manual`).
 - `aspectcode deps list` prints dependency connections without artifact generation, and supports `--file <path>` filtering.
 - Legacy config compatibility is preserved (`autoRegenerateKb` mapping).
@@ -177,7 +175,7 @@ All tests run offline. No network access required.
 |---------|--------|-------|-------|
 | `@aspectcode/core` | mocha + ts-node | 11 | Snapshot tests against fixture repo |
 | `@aspectcode/emitters` | mocha + ts-node | 79 | KB, instructions, manifest, transaction |
-| `aspectcode` | mocha + ts-node | 49 | parseArgs, config, init, generate, deps, watch |
+| `aspectcode` | mocha + ts-node | 44 | parseArgs, config, generate, deps, impact, settings, watch |
 | Extension | mocha + ts-node | 10 | KB invariant + shared analysis tests |
 
 Run all: `npm test --workspaces`

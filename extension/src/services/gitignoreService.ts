@@ -1,9 +1,8 @@
 /**
  * Gitignore Service for Aspect Code
  *
- * Manages .gitignore entries for Aspect Code generated files.
- * Each target file (e.g., .aspect/, AGENTS.md, CLAUDE.md) is managed separately
- * with user opt-in stored in .aspect/.settings.json
+ * Manages .gitignore entries for Aspect Code generated files (kb.md, AGENTS.md).
+ * Each target file is managed separately with user opt-in stored in aspectcode.json
  *
  * Design principles:
  * - Opt-in per file: user is prompted for each target file separately
@@ -31,11 +30,8 @@ const ASPECT_CODE_BLOCK_START = '# Aspect Code (local AI context)';
  * (The GitignoreTarget is already the pattern itself, but we keep this for clarity)
  */
 const TARGET_TO_PATTERN: Record<GitignoreTarget, string> = {
-  '.aspect/': '.aspect/',
+  'kb.md': 'kb.md',
   'AGENTS.md': 'AGENTS.md',
-  'CLAUDE.md': 'CLAUDE.md',
-  '.github/copilot-instructions.md': '.github/copilot-instructions.md',
-  '.cursor/rules/aspectcode.mdc': '.cursor/rules/aspectcode.mdc',
 };
 
 /**
@@ -153,21 +149,8 @@ function isManagedEntryLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return true; // allow blank lines within the block
   const lower = trimmed.toLowerCase();
-  // All entries we manage (includes new entries for opt-in system)
-  return (
-    lower === '.aspect/' ||
-    lower === '.aspect' ||
-    lower === '/.aspect/' ||
-    lower === '/.aspect' ||
-    lower === 'agents.md' ||
-    lower === '/agents.md' ||
-    lower === 'claude.md' ||
-    lower === '/claude.md' ||
-    lower === '.github/copilot-instructions.md' ||
-    lower === '/.github/copilot-instructions.md' ||
-    lower === '.cursor/rules/aspectcode.mdc' ||
-    lower === '/.cursor/rules/aspectcode.mdc'
-  );
+  // All entries we manage
+  return lower === 'kb.md' || lower === '/kb.md' || lower === 'agents.md' || lower === '/agents.md';
 }
 
 function findAspectCodeBlockEnd(lines: string[], startIndex: number): number {
@@ -198,7 +181,7 @@ export interface EnsureGitignoreForTargetResult {
 /**
  * Ensures a specific target is added to .gitignore, with opt-in prompt.
  *
- * This function checks the user's preference stored in .aspect/.settings.json.
+ * This function checks the user's preference stored in aspectcode.json.
  * If no preference exists, it prompts the user.
  * If user agrees, it adds the entry to .gitignore.
  *
@@ -357,20 +340,15 @@ export async function ensureGitignoreForTarget(
  */
 function getTargetInfo(target: GitignoreTarget): IgnoreTarget {
   switch (target) {
-    case '.aspect/':
-      return { kind: 'dir', name: '.aspect' };
+    case 'kb.md':
+      return { kind: 'file', name: 'kb.md' };
     case 'AGENTS.md':
       return { kind: 'file', name: 'AGENTS.md' };
-    case 'CLAUDE.md':
-      return { kind: 'file', name: 'CLAUDE.md' };
-    case '.github/copilot-instructions.md':
-      return { kind: 'file', name: '.github/copilot-instructions.md' };
-    case '.cursor/rules/aspectcode.mdc':
-      return { kind: 'file', name: '.cursor/rules/aspectcode.mdc' };
-    default:
-      // Exhaustive check - should never reach here
+    default: {
+      // Exhaustive check
       const _exhaustive: never = target;
       throw new Error(`Unknown target: ${_exhaustive}`);
+    }
   }
 }
 

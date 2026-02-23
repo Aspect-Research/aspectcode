@@ -323,7 +323,7 @@ describe('createKBEmitter', () => {
     assert.equal(emitter.name, 'aspect-kb');
   });
 
-  it('writes three KB files to .aspect/ directory', async () => {
+  it('writes a single kb.md file', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-kb-test-'));
     const host = createNodeEmitterHost();
     const model = makeModel();
@@ -356,25 +356,19 @@ describe('createKBEmitter', () => {
       fileContents,
     });
 
-    assert.equal(result.filesWritten.length, 3, 'Should write 3 files');
+    assert.equal(result.filesWritten.length, 1, 'Should write 1 file');
 
-    // Verify files exist on disk
-    const archPath = path.join(tmpDir, '.aspect', 'architecture.md');
-    const mapPath = path.join(tmpDir, '.aspect', 'map.md');
-    const ctxPath = path.join(tmpDir, '.aspect', 'context.md');
+    // Verify kb.md exists on disk
+    const kbPath = path.join(tmpDir, 'kb.md');
 
-    assert.ok(fs.existsSync(archPath), 'architecture.md should exist');
-    assert.ok(fs.existsSync(mapPath), 'map.md should exist');
-    assert.ok(fs.existsSync(ctxPath), 'context.md should exist');
+    assert.ok(fs.existsSync(kbPath), 'kb.md should exist');
 
-    // Verify content starts with correct headings
-    const archContent = fs.readFileSync(archPath, 'utf-8');
-    const mapContent = fs.readFileSync(mapPath, 'utf-8');
-    const ctxContent = fs.readFileSync(ctxPath, 'utf-8');
+    // Verify content contains all sections
+    const kbContent = fs.readFileSync(kbPath, 'utf-8');
 
-    assert.ok(archContent.startsWith('# Architecture\n'));
-    assert.ok(mapContent.startsWith('# Map\n'));
-    assert.ok(ctxContent.startsWith('# Context\n'));
+    assert.ok(kbContent.includes('# Architecture'), 'Should contain Architecture section');
+    assert.ok(kbContent.includes('# Map'), 'Should contain Map section');
+    assert.ok(kbContent.includes('# Context'), 'Should contain Context section');
   });
 
   it('is deterministic across runs', async () => {
@@ -395,22 +389,16 @@ describe('createKBEmitter', () => {
     };
 
     await emitter.emit(localModel, host, opts);
-    const archContent1 = fs.readFileSync(path.join(tmpDir, '.aspect', 'architecture.md'), 'utf-8');
-    const mapContent1 = fs.readFileSync(path.join(tmpDir, '.aspect', 'map.md'), 'utf-8');
-    const ctxContent1 = fs.readFileSync(path.join(tmpDir, '.aspect', 'context.md'), 'utf-8');
+    const kbContent1 = fs.readFileSync(path.join(tmpDir, 'kb.md'), 'utf-8');
 
     // Run again
     await emitter.emit(localModel, host, opts);
-    const archContent2 = fs.readFileSync(path.join(tmpDir, '.aspect', 'architecture.md'), 'utf-8');
-    const mapContent2 = fs.readFileSync(path.join(tmpDir, '.aspect', 'map.md'), 'utf-8');
-    const ctxContent2 = fs.readFileSync(path.join(tmpDir, '.aspect', 'context.md'), 'utf-8');
+    const kbContent2 = fs.readFileSync(path.join(tmpDir, 'kb.md'), 'utf-8');
 
-    assert.equal(archContent1, archContent2, 'architecture.md should be deterministic');
-    assert.equal(mapContent1, mapContent2, 'map.md should be deterministic');
-    assert.equal(ctxContent1, ctxContent2, 'context.md should be deterministic');
+    assert.equal(kbContent1, kbContent2, 'kb.md should be deterministic');
   });
 
-  it('creates .aspect directory if it does not exist', async () => {
+  it('creates kb.md at workspace root', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-kb-test-'));
     const host = createNodeEmitterHost();
     const model = makeModel();
@@ -427,7 +415,7 @@ describe('createKBEmitter', () => {
       fileContents: new Map<string, string>(),
     });
 
-    assert.ok(fs.existsSync(path.join(tmpDir, '.aspect')), '.aspect/ dir should exist');
+    assert.ok(fs.existsSync(path.join(tmpDir, 'kb.md')), 'kb.md should exist');
   });
 });
 

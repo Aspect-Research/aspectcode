@@ -1,9 +1,9 @@
 /**
- * Manifest writer — writes `.aspect/manifest.json` with stable stats.
+ * Manifest builder — builds manifest metadata for embedding in kb.md.
  *
  * The manifest provides a machine-readable summary alongside the
- * human-readable KB files. Emitters call `writeManifest()` after
- * generating KB artifacts.
+ * human-readable KB content. The KB emitter embeds the manifest as
+ * an HTML comment at the bottom of kb.md.
  *
  * Determinism: keys are sorted explicitly; `generatedAt` is the only
  * volatile field and is injected via options.
@@ -11,8 +11,6 @@
 
 import type { AnalysisModel } from '@aspectcode/core';
 import { computeModelStats } from '@aspectcode/core';
-import type { EmitterHost } from './host';
-import { stableStringify } from './stableJson';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -42,7 +40,8 @@ const GENERATOR_VERSION = '0.0.1';
 /**
  * Build a Manifest object from an AnalysisModel.
  *
- * Pure function — no I/O. Useful for testing.
+ * Pure function — no I/O. Used by the KB emitter to embed
+ * manifest data as an HTML comment in kb.md.
  */
 export function buildManifest(
   model: AnalysisModel,
@@ -74,22 +73,4 @@ export function buildManifest(
       })),
     },
   };
-}
-
-/**
- * Write `.aspect/manifest.json` to disk.
- *
- * @returns The absolute path of the manifest file written.
- */
-export async function writeManifest(
-  model: AnalysisModel,
-  host: EmitterHost,
-  outDir: string,
-  generatedAt: string,
-): Promise<string> {
-  const manifest = buildManifest(model, generatedAt);
-  const manifestPath = host.join(outDir, '.aspect', 'manifest.json');
-  const json = stableStringify(manifest, 2) + '\n';
-  await host.writeFile(manifestPath, json);
-  return manifestPath;
 }

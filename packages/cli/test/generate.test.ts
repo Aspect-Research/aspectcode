@@ -18,12 +18,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     quiet: true,
     listConnections: false,
     json: false,
-    force: false,
     kbOnly: false,
-    copilot: false,
-    cursor: false,
-    claude: false,
-    other: false,
+    kb: false,
     noColor: false,
     ...overrides,
   };
@@ -65,18 +61,14 @@ describe('generate command', () => {
   it('generates KB artifacts for a small project', async () => {
     writeSourceFiles(tmpDir);
 
-    const result = await runGenerate(makeCtx(tmpDir));
+    const result = await runGenerate(makeCtx(tmpDir, { kb: true }));
     assert.equal(result.exitCode, 0);
     assert.ok(result.report);
     assert.ok(result.report.wrote.length > 0);
 
-    // .aspect directory should exist
-    const aspectDir = path.join(tmpDir, '.aspect');
-    assert.ok(fs.existsSync(aspectDir), '.aspect directory was created');
-
-    // manifest.json should exist
-    const manifest = path.join(aspectDir, 'manifest.json');
-    assert.ok(fs.existsSync(manifest), 'manifest.json was created');
+    // kb.md should exist at workspace root
+    const kbPath = path.join(tmpDir, 'kb.md');
+    assert.ok(fs.existsSync(kbPath), 'kb.md was created');
   });
 
   it('returns error for empty project', async () => {
@@ -89,12 +81,12 @@ describe('generate command', () => {
     writeSourceFiles(tmpDir);
     const outDir = path.join(tmpDir, 'output');
 
-    const result = await runGenerate(makeCtx(tmpDir, { out: outDir }));
+    const result = await runGenerate(makeCtx(tmpDir, { out: outDir, kb: true }));
     assert.equal(result.exitCode, 0);
 
-    // KB artifacts under output/.aspect
-    const aspectDir = path.join(outDir, '.aspect');
-    assert.ok(fs.existsSync(aspectDir), '.aspect under outDir');
+    // KB artifacts under output/kb.md
+    const kbPath = path.join(outDir, 'kb.md');
+    assert.ok(fs.existsSync(kbPath), 'kb.md under outDir');
   });
 
   it('writes AGENTS.md instructions by default', async () => {

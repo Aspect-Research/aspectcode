@@ -12,33 +12,14 @@ import type { ExclusionSettings } from './DirectoryExclusion';
 // Re-export ExclusionSettings for consumers
 export type { ExclusionSettings } from './DirectoryExclusion';
 
-export type InstructionsMode = 'safe' | 'custom' | 'off';
+export type InstructionsMode = 'safe' | 'permissive' | 'off';
 type UpdateRateMode = 'manual' | 'onChange' | 'idle';
 export type AutoRegenerateKbMode = UpdateRateMode | 'off' | 'onSave';
 
-export interface AssistantsSettings {
-  copilot?: boolean;
-  cursor?: boolean;
-  claude?: boolean;
-  other?: boolean;
-  autoGenerate?: boolean;
-}
-
 // File paths that can be individually configured for gitignore
-export type GitignoreTarget =
-  | '.aspect/'
-  | 'AGENTS.md'
-  | 'CLAUDE.md'
-  | '.github/copilot-instructions.md'
-  | '.cursor/rules/aspectcode.mdc';
+export type GitignoreTarget = 'kb.md' | 'AGENTS.md';
 
-const ALL_GITIGNORE_TARGETS: GitignoreTarget[] = [
-  '.aspect/',
-  'AGENTS.md',
-  'CLAUDE.md',
-  '.github/copilot-instructions.md',
-  '.cursor/rules/aspectcode.mdc',
-];
+const ALL_GITIGNORE_TARGETS: GitignoreTarget[] = ['kb.md', 'AGENTS.md'];
 
 /**
  * Schema for aspectcode.json
@@ -55,11 +36,6 @@ interface AspectSettings {
   };
 
   /**
-   * Assistant enablement (mirrors aspectcode.assistants.* but stored locally)
-   */
-  assistants?: AssistantsSettings;
-
-  /**
    * Update trigger mode.
    */
   updateRate?: UpdateRateMode;
@@ -70,9 +46,15 @@ interface AspectSettings {
   autoRegenerateKb?: 'off' | 'onSave' | 'idle';
 
   /**
-   * Instructions mode: 'safe' or 'custom'
+   * Instructions mode: 'safe' | 'permissive' | 'off'
    */
   instructionsMode?: InstructionsMode;
+
+  /**
+   * Whether to generate the KB file (kb.md).
+   * When false (default), only instruction file sections are generated.
+   */
+  generateKb?: boolean;
 
   /**
    * Master enable/disable switch for the extension.
@@ -97,7 +79,9 @@ function cacheKey(workspaceRoot: vscode.Uri): string {
 }
 
 function normalizeInstructionsMode(value: unknown): InstructionsMode | undefined {
-  if (value === 'safe' || value === 'custom' || value === 'off') return value;
+  if (value === 'safe' || value === 'permissive' || value === 'off') return value;
+  // Migrate legacy 'custom' to 'safe'
+  if (value === 'custom') return 'safe';
   return undefined;
 }
 
@@ -205,10 +189,6 @@ export async function updateAspectSettings(
       ...existing.gitignore,
       ...update.gitignore,
     },
-    assistants: {
-      ...existing.assistants,
-      ...update.assistants,
-    },
     excludeDirectories: {
       ...existing.excludeDirectories,
       ...update.excludeDirectories,
@@ -285,29 +265,6 @@ export async function migrateAspectSettingsFromVSCode(
     }
   }
 
-  // assistants flags
-  const assistantKeys: Array<keyof AssistantsSettings> = [
-    'copilot',
-    'cursor',
-    'claude',
-    'other',
-    'autoGenerate',
-  ];
-
-  const currentAssistants = current.assistants ?? {};
-  const assistantUpdate: AssistantsSettings = {};
-  for (const key of assistantKeys) {
-    if (currentAssistants[key] !== undefined) continue;
-    const raw = vsSettings[`aspectcode.assistants.${String(key)}`];
-    if (typeof raw === 'boolean') {
-      assistantUpdate[key] = raw;
-      changed = true;
-    }
-  }
-  if (Object.keys(assistantUpdate).length > 0) {
-    update.assistants = assistantUpdate;
-  }
-
   if (!changed) {
     // No settings to migrate — mark complete so we never re-check
     await globalState?.update(MIGRATION_DONE_KEY, true);
@@ -326,18 +283,14 @@ export async function getInstructionsModeSetting(
   workspaceRoot: vscode.Uri,
   _outputChannel?: vscode.OutputChannel,
 ): Promise<InstructionsMode> {
-  // Auto-detect .aspect/instructions.md → custom mode
-  try {
-    const customPath = vscode.Uri.joinPath(workspaceRoot, '.aspect', 'instructions.md');
-    await vscode.workspace.fs.stat(customPath);
-    return 'custom';
-  } catch {
-    // File doesn't exist — fall through
-  }
-
   // Read persisted value from aspectcode.json (default: 'safe')
   const settings = await readAspectSettings(workspaceRoot);
   return settings.instructionsMode ?? 'safe';
+}
+
+export async function getGenerateKbSetting(workspaceRoot: vscode.Uri): Promise<boolean> {
+  const settings = await readAspectSettings(workspaceRoot);
+  return settings.generateKb === true;
 }
 
 export async function getUpdateRateSetting(
@@ -373,21 +326,6 @@ export async function setExtensionEnabledSetting(
   await updateAspectSettings(workspaceRoot, { extensionEnabled: enabled }, options);
 }
 
-export async function getAssistantsSettings(
-  workspaceRoot: vscode.Uri,
-  _outputChannel?: vscode.OutputChannel,
-): Promise<Required<AssistantsSettings>> {
-  const settings = await readAspectSettings(workspaceRoot);
-  const a = settings.assistants ?? {};
-  return {
-    copilot: a.copilot ?? false,
-    cursor: a.cursor ?? false,
-    claude: a.claude ?? false,
-    other: a.other ?? false,
-    autoGenerate: a.autoGenerate ?? false,
-  };
-}
-
 /**
  * Get the gitignore preference for a specific target
  * Returns undefined if not yet set (user hasn't been asked)
@@ -420,16 +358,10 @@ export async function setGitignorePreference(
  */
 function getTargetDescription(target: GitignoreTarget): string {
   switch (target) {
-    case '.aspect/':
-      return 'the Aspect Code knowledge base (.aspect/)';
+    case 'kb.md':
+      return 'the Aspect Code knowledge base (kb.md)';
     case 'AGENTS.md':
-      return 'AGENTS.md (general AI instructions)';
-    case 'CLAUDE.md':
-      return 'CLAUDE.md (Claude Code instructions)';
-    case '.github/copilot-instructions.md':
-      return 'GitHub Copilot instructions (.github/copilot-instructions.md)';
-    case '.cursor/rules/aspectcode.mdc':
-      return 'Cursor rules (.cursor/rules/aspectcode.mdc)';
+      return 'AGENTS.md (AI coding agent instructions)';
   }
 }
 
@@ -437,7 +369,7 @@ function getTargetDescription(target: GitignoreTarget): string {
  * Prompt the user about adding a target to .gitignore
  * Returns their choice (true = add, false = don't add)
  * Returns undefined if user dismissed without choosing (don't persist)
- * Also persists the choice to .aspect/.settings.json
+ * Also persists the choice to aspectcode.json
  */
 export async function promptGitignorePreference(
   workspaceRoot: vscode.Uri,

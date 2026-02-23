@@ -86,15 +86,16 @@ async function updateStatusBar(): Promise<void> {
     return;
   }
 
-  // 2. Check if .aspect/ exists
+  // 2. Check if kb.md or instruction files exist
   const detected = await detectAssistants(rootUri);
   const hasKB = detected.has('aspectKB');
+  const hasInstructions = detected.size > (hasKB ? 1 : 0);
 
-  if (!hasKB) {
+  if (!hasKB && !hasInstructions) {
     currentStatusBarState = 'uninitialized';
     statusBarItem.text = '$(beaker)';
     statusBarItem.tooltip = 'Aspect Code: Not configured — click to set up';
-    statusBarItem.command = 'aspectcode.configureAssistants';
+    statusBarItem.command = 'aspectcode.generate';
     statusBarItem.backgroundColor = undefined;
     statusBarItem.show();
     return;
@@ -144,7 +145,7 @@ async function maybeShowSetupPrompt(
 
   // Check if repo already has Aspect Code artifacts
   const detected = await detectAssistants(rootUri);
-  if (detected.has('aspectKB')) return; // .aspect/ exists
+  if (detected.size > 0) return; // has kb.md or instruction files
 
   // Also skip if aspectcode.json exists (may have been CLI-initialized)
   try {
@@ -162,7 +163,7 @@ async function maybeShowSetupPrompt(
   );
 
   if (action === 'Set Up') {
-    void vscode.commands.executeCommand('aspectcode.configureAssistants');
+    void vscode.commands.executeCommand('aspectcode.generate');
   } else if (action === 'Not for This Repo') {
     const updated = [...dismissedRepos, repoKey];
     await context.globalState.update(DISMISSED_REPOS_KEY, updated);
@@ -338,7 +339,6 @@ export async function activate(context: vscode.ExtensionContext) {
       '/.mypy_cache/',
       '/.tox/',
       '/htmlcov/',
-      '/.aspect/',
     ];
     return !excludedSegments.some((seg) => normalized.includes(seg));
   };

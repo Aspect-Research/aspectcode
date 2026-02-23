@@ -23,22 +23,6 @@ interface JsonErrorPayload {
   error: string;
 }
 
-export function printAspectCodeBanner(log: Logger): void {
-  const lines = [
-    '  ___   ____  ____  _____ ____ _____    ____ ___  ____  _____',
-    ' / _ \\ / ___||  _ \\| ____/ ___|_   _|  / ___/ _ \\|  _ \\| ____|',
-    '| | | |\\___ \\| |_) |  _|| |     | |   | |  | | | | | | |  _|',
-    '| |_| | ___) |  __/| |__| |___  | |   | |__| |_| | |_| | |___',
-    ' \\___/ |____/|_|   |_____\\____| |_|    \\____\\___/|____/|_____|',
-    '                         ASPECT CODE',
-  ];
-
-  for (const line of lines) {
-    log.info(fmt.blue(line));
-  }
-  log.blank();
-}
-
 export async function runShowConfig(
   ctx: CommandContext,
 ): Promise<CommandResult> {
@@ -82,28 +66,6 @@ export async function runSetUpdateRate(
   return runSettingsMutation(ctx, 'set-update-rate', ['updateRate', 'autoRegenerateKb'], (cfg) => {
     cfg.updateRate = parsed;
     delete cfg.autoRegenerateKb;
-  });
-}
-
-export async function runSetOutDir(
-  ctx: CommandContext,
-  value: string,
-): Promise<CommandResult> {
-  const outDir = value.trim();
-  if (!outDir) {
-    return outputUsageError('set-out-dir', ctx.flags, ctx.log, `${fmt.bold('set-out-dir')} requires a non-empty path value.`);
-  }
-
-  return runSettingsMutation(ctx, 'set-out-dir', ['outDir'], (cfg) => {
-    cfg.outDir = outDir;
-  });
-}
-
-export async function runClearOutDir(
-  ctx: CommandContext,
-): Promise<CommandResult> {
-  return runSettingsMutation(ctx, 'clear-out-dir', ['outDir'], (cfg) => {
-    delete cfg.outDir;
   });
 }
 

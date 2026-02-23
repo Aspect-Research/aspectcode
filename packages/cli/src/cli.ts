@@ -39,16 +39,12 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'root',       short: 'r', type: 'string',  description: 'Workspace root (default: cwd)',     appliesTo: 'global' },
   { name: 'out',        short: 'o', type: 'string',  description: 'Output directory override',         appliesTo: ['generate'] },
   { name: 'json',                   type: 'boolean', description: 'Print JSON output (for automation)', appliesTo: 'global' },
-  { name: 'force',      short: 'f', type: 'boolean', description: 'Overwrite existing config (init)',  appliesTo: ['init'] },
   { name: 'no-color',               type: 'boolean', description: 'Disable colored output',            appliesTo: 'global', prop: 'noColor' },
-  { name: 'file',                   type: 'string',  description: 'Filter by file path',               appliesTo: ['generate', 'impact', 'deps'] },
+  { name: 'file',                   type: 'string',  description: 'Filter by file path',               appliesTo: ['generate', 'deps'] },
   { name: 'list-connections',       type: 'boolean', description: 'Print dependency connections',      appliesTo: ['generate'], prop: 'listConnections' },
   { name: 'mode',                   type: 'enum',    description: 'Watch mode: manual|onChange|idle',   appliesTo: ['watch'], values: ['manual', 'onChange', 'idle'] },
   { name: 'kb-only',                type: 'boolean', description: 'Generate KB artifacts only (skip instruction files)', appliesTo: ['generate'], prop: 'kbOnly' },
-  { name: 'copilot',                type: 'boolean', description: 'Enable Copilot instruction file',   appliesTo: ['generate'] },
-  { name: 'cursor',                 type: 'boolean', description: 'Enable Cursor instruction file',    appliesTo: ['generate'] },
-  { name: 'claude',                 type: 'boolean', description: 'Enable Claude instruction file',    appliesTo: ['generate'] },
-  { name: 'other',                  type: 'boolean', description: 'Enable AGENTS.md instruction file', appliesTo: ['generate'] },
+  { name: 'kb',                      type: 'boolean', description: 'Generate kb.md knowledge base file',                  appliesTo: ['generate'] },
   { name: 'instructions-mode',      type: 'enum',    description: 'Instruction mode: safe|permissive|off', appliesTo: ['generate'], values: ['safe', 'permissive', 'off'], prop: 'instructionsMode' },
 ] as const;
 
@@ -83,23 +79,14 @@ export interface CliFlags {
   /** --file <path>: filter dependency output to one workspace file. */
   file?: string;
 
-  /** --force / -f : overwrite existing config during init. */
-  force: boolean;
-
   /** --mode: watch mode override. */
   mode?: 'manual' | 'onChange' | 'idle';
 
   /** --kb-only: generate KB artifacts only, skip instruction files. */
   kbOnly: boolean;
 
-  /** --copilot: enable Copilot instruction file. */
-  copilot: boolean;
-  /** --cursor: enable Cursor instruction file. */
-  cursor: boolean;
-  /** --claude: enable Claude instruction file. */
-  claude: boolean;
-  /** --other: enable AGENTS.md instruction file. */
-  other: boolean;
+  /** --kb: generate kb.md knowledge base file. */
+  kb: boolean;
 
   /** --instructions-mode: instruction generation mode. */
   instructionsMode?: 'safe' | 'permissive' | 'off';

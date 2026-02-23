@@ -15,12 +15,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     quiet: true,
     listConnections: false,
     json: false,
-    force: false,
     kbOnly: false,
-    copilot: false,
-    cursor: false,
-    claude: false,
-    other: false,
+    kb: false,
     noColor: false,
     ...overrides,
   };
@@ -49,7 +45,7 @@ describe('watch command', () => {
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-watch-'));
     const sourceFile = path.join(tmpDir, 'index.ts');
-    const manifestPath = path.join(tmpDir, '.aspect', 'manifest.json');
+    const kbPath = path.join(tmpDir, 'kb.md');
     fs.writeFileSync(sourceFile, `export const value = 1;\n`, 'utf-8');
 
     const pkgRoot = path.resolve(__dirname, '..');
@@ -65,6 +61,7 @@ describe('watch command', () => {
         tmpDir,
         '--mode',
         'onChange',
+        '--kb',
       ],
       {
         cwd: pkgRoot,
@@ -77,17 +74,17 @@ describe('watch command', () => {
       await waitForOutput(proc, /Watcher ready\./i, 10000);
 
       await sleep(1200);
-      assert.equal(fs.existsSync(manifestPath), false, 'watch should not generate on startup');
+      assert.equal(fs.existsSync(kbPath), false, 'watch should not generate on startup');
 
       const newFile = path.join(tmpDir, 'new-change.ts');
       fs.writeFileSync(newFile, `export const changed = 2;\n`, 'utf-8');
 
       await waitForOutput(proc, /watch\s+trigger:/i, 15000);
-      await waitForCondition(() => fs.existsSync(manifestPath), 15000, 100);
-      assert.equal(fs.existsSync(manifestPath), true, 'watch should regenerate after file change');
+      await waitForCondition(() => fs.existsSync(kbPath), 15000, 100);
+      assert.equal(fs.existsSync(kbPath), true, 'watch should regenerate after file change');
 
       await sleep(2500);
-      const manifestMtimeAfterSource = fs.statSync(manifestPath).mtimeMs;
+      const manifestMtimeAfterSource = fs.statSync(kbPath).mtimeMs;
 
       const ignoredNodeModulesDir = path.join(tmpDir, 'node_modules', 'pkg');
       fs.mkdirSync(ignoredNodeModulesDir, { recursive: true });
@@ -97,20 +94,12 @@ describe('watch command', () => {
         'utf-8',
       );
 
-      const ignoredAspectDir = path.join(tmpDir, '.aspect');
-      fs.mkdirSync(ignoredAspectDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(ignoredAspectDir, 'ignored.ts'),
-        `export const ignored = true;\n`,
-        'utf-8',
-      );
-
       await sleep(3000);
-      const manifestMtimeAfterIgnored = fs.statSync(manifestPath).mtimeMs;
+      const manifestMtimeAfterIgnored = fs.statSync(kbPath).mtimeMs;
       assert.equal(
         manifestMtimeAfterIgnored,
         manifestMtimeAfterSource,
-        'watch should ignore changes under node_modules/ and .aspect/',
+        'watch should ignore changes under node_modules/',
       );
     } finally {
       await stopProcess(proc);

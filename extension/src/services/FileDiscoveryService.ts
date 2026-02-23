@@ -8,7 +8,7 @@
  * Key features:
  * - Singleton instance per workspace (created once at activation)
  * - Caches discovered files and invalidates based on fingerprint changes
- * - Stores computed exclusions in .aspect/.settings.json (not auto field)
+ * - Stores computed exclusions in aspectcode.json
  * - Provides coordinated access to file lists across all components
  *
  * This eliminates the redundant file discovery that was running 2-3x per operation.

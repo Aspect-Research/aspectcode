@@ -4,7 +4,7 @@ import { ASSISTANT_DETECTION_PATHS } from './constants';
 
 /**
  * Detects which AI assistants are likely in use by checking for their config files.
- * Also detects if Aspect Code KB (.aspect/) exists, indicating prior configuration.
+ * Also detects if Aspect Code KB (kb.md) exists, indicating prior configuration.
  */
 export async function detectAssistants(
   host: EmitterHost,

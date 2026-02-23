@@ -62,7 +62,7 @@ $cliBin     = Join-Path $repoRoot 'packages\cli\bin\aspectcode.js'
 
 # -- Sandbox setup for CLI smoke tests --------------------------------
 # All CLI commands that generate output run inside a disposable temp
-# directory so that .aspect/ and AGENTS.md never appear at repo root.
+# directory so that kb.md and AGENTS.md never appear at repo root.
 $sandboxRoot = Join-Path ([System.IO.Path]::GetTempPath()) "aspectcode-checklist-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $sandboxOut  = Join-Path $sandboxRoot '_out'
 $fixtureDir  = Join-Path $repoRoot 'extension\test\fixtures\mini-repo'
@@ -142,9 +142,9 @@ if (-not $SkipWorkspaceTests) {
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Verify repo root is clean' -Action {
-  $repoAspect = Join-Path $repoRoot '.aspect'
+  $repoKb = Join-Path $repoRoot 'kb.md'
   $repoAgents = Join-Path $repoRoot 'AGENTS.md'
-  if (Test-Path $repoAspect) { throw 'POLLUTION: .aspect/ exists at repo root' }
+  if (Test-Path $repoKb) { throw 'POLLUTION: kb.md exists at repo root' }
   if (Test-Path $repoAgents) { throw 'POLLUTION: AGENTS.md exists at repo root' }
 }))
 
@@ -162,7 +162,7 @@ if ($IncludeExtension) {
   Write-Host "`nManual extension host verification:" -ForegroundColor Yellow
   Write-Host '1) Press F5 to launch Extension Development Host' -ForegroundColor Yellow
   Write-Host '2) Run Generate KB and Impact commands in the host window' -ForegroundColor Yellow
-  Write-Host '3) Confirm .aspect files and instruction files are generated' -ForegroundColor Yellow
+  Write-Host '3) Confirm kb.md and instruction files are generated' -ForegroundColor Yellow
 }
 
 # -- Sandbox cleanup ---------------------------------------------------

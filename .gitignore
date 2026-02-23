@@ -84,7 +84,7 @@ temp/
 # ---- Project-specific ----
 
 # Aspect Code generated output (safety net against accidental repo-root writes)
-.aspect/
+kb.md
 AGENTS.md
 
 # GitHub Actions workflows (except release.yml)

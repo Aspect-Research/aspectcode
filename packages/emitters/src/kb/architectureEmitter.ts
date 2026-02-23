@@ -75,7 +75,7 @@ export function buildArchitectureContent(input: ArchitectureEmitterInput): strin
       content += '## ⚠️ High-Risk Architectural Hubs\n\n';
       content += '> **These files are architectural load-bearing walls.**\n';
       content +=
-        '> Modify with extreme caution. Do not change signatures without checking `map.md`.\n\n';
+        '> Modify with extreme caution. Do not change signatures without checking the **Map** section below.\n\n';
 
       content += '| Rank | File | Imports | Imported By | Risk |\n';
       content += '|------|------|---------|-------------|------|\n';

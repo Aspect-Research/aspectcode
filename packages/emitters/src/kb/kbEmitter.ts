@@ -1,8 +1,8 @@
 /**
- * KB Emitter — orchestrates generation of architecture.md, map.md, context.md.
+ * KB Emitter — orchestrates generation of a single `kb.md` file.
  *
  * Implements the Emitter interface. Consumes an AnalysisModel and writes
- * the three KB files via the EmitterHost abstraction.
+ * a combined KB file via the EmitterHost abstraction.
  */
 
 import type { AnalysisModel, DependencyLink } from '@aspectcode/core';
@@ -13,6 +13,8 @@ import { buildDepStats } from './depData';
 import { buildArchitectureContent } from './architectureEmitter';
 import { buildMapContent } from './mapEmitter';
 import { buildContextContent } from './contextEmitter';
+import { buildManifest } from '../manifest';
+import { stableStringify } from '../stableJson';
 
 // ── Public API ───────────────────────────────────────────────
 
@@ -21,8 +23,11 @@ export interface KBEmitterOptions {
   grammars?: LoadedGrammars | null;
 }
 
+/** The default KB output filename. */
+export const KB_FILENAME = 'kb.md';
+
 /**
- * Create a KB emitter that generates the .aspect/ knowledge base files.
+ * Create a KB emitter that generates a single `kb.md` knowledge base file.
  *
  * @param kbOptions  Optional KB-specific options (e.g. tree-sitter grammars).
  */
@@ -38,10 +43,6 @@ export function createKBEmitter(kbOptions?: KBEmitterOptions): Emitter {
       const generatedAt = options.generatedAt ?? new Date().toISOString();
       const workspaceRoot = options.workspaceRoot;
       const outDir = options.outDir ?? workspaceRoot;
-      const aspectDir = host.join(outDir, '.aspect');
-
-      // Ensure .aspect directory exists
-      await host.mkdirp(aspectDir);
 
       // ── Derive shared data from the AnalysisModel ────────
 
@@ -105,20 +106,28 @@ export function createKBEmitter(kbOptions?: KBEmitterOptions): Emitter {
         ),
       ]);
 
-      // ── Write files ──────────────────────────────────────
+      // ── Build manifest metadata as HTML comment ─────────
 
-      const archPath = host.join(aspectDir, 'architecture.md');
-      const mapPath = host.join(aspectDir, 'map.md');
-      const ctxPath = host.join(aspectDir, 'context.md');
+      const manifest = buildManifest(model, generatedAt);
+      const manifestComment = `<!-- aspectcode: ${stableStringify(manifest)} -->\n`;
 
-      await Promise.all([
-        host.writeFile(archPath, archContent),
-        host.writeFile(mapPath, mapContent),
-        host.writeFile(ctxPath, ctxContent),
-      ]);
+      // ── Combine into single kb.md ────────────────────────
+
+      const combined = [
+        archContent,
+        '\n---\n\n',
+        mapContent,
+        '\n---\n\n',
+        ctxContent,
+        '\n',
+        manifestComment,
+      ].join('');
+
+      const kbPath = host.join(outDir, KB_FILENAME);
+      await host.writeFile(kbPath, combined);
 
       return {
-        filesWritten: [archPath, mapPath, ctxPath],
+        filesWritten: [kbPath],
       };
     },
   };

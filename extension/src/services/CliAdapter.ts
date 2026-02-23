@@ -249,12 +249,10 @@ export async function cliGenerate(
 }
 
 /**
- * Run `aspectcode generate --json` with specific assistant flags.
- * Used to generate instruction files (+ KB as a prerequisite).
+ * Run `aspectcode generate --json` to emit AGENTS.md instruction file (+ KB as a prerequisite).
  */
 export async function cliGenerateWithInstructions(
   root: string,
-  assistants: { copilot?: boolean; cursor?: boolean; claude?: boolean; other?: boolean },
   options?: {
     outputChannel?: vscode.OutputChannel;
     token?: vscode.CancellationToken;
@@ -262,10 +260,6 @@ export async function cliGenerateWithInstructions(
   },
 ): Promise<CliResult<GenerateJsonPayload>> {
   const args = ['generate', '--json'];
-  if (assistants.copilot) args.push('--copilot');
-  if (assistants.cursor) args.push('--cursor');
-  if (assistants.claude) args.push('--claude');
-  if (assistants.other) args.push('--other');
   if (options?.instructionsMode) args.push('--instructions-mode', options.instructionsMode);
 
   return runCli<GenerateJsonPayload>({

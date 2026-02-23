@@ -81,7 +81,6 @@ export const TEST_OUTPUT_DIRS: readonly string[] = [
 ];
 
 export const GENERATED_DIRS: readonly string[] = [
-  '.aspect',
   'generated',
   '__generated__',
   '.serverless',

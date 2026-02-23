@@ -16,7 +16,6 @@ export type {
   Emitter,
   EmitResult,
   EmitOptions,
-  AssistantFlags,
   InstructionsMode,
 } from './emitter';
 
@@ -24,8 +23,7 @@ export type { EmitReport } from './report';
 
 // ── Manifest ─────────────────────────────────────────────────
 
-export type { Manifest, ManifestStats } from './manifest';
-
+export type { Manifest, ManifestStats } from './manifest';export { buildManifest } from './manifest';
 // ── KB helpers ───────────────────────────────────────────────
 
 export * from './kb';
@@ -61,26 +59,23 @@ export async function runEmitters(
   const wrote: Array<{ path: string; bytes: number }> = [];
   const skipped: Array<{ id: string; reason: string }> = [];
 
-  // ── KB + manifest transaction (manifest written last) ─────
-  const tx = new GenerationTransaction(host);
-  const txHost = tx.host;
+  // ── KB generation (opt-in) ────────────────────────────
+  if (opts.generateKb) {
+    const tx = new GenerationTransaction(host);
+    const txHost = tx.host;
 
-  const { createKBEmitter } = await import('./kb/kbEmitter');
-  const kb = createKBEmitter();
-  await kb.emit(model, txHost, opts);
+    const { createKBEmitter } = await import('./kb/kbEmitter');
+    const kb = createKBEmitter();
+    await kb.emit(model, txHost, opts);
 
-  const { writeManifest: writeM } = await import('./manifest');
-  await writeM(model, txHost, outDir, _generatedAt);
+    await tx.commit();
+    wrote.push(...tx.getWrites().map((w) => ({ path: w.finalPath, bytes: w.bytes })));
+  } else {
+    skipped.push({ id: 'kb', reason: 'KB generation not enabled (use --kb or set generateKb)' });
+  }
 
-  await tx.commit();
-  wrote.push(...tx.getWrites().map((w) => ({ path: w.finalPath, bytes: w.bytes })));
-
-  // ── Instructions (outside the .aspect transaction) ─────────
-  const assistants = opts.assistants ?? {};
-  const wantsAnyInstructions = Boolean(
-    assistants.copilot || assistants.cursor || assistants.claude || assistants.other,
-  );
-  if (wantsAnyInstructions) {
+  // ── Instructions (always emit AGENTS.md) ─────────────
+  {
     const { createInstructionsEmitter } = await import('./instructions/instructionsEmitter');
     const instructions = createInstructionsEmitter();
 
@@ -95,8 +90,6 @@ export async function runEmitters(
     };
 
     await instructions.emit(model, recordingHost, opts);
-  } else {
-    skipped.push({ id: 'instructions', reason: 'No assistants enabled' });
   }
 
   const stats = computeModelStats(model, 10);

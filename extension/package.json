@@ -27,9 +27,6 @@
     "security",
     "bugs",
     "tree-sitter",
-    "copilot",
-    "cursor",
-    "claude",
     "AI",
     "typescript",
     "python",
@@ -55,14 +52,14 @@
         "title": "Aspect Code: Toggle Enabled"
       },
       {
-        "command": "aspectcode.configureAssistants",
-        "title": "Aspect Code: Configure AI Assistants",
-        "icon": "$(sparkle)"
-      },
-      {
         "command": "aspectcode.generate",
         "title": "Aspect Code: Generate",
         "icon": "$(book)"
+      },
+      {
+        "command": "aspectcode.generateKb",
+        "title": "Aspect Code: Generate Knowledge Base",
+        "icon": "$(database)"
       }
     ],
     "configuration": {

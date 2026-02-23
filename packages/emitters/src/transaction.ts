@@ -6,15 +6,6 @@ export type TransactionWrite = {
   bytes: number;
 };
 
-function toPosixPath(p: string): string {
-  return p.replace(/\\/g, '/');
-}
-
-function isManifestPath(p: string): boolean {
-  const posix = toPosixPath(p);
-  return posix.endsWith('/.aspect/manifest.json');
-}
-
 /**
  * Transaction wrapper around an EmitterHost.
  *
@@ -63,19 +54,13 @@ export class GenerationTransaction {
   /**
    * Commit staged files into place.
    *
-   * - Writes are committed in deterministic order.
-   * - `manifest.json` is always committed last.
+   * Writes are committed in deterministic (sorted) order.
    */
   async commit(): Promise<void> {
     const writes = this.getWrites();
     if (writes.length === 0) return;
 
-    const ordered = [...writes].sort((a, b) => a.finalPath.localeCompare(b.finalPath));
-
-    // Ensure manifest is last
-    const manifest = ordered.filter((w) => isManifestPath(w.finalPath));
-    const others = ordered.filter((w) => !isManifestPath(w.finalPath));
-    const commitOrder = [...others, ...manifest];
+    const commitOrder = [...writes].sort((a, b) => a.finalPath.localeCompare(b.finalPath));
 
     const backups: Array<{ finalPath: string; backupPath: string }> = [];
     const committedFinals: string[] = [];

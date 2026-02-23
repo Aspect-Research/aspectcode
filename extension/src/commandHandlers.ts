@@ -2,29 +2,19 @@
  * Command Handlers
  *
  * This module registers and handles all extension commands.
- * Commands: toggleExtensionEnabled, configureAssistants, generate
+ * Commands: toggleExtensionEnabled, generate, generateKb
  */
 
 import * as vscode from 'vscode';
 import type { AnalysisModel } from '@aspectcode/core';
 import { createInstructionsEmitter } from '@aspectcode/emitters';
 import { AspectCodeState } from './state';
-import { detectAssistants, AssistantId } from './assistants/detection';
+import { detectAssistants } from './assistants/detection';
 import { generateKnowledgeBase } from './assistants/kb';
 import { createVsCodeEmitterHost } from './services/vscodeEmitterHost';
-
-/**
- * Optional override for assistant selection when called from configureAssistants.
- */
-interface AssistantsOverride {
-  copilot?: boolean;
-  cursor?: boolean;
-  claude?: boolean;
-  other?: boolean;
-}
 import {
-  getAssistantsSettings,
   getInstructionsModeSetting,
+  getGenerateKbSetting,
   updateAspectSettings,
   getExtensionEnabledSetting,
   setExtensionEnabledSetting,
@@ -95,14 +85,14 @@ export function activateCommands(
       void onStatusBarUpdate?.();
     }),
 
-    vscode.commands.registerCommand('aspectcode.configureAssistants', async () => {
-      if (!(await requireExtensionEnabled())) return;
-      return await handleConfigureAssistants(context, state, channel, onStatusBarUpdate);
-    }),
-
     vscode.commands.registerCommand('aspectcode.generate', async () => {
       if (!(await requireExtensionEnabled())) return;
-      return await handleGenerate(state, channel, context, undefined, onStatusBarUpdate);
+      return await handleGenerate(state, channel, context, onStatusBarUpdate);
+    }),
+
+    vscode.commands.registerCommand('aspectcode.generateKb', async () => {
+      if (!(await requireExtensionEnabled())) return;
+      return await handleGenerateKb(state, channel, context, onStatusBarUpdate);
     }),
   );
 
@@ -116,14 +106,12 @@ export function activateCommands(
     if (!workspaceRoot) return;
 
     const detected = await detectAssistants(workspaceRoot);
-    const hasAspectKB = detected.has('aspectKB');
 
     const instructionAssistants = new Set(detected);
     instructionAssistants.delete('aspectKB');
     const hasInstructionFiles = instructionAssistants.size > 0;
-    const setupComplete = hasAspectKB && hasInstructionFiles;
 
-    if (showNotificationOnMissing && !setupComplete) {
+    if (showNotificationOnMissing && !hasInstructionFiles) {
       const isSuppressed = context.workspaceState.get<boolean>(
         SUPPRESS_DELETED_NOTIFICATION_KEY,
         false,
@@ -136,12 +124,8 @@ export function activateCommands(
       const now = Date.now();
       if (now - lastNotificationTime > NOTIFICATION_DEBOUNCE_MS) {
         lastNotificationTime = now;
-        channel.appendLine(
-          `[Watcher] Detected missing files: aspectKB=${hasAspectKB}, instructionFiles=${hasInstructionFiles}`,
-        );
-        const message = !hasAspectKB
-          ? 'Aspect Code: Knowledge base (.aspect/) was deleted.'
-          : 'Aspect Code: AI instruction files were deleted.';
+        channel.appendLine(`[Watcher] Detected missing instruction files`);
+        const message = 'Aspect Code: AI instruction files were deleted.';
         const action = await vscode.window.showWarningMessage(
           message + ' Regenerate to restore AI assistant context.',
           'Regenerate',
@@ -167,53 +151,25 @@ export function activateCommands(
 
   // ── File Watchers ─────────────────────────────────────────────────────
 
-  // .aspect/ folder and contents
-  const aspectWatcher = vscode.workspace.createFileSystemWatcher('**/.aspect{,/**}');
-  aspectWatcher.onDidCreate((uri) => {
-    channel.appendLine(`[Watcher] .aspect created: ${uri.fsPath}`);
+  // kb.md at workspace root
+  const kbFileWatcher = vscode.workspace.createFileSystemWatcher('**/kb.md');
+  kbFileWatcher.onDidCreate(() => {
+    channel.appendLine('[Watcher] kb.md created');
     debouncedInstructionUpdate(false);
     void onStatusBarUpdate?.();
   });
-  aspectWatcher.onDidChange(async (uri) => {
-    // When .aspect/instructions.md changes, regenerate instruction files
-    // so the custom content flows through to assistant configs.
-    if (uri.fsPath.endsWith('instructions.md')) {
-      const workspaceRoot = getWorkspaceRoot();
-      if (workspaceRoot) {
-        try {
-          const mode = await getInstructionsModeSetting(workspaceRoot, channel);
-          if (mode === 'custom') {
-            channel.appendLine(
-              '[Instructions] Custom instructions.md changed — regenerating instruction files',
-            );
-            await emitInstructionFilesOnlyViaEmitters(workspaceRoot, channel);
-          }
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  });
-  aspectWatcher.onDidDelete((uri) => {
-    channel.appendLine(`[Watcher] .aspect deleted: ${uri.fsPath}`);
-    debouncedInstructionUpdate(true);
+  kbFileWatcher.onDidDelete(() => {
+    channel.appendLine('[Watcher] kb.md deleted');
+    debouncedInstructionUpdate(false);
     void onStatusBarUpdate?.();
   });
-  context.subscriptions.push(aspectWatcher);
+  context.subscriptions.push(kbFileWatcher);
 
-  // AI assistant instruction files
-  const instructionFilesWatcher = vscode.workspace.createFileSystemWatcher('**/{AGENTS,CLAUDE}.md');
+  // AGENTS.md instruction file
+  const instructionFilesWatcher = vscode.workspace.createFileSystemWatcher('**/AGENTS.md');
   instructionFilesWatcher.onDidCreate(() => debouncedInstructionUpdate(false));
   instructionFilesWatcher.onDidDelete(() => debouncedInstructionUpdate(true));
   context.subscriptions.push(instructionFilesWatcher);
-
-  // Copilot and Cursor config locations
-  const assistantConfigWatcher = vscode.workspace.createFileSystemWatcher(
-    '**/{.github/copilot-instructions.md,.cursor/**,.cursorrules}',
-  );
-  assistantConfigWatcher.onDidCreate(() => debouncedInstructionUpdate(false));
-  assistantConfigWatcher.onDidDelete(() => debouncedInstructionUpdate(true));
-  context.subscriptions.push(assistantConfigWatcher);
 }
 
 // =====================================================================
@@ -221,159 +177,26 @@ export function activateCommands(
 // =====================================================================
 
 /**
- * Configure AI Assistants — shows a QuickPick for assistant selection,
- * then generates KB + instruction files.
- */
-async function handleConfigureAssistants(
-  context: vscode.ExtensionContext,
-  state: AspectCodeState,
-  outputChannel: vscode.OutputChannel,
-  onStatusBarUpdate?: () => Promise<void>,
-): Promise<void> {
-  try {
-    const perfEnabled = vscode.workspace
-      .getConfiguration()
-      .get<boolean>('aspectcode.devLogs', false);
-    const tStart = Date.now();
-    if (perfEnabled) outputChannel.appendLine('[Perf][Assistants][configure] start');
-
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      vscode.window.showErrorMessage('No workspace folder open');
-      return;
-    }
-
-    const workspaceRoot = workspaceFolders[0].uri;
-
-    // Detect existing assistants
-    const tDetect = Date.now();
-    const detected = await detectAssistants(workspaceRoot);
-    if (perfEnabled) {
-      outputChannel.appendLine(
-        `[Perf][Assistants][configure] detectAssistants tookMs=${Date.now() - tDetect}`,
-      );
-    }
-    outputChannel.appendLine(`[Assistants] Detected: ${Array.from(detected).join(', ') || 'none'}`);
-
-    interface AssistantPickItem extends vscode.QuickPickItem {
-      id: AssistantId;
-    }
-
-    const items: AssistantPickItem[] = [
-      {
-        id: 'copilot',
-        label: '$(github) GitHub Copilot',
-        description: detected.has('copilot') ? '(detected)' : '',
-        picked: detected.has('copilot'),
-      },
-      {
-        id: 'cursor',
-        label: '$(edit) Cursor',
-        description: detected.has('cursor') ? '(detected)' : '',
-        picked: detected.has('cursor'),
-      },
-      {
-        id: 'claude',
-        label: '$(comment) Claude Code',
-        description: detected.has('claude') ? '(detected)' : '',
-        picked: detected.has('claude'),
-      },
-      {
-        id: 'other',
-        label: '$(file) Other (AGENTS.md)',
-        description: detected.has('other') ? '(detected)' : '',
-        picked: detected.has('other'),
-      },
-    ];
-
-    if (perfEnabled) outputChannel.appendLine('[Perf][Assistants][configure] showing QuickPick');
-    const tPick = Date.now();
-    const selected = await vscode.window.showQuickPick(items, {
-      canPickMany: true,
-      placeHolder: 'Select AI assistants to configure Aspect Code for',
-    });
-
-    if (perfEnabled) {
-      outputChannel.appendLine(
-        `[Perf][Assistants][configure] QuickPick resolved tookMs=${Date.now() - tPick} pickedCount=${selected?.length ?? 0}`,
-      );
-    }
-
-    if (!selected) {
-      // User cancelled
-      return;
-    }
-
-    const selectedIds = new Set(selected.map((item) => item.id));
-
-    if (selectedIds.size > 0) {
-      // Mark as configured (global, one-time)
-      if (!context.globalState.get<boolean>('aspectcode.assistants.configured', false)) {
-        await context.globalState.update('aspectcode.assistants.configured', true);
-      }
-
-      const assistantsOverride: AssistantsOverride = {
-        copilot: selectedIds.has('copilot'),
-        cursor: selectedIds.has('cursor'),
-        claude: selectedIds.has('claude'),
-        other: selectedIds.has('other'),
-      };
-
-      if (perfEnabled) {
-        outputChannel.appendLine('[Perf][Assistants][configure] executing generate');
-      }
-
-      // Generate KB + instruction files with the selected assistants
-      try {
-        await handleGenerate(state, outputChannel, context, assistantsOverride, onStatusBarUpdate);
-        if (perfEnabled) {
-          outputChannel.appendLine('[Perf][Assistants][configure] generate resolved');
-        }
-      } catch (err) {
-        outputChannel.appendLine(`[Assistants] generate failed: ${err}`);
-        throw err;
-      }
-
-      // Write settings AFTER files are successfully created
-      const tCfg = Date.now();
-      await updateAspectSettings(workspaceRoot, {
-        assistants: assistantsOverride,
-        excludeDirectories: { always: [], never: [] },
-      });
-      if (perfEnabled) {
-        outputChannel.appendLine(
-          `[Perf][Assistants][configure] settings update tookMs=${Date.now() - tCfg}`,
-        );
-      }
-
-      outputChannel.appendLine(
-        `[Assistants] Configuration updated: ${Array.from(selectedIds).join(', ')}`,
-      );
-    }
-
-    if (perfEnabled) {
-      outputChannel.appendLine(`[Perf][Assistants][configure] end tookMs=${Date.now() - tStart}`);
-    }
-  } catch (error) {
-    outputChannel.appendLine(`[Assistants] Error: ${error}`);
-    vscode.window.showErrorMessage(`Failed to configure assistants: ${error}`);
-  }
-}
-
-/**
- * Emit instruction files via CLI (preferred) or in-process fallback.
+ * Emit instruction files (AGENTS.md) via CLI (preferred) or in-process fallback.
  */
 async function emitInstructionFilesOnlyViaEmitters(
   workspaceRoot: vscode.Uri,
   outputChannel: vscode.OutputChannel,
-  assistantsOverride?: AssistantsOverride,
 ): Promise<number> {
   const mode = await getInstructionsModeSetting(workspaceRoot, outputChannel);
-  const assistants =
-    assistantsOverride ?? (await getAssistantsSettings(workspaceRoot, outputChannel));
+  const generateKbEnabled = await getGenerateKbSetting(workspaceRoot);
+
+  // Check if kb.md exists to pass context to instruction content generators
+  let kbExists = false;
+  try {
+    await vscode.workspace.fs.stat(vscode.Uri.joinPath(workspaceRoot, 'kb.md'));
+    kbExists = true;
+  } catch {
+    /* kb.md doesn't exist */
+  }
 
   // ── Try CLI subprocess first ──────────────────────────────
-  const cliResult = await cliGenerateWithInstructions(workspaceRoot.fsPath, assistants, {
+  const cliResult = await cliGenerateWithInstructions(workspaceRoot.fsPath, {
     outputChannel,
     instructionsMode: mode,
   });
@@ -408,7 +231,7 @@ async function emitInstructionFilesOnlyViaEmitters(
     outDir: workspaceRoot.fsPath,
     generatedAt,
     instructionsMode: mode,
-    assistants,
+    generateKb: generateKbEnabled || kbExists,
   });
 
   outputChannel.appendLine(
@@ -420,16 +243,13 @@ async function emitInstructionFilesOnlyViaEmitters(
 
 /**
  * Unified generate command.
- * Generates KB files (if missing) and instruction files.
+ * Generates KB files (if missing) and AGENTS.md instruction file.
  * Uses fully local analysis (tree-sitter + dependency analysis) — no server required.
- *
- * @param assistantsOverride If provided, uses these values instead of saved settings.
  */
 async function handleGenerate(
   state: AspectCodeState,
   outputChannel: vscode.OutputChannel,
   context?: vscode.ExtensionContext,
-  assistantsOverride?: AssistantsOverride,
   onStatusBarUpdate?: () => Promise<void>,
 ): Promise<void> {
   try {
@@ -447,24 +267,26 @@ async function handleGenerate(
 
     const workspaceRoot = workspaceFolders[0].uri;
 
-    // Always ensure KB exists — generate if missing
-    const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
-    const architectureFile = vscode.Uri.joinPath(aspectDir, 'architecture.md');
-    let needsKbGeneration = false;
-    try {
-      await vscode.workspace.fs.stat(architectureFile);
-    } catch {
-      needsKbGeneration = true;
-    }
+    // Check if KB generation is enabled and needed
+    const generateKbEnabled = await getGenerateKbSetting(workspaceRoot);
+    if (generateKbEnabled) {
+      const kbFile = vscode.Uri.joinPath(workspaceRoot, 'kb.md');
+      let needsKbGeneration = false;
+      try {
+        await vscode.workspace.fs.stat(kbFile);
+      } catch {
+        needsKbGeneration = true;
+      }
 
-    if (needsKbGeneration) {
-      outputChannel.appendLine('[Generate] KB files not found, generating...');
-      await generateKnowledgeBase(workspaceRoot, state, outputChannel, context);
+      if (needsKbGeneration) {
+        outputChannel.appendLine('[Generate] KB file not found, generating...');
+        await generateKnowledgeBase(workspaceRoot, state, outputChannel, context);
+      }
     }
 
     // Generate instruction files (marker-based, idempotent)
     const tGen = Date.now();
-    await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel, assistantsOverride);
+    await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel);
     if (perfEnabled) {
       outputChannel.appendLine(
         `[Perf][Generate][cmd] emitInstructionFiles tookMs=${Date.now() - tGen}`,
@@ -525,5 +347,57 @@ async function handleGenerate(
   } catch (error) {
     outputChannel.appendLine(`[Generate] Error: ${error}`);
     vscode.window.showErrorMessage(`Failed to generate: ${error}`);
+  }
+}
+
+/**
+ * Dedicated "Generate Knowledge Base" command.
+ * Unconditionally generates/updates kb.md, persists `generateKb: true`
+ * in aspectcode.json so auto-regen keeps the KB current, and refreshes
+ * instruction files with KB-aware content.
+ */
+async function handleGenerateKb(
+  state: AspectCodeState,
+  outputChannel: vscode.OutputChannel,
+  context?: vscode.ExtensionContext,
+  onStatusBarUpdate?: () => Promise<void>,
+): Promise<void> {
+  try {
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return;
+    }
+    const workspaceRoot = workspaceFolders[0].uri;
+
+    outputChannel.appendLine('[GenerateKB] Starting KB generation...');
+
+    // Persist generateKb: true so auto-regen keeps KB current
+    await updateAspectSettings(workspaceRoot, { generateKb: true });
+    outputChannel.appendLine('[GenerateKB] Persisted generateKb: true');
+
+    // Unconditionally generate/update kb.md
+    await generateKnowledgeBase(workspaceRoot, state, outputChannel, context);
+
+    // Refresh instruction files with KB-aware content
+    await emitInstructionFilesOnlyViaEmitters(workspaceRoot, outputChannel);
+
+    // Mark KB as fresh
+    try {
+      const { getWorkspaceFingerprint } = await import('./extension');
+      const fingerprint = getWorkspaceFingerprint();
+      if (fingerprint) {
+        await fingerprint.markKbFresh();
+        outputChannel.appendLine('[GenerateKB] Marked KB as fresh');
+      }
+    } catch (e) {
+      outputChannel.appendLine(`[GenerateKB] Failed to mark KB fresh (non-critical): ${e}`);
+    }
+
+    vscode.window.showInformationMessage('Knowledge base generated (kb.md)');
+    void onStatusBarUpdate?.();
+  } catch (error) {
+    outputChannel.appendLine(`[GenerateKB] Error: ${error}`);
+    vscode.window.showErrorMessage(`Failed to generate knowledge base: ${error}`);
   }
 }

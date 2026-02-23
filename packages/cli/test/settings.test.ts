@@ -11,9 +11,7 @@ import { createLogger } from '../src/logger';
 import { CONFIG_FILE_NAME } from '../src/config';
 import {
   runAddExclude,
-  runClearOutDir,
   runRemoveExclude,
-  runSetOutDir,
   runSetUpdateRate,
   runShowConfig,
 } from '../src/commands/settings';
@@ -27,12 +25,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     noColor: false,
     listConnections: false,
     json: false,
-    force: false,
     kbOnly: false,
-    copilot: false,
-    cursor: false,
-    claude: false,
-    other: false,
+    kb: false,
     ...overrides,
   };
 }
@@ -101,25 +95,6 @@ describe('settings commands', () => {
     assert.equal(cfg.autoRegenerateKb, undefined);
     assert.deepEqual(cfg.customKey, { enabled: true });
     assert.deepEqual(cfg.exclude, ['dist']);
-  });
-
-  it('set-out-dir and clear-out-dir update only outDir', async () => {
-    writeConfig(tmpDir, {
-      updateRate: 'onChange',
-      custom: 123,
-    });
-
-    let result = await runSetOutDir(makeCtx(tmpDir), '.aspect');
-    assert.equal(result.exitCode, 0);
-    let cfg = readConfig(tmpDir);
-    assert.equal(cfg.outDir, '.aspect');
-    assert.equal(cfg.custom, 123);
-
-    result = await runClearOutDir(makeCtx(tmpDir));
-    assert.equal(result.exitCode, 0);
-    cfg = readConfig(tmpDir);
-    assert.equal(cfg.outDir, undefined);
-    assert.equal(cfg.custom, 123);
   });
 
   it('add-exclude and remove-exclude manage the exclude list', async () => {

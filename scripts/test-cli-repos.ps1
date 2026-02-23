@@ -188,32 +188,8 @@ function Test-RepoExhaustive {
   }))
 
   # ────────────────────────────────────────────────────────────
-  # 2. init (creates aspectcode.json in clone dir)
+  # 2. settings commands (operate on aspectcode.json in clone)
   # ────────────────────────────────────────────────────────────
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] init --quiet" -Action {
-    Invoke-Cli "init --root `"$CloneDir`" --quiet"
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] init --force --quiet (idempotent)" -Action {
-    Invoke-Cli "init --root `"$CloneDir`" --force --quiet"
-  }))
-
-  # ────────────────────────────────────────────────────────────
-  # 3. settings commands (operate on aspectcode.json in clone)
-  # ────────────────────────────────────────────────────────────
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] set-out-dir" -Action {
-    Invoke-Cli "set-out-dir `"$OutDir`" --root `"$CloneDir`" --quiet"
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] show-config after set-out-dir" -Action {
-    Invoke-Cli "show-config --root `"$CloneDir`" --quiet"
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] clear-out-dir" -Action {
-    Invoke-Cli "clear-out-dir --root `"$CloneDir`" --quiet"
-  }))
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] set-update-rate onChange" -Action {
     Invoke-Cli "set-update-rate onChange --root `"$CloneDir`" --quiet"
@@ -235,44 +211,26 @@ function Test-RepoExhaustive {
     Invoke-Cli "remove-exclude vendor --root `"$CloneDir`" --quiet"
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] settings --json round-trip" -Action {
-    $tmpJson = Join-Path $env:TEMP "aspectcode-settings-$RepoName.json"
-    if (Test-Path $tmpJson) { Remove-Item $tmpJson -Force }
-    cmd.exe /d /s /c "node `"$cliBin`" set-out-dir `"$OutDir`" --root `"$CloneDir`" --json 1>`"$tmpJson`" 2>nul"
-    $raw = Get-Content $tmpJson -Raw
-    $parsed = $raw | ConvertFrom-Json
-    if ($parsed.ok -ne $true) { throw "set-out-dir --json returned ok=$($parsed.ok)" }
-    # Clean up: clear it again
-    Invoke-Cli "clear-out-dir --root `"$CloneDir`" --quiet"
-  }))
-
   # ────────────────────────────────────────────────────────────
-  # 4. generate — default (AGENTS.md)
+  # 3. generate — default (AGENTS.md)
   # ────────────────────────────────────────────────────────────
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] generate (default, --out)" -Action {
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --quiet"
+    Invoke-Cli "generate --kb --root `"$CloneDir`" --out `"$OutDir`" --quiet"
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] verify .aspect/ output" -Action {
-    $aspectDir = Join-Path $OutDir '.aspect'
-    if (-not (Test-Path $aspectDir)) { throw ".aspect/ not created in output dir" }
-    $kbFiles = Get-ChildItem -Path $aspectDir -File
-    $names = ($kbFiles | ForEach-Object { $_.Name }) -join ', '
-    Write-Host "    .aspect/ contains: $names" -ForegroundColor Gray
-    foreach ($expected in @('architecture.md', 'map.md', 'context.md', 'manifest.json')) {
-      if (-not (Test-Path (Join-Path $aspectDir $expected))) {
-        throw "Missing expected KB file: $expected"
-      }
-    }
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] verify kb.md output" -Action {
+    $kbFile = Join-Path $OutDir 'kb.md'
+    if (-not (Test-Path $kbFile)) { throw "kb.md not created in output dir" }
+    $size = (Get-Item $kbFile).Length
+    Write-Host "    kb.md: ${size}B" -ForegroundColor Gray
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] verify manifest.json structure" -Action {
-    $manifestPath = Join-Path (Join-Path $OutDir '.aspect') 'manifest.json'
-    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    if (-not $manifest.schemaVersion) { throw "manifest.json missing 'schemaVersion'" }
-    if (-not $manifest.generatedAt) { throw "manifest.json missing 'generatedAt'" }
-    Write-Host "    manifest schemaVersion=$($manifest.schemaVersion), files=$($manifest.stats.fileCount)" -ForegroundColor Gray
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] verify kb.md has manifest comment" -Action {
+    $kbPath = Join-Path $OutDir 'kb.md'
+    $kbText = Get-Content $kbPath -Raw
+    if ($kbText -notmatch 'aspectcode:') { throw "kb.md missing manifest comment" }
+    Write-Host "    kb.md has manifest comment" -ForegroundColor Gray
   }))
 
   # ────────────────────────────────────────────────────────────
@@ -287,32 +245,21 @@ function Test-RepoExhaustive {
     }
   }
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] manifest stats are plausible" -Action {
-    $manifestPath = Join-Path (Join-Path $OutDir '.aspect') 'manifest.json'
-    $m = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    $fc = [int]$m.stats.fileCount
-    $tl = [int]$m.stats.totalLines
-    $ec = [int]$m.stats.edgeCount
-    Write-Host "    files=$fc  lines=$tl  edges=$ec  topHubs=$($m.stats.topHubs.Count)" -ForegroundColor Gray
-    if ($fc -lt $MinFiles)  { throw "fileCount $fc < expected minimum $MinFiles" }
-    if ($tl -le 0)          { throw "totalLines is $tl (expected > 0)" }
-    if ($ec -lt $MinEdges)  { throw "edgeCount $ec < expected minimum $MinEdges" }
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] kb.md stats are plausible" -Action {
+    $kbPath = Join-Path $OutDir 'kb.md'
+    $kbText = Get-Content $kbPath -Raw
+    $size = $kbText.Length
+    Write-Host "    kb.md size=$size chars" -ForegroundColor Gray
+    if ($size -lt 200) { throw "kb.md is too small ($size chars)" }
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] KB files have substance" -Action {
-    $aspectDir = Join-Path $OutDir '.aspect'
-    foreach ($kbFile in @('architecture.md', 'map.md', 'context.md')) {
-      $p = Join-Path $aspectDir $kbFile
-      $size = (Get-Item $p).Length
-      if ($size -lt 100) { throw "$kbFile is only $size bytes (expected >= 100)" }
-    }
-    # architecture.md should have real content
-    $archText = Get-Content (Join-Path $aspectDir 'architecture.md') -Raw
-    if ($archText.Length -lt 200) { throw "architecture.md content too short ($($archText.Length) chars)" }
-    # map.md should contain a markdown heading (structured output)
-    $mapText = Get-Content (Join-Path $aspectDir 'map.md') -Raw
-    if ($mapText -notmatch '#') { throw "map.md has no headings" }
-    Write-Host "    architecture.md=$((Get-Item (Join-Path $aspectDir 'architecture.md')).Length)B  map.md=$((Get-Item (Join-Path $aspectDir 'map.md')).Length)B  context.md=$((Get-Item (Join-Path $aspectDir 'context.md')).Length)B" -ForegroundColor Gray
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] KB has substance" -Action {
+    $kbPath = Join-Path $OutDir 'kb.md'
+    $kbText = Get-Content $kbPath -Raw
+    if ($kbText.Length -lt 200) { throw "kb.md is only $($kbText.Length) chars (expected >= 200)" }
+    if ($kbText -notmatch '# Architecture') { throw "kb.md missing Architecture section" }
+    if ($kbText -notmatch '# Map') { throw "kb.md missing Map section" }
+    if ($kbText -notmatch '# Context') { throw "kb.md missing Context section" }
   }))
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] JSON stats show detected edges" -Action {
@@ -355,51 +302,17 @@ function Test-RepoExhaustive {
   [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --kb-only" -Action {
     & $cleanOut
     Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --kb-only --quiet"
-    # Verify only KB files, no AGENTS.md
+    # Verify only KB file, no AGENTS.md
     $agentsMd = Join-Path $OutDir 'AGENTS.md'
     if (Test-Path $agentsMd) { throw "AGENTS.md should NOT exist with --kb-only" }
-    if (-not (Test-Path (Join-Path (Join-Path $OutDir '.aspect') 'architecture.md'))) { throw ".aspect/architecture.md missing" }
+    if (-not (Test-Path (Join-Path $OutDir 'kb.md'))) { throw "kb.md missing" }
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --copilot" -Action {
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate (default AGENTS.md)" -Action {
     & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --copilot --quiet"
-    $copilotFile = Join-Path (Join-Path $OutDir '.github') 'copilot-instructions.md'
-    if (-not (Test-Path $copilotFile)) { throw "copilot-instructions.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --cursor" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --cursor --quiet"
-    $cursorFile = Join-Path (Join-Path (Join-Path $OutDir '.cursor') 'rules') 'aspectcode.mdc'
-    if (-not (Test-Path $cursorFile)) { throw ".cursor/rules/aspectcode.mdc not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --claude" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --claude --quiet"
-    $claudeFile = Join-Path $OutDir 'CLAUDE.md'
-    if (-not (Test-Path $claudeFile)) { throw "CLAUDE.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --other" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --other --quiet"
+    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --quiet"
     $agentsMd = Join-Path $OutDir 'AGENTS.md'
     if (-not (Test-Path $agentsMd)) { throw "AGENTS.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --copilot --cursor --claude --other (all)" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --copilot --cursor --claude --other --quiet"
-    foreach ($f in @(
-      (Join-Path (Join-Path $OutDir '.github') 'copilot-instructions.md'),
-      (Join-Path (Join-Path (Join-Path $OutDir '.cursor') 'rules') 'aspectcode.mdc'),
-      (Join-Path $OutDir 'CLAUDE.md'),
-      (Join-Path $OutDir 'AGENTS.md')
-    )) {
-      if (-not (Test-Path $f)) { throw "Missing: $f" }
-    }
   }))
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --instructions-mode safe" -Action {
@@ -476,25 +389,25 @@ function Test-RepoExhaustive {
   }))
 
   # ────────────────────────────────────────────────────────────
-  # 8. impact
+  # 8. deps impact
   # ────────────────────────────────────────────────────────────
 
   if ($sourceFile) {
-    [void]$results.Add((Invoke-Step -Name "[$RepoName] impact --file $sourceFile" -Action {
-      Invoke-Cli "impact --root `"$CloneDir`" --file `"$sourceFile`" --quiet"
+    [void]$results.Add((Invoke-Step -Name "[$RepoName] deps impact --file $sourceFile" -Action {
+      Invoke-Cli "deps impact --root `"$CloneDir`" --file `"$sourceFile`" --quiet"
     }))
 
-    [void]$results.Add((Invoke-Step -Name "[$RepoName] impact --file $sourceFile --json" -Action {
+    [void]$results.Add((Invoke-Step -Name "[$RepoName] deps impact --file $sourceFile --json" -Action {
       $tmpJson = Join-Path $env:TEMP "aspectcode-impact-$RepoName.json"
       if (Test-Path $tmpJson) { Remove-Item $tmpJson -Force }
-      cmd.exe /d /s /c "node `"$cliBin`" impact --root `"$CloneDir`" --file `"$sourceFile`" --json 1>`"$tmpJson`" 2>nul"
+      cmd.exe /d /s /c "node `"$cliBin`" deps impact --root `"$CloneDir`" --file `"$sourceFile`" --json 1>`"$tmpJson`" 2>nul"
       $raw = Get-Content $tmpJson -Raw
       $null = $raw | ConvertFrom-Json
       if (-not $raw.TrimStart().StartsWith('{')) { throw 'JSON output is not a JSON object' }
     }))
 
-    [void]$results.Add((Invoke-Step -Name "[$RepoName] impact --file $sourceFile --verbose" -Action {
-      Invoke-Cli "impact --root `"$CloneDir`" --file `"$sourceFile`" --verbose"
+    [void]$results.Add((Invoke-Step -Name "[$RepoName] deps impact --file $sourceFile --verbose" -Action {
+      Invoke-Cli "deps impact --root `"$CloneDir`" --file `"$sourceFile`" --verbose"
     }))
   }
 
@@ -534,11 +447,6 @@ function Test-RepoExhaustive {
     Invoke-Cli "gen --root `"$CloneDir`" --out `"$OutDir`" --bogus-flag --quiet"
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] set-out-dir '' exits 2 (empty)" -Action {
-    cmd.exe /d /s /c "node `"$cliBin`" set-out-dir `"`" --root `"$CloneDir`" --quiet 2>nul"
-    if ($LASTEXITCODE -ne 2) { throw "Expected exit 2, got $LASTEXITCODE" }
-  }))
-
   [void]$results.Add((Invoke-Step -Name "[$RepoName] set-update-rate invalid exits 2" -Action {
     cmd.exe /d /s /c "node `"$cliBin`" set-update-rate bogus --root `"$CloneDir`" --quiet 2>nul"
     if ($LASTEXITCODE -ne 2) { throw "Expected exit 2, got $LASTEXITCODE" }
@@ -549,9 +457,9 @@ function Test-RepoExhaustive {
   # ────────────────────────────────────────────────────────────
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] repo root clean (no pollution)" -Action {
-    $repoAspect = Join-Path $repoRoot '.aspect'
+    $repoKb = Join-Path $repoRoot 'kb.md'
     $repoAgents = Join-Path $repoRoot 'AGENTS.md'
-    if (Test-Path $repoAspect) { throw "POLLUTION: .aspect/ at repo root" }
+    if (Test-Path $repoKb) { throw "POLLUTION: kb.md at repo root" }
     if (Test-Path $repoAgents) { throw "POLLUTION: AGENTS.md at repo root" }
   }))
 
@@ -613,11 +521,11 @@ foreach ($repo in $repos) {
 # ── Final pollution check ─────────────────────────────────────────────
 
 Write-Step "Final repo-root cleanliness check"
-$repoAspect = Join-Path $repoRoot '.aspect'
+$repoKb = Join-Path $repoRoot 'kb.md'
 $repoAgents = Join-Path $repoRoot 'AGENTS.md'
 $polluted = $false
-if (Test-Path $repoAspect) {
-  Write-Host "  POLLUTION: .aspect/ found at repo root" -ForegroundColor Red
+if (Test-Path $repoKb) {
+  Write-Host "  POLLUTION: kb.md found at repo root" -ForegroundColor Red
   $polluted = $true
 }
 if (Test-Path $repoAgents) {

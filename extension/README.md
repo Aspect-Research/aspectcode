@@ -2,14 +2,14 @@
 
 **Knowledge Base Generator for AI Coding Assistants**
 
-Aspect Code generates a structured knowledge base (`.aspect/`) that helps AI coding assistants understand your codebase architecture before making changes.
+Aspect Code generates a knowledge base (`kb.md`) and instruction files that help AI coding assistants understand your codebase architecture before making changes.
 
 ---
 
 ## What It Does
 
-- **Generates `.aspect/` Knowledge Base** — Creates `architecture.md`, `map.md`, and `context.md` files describing your project structure
-- **Creates AI Instruction Files** — Generates instruction files for GitHub Copilot, Cursor, Claude, and AGENTS.md
+- **Generates Knowledge Base** — Creates a single `kb.md` file describing your project structure (opt-in)
+- **Creates AI Instruction File** — Generates an `AGENTS.md` instruction file for AI coding assistants
 - **Visualizes Dependencies** — Interactive dependency graph showing file relationships and hub files
 - **Auto-Regenerates** — Updates KB on file save or after idle period or manually (configurable)
 
@@ -34,10 +34,7 @@ Python, TypeScript, JavaScript, Java, C#
 
 | File | Purpose |
 |------|---------|
-| `.aspect/architecture.md` | High-risk hubs, directory layout, entry points |
-| `.aspect/map.md` | Data models, symbol index, naming conventions |
-| `.aspect/context.md` | Module clusters, external integrations, data flows |
-
+| `kb.md` | Architecture, data models, module clusters, integrations || `AGENTS.md` | AI assistant instruction file with coding rules |
 ---
 
 ## Instruction Modes
@@ -51,22 +48,11 @@ supports additional modes (`permissive`, `off`) for advanced workflows.
 
 ---
 
-## Supported Assistants
-
-| Assistant | Generated File |
-|-----------|----------------|
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Cursor | `.cursor/rules/aspect.mdc` |
-| Claude | `CLAUDE.md` |
-| Other | `AGENTS.md` |
-
----
-
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| Configure AI Assistants | Generate KB and instruction files |
+| Generate | Generate KB and AGENTS.md instruction file |
 | Copy KB Receipt Prompt | Copy prompt to verify AI can read KB |
 | Enable Safe Mode | Ensure instruction files use safe mode |
 

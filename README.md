@@ -10,10 +10,11 @@
 
 ## Overview
 
-Aspect Code generates a project-local knowledge base (`.aspect/` directory)
-that helps AI coding assistants understand your codebase before making changes.
-It works as a VS Code extension or a standalone CLI — both produce identical
-output. **Everything runs offline** with zero network dependencies.
+Aspect Code generates a project-local knowledge base (`kb.md`) and
+assistant-specific instruction files that help AI coding assistants understand
+your codebase before making changes. It works as a VS Code extension or a
+standalone CLI — both produce identical output. **Everything runs offline**
+with zero network dependencies.
 
 - Marketplace/end-user README: see `extension/README.md`
 - Docs: https://aspectcode.com/docs
@@ -37,8 +38,8 @@ node packages/cli/bin/aspectcode.js --help
 
 ## Features
 
-- **Knowledge Base generation** — Writes `.aspect/architecture.md`, `.aspect/map.md`, `.aspect/context.md`, and `.aspect/manifest.json`
-- **AI instruction files** — Generates assistant-specific instruction files for Copilot, Cursor, Claude, AGENTS.md
+- **Knowledge Base generation** — Generates a single `kb.md` file (opt-in via `--kb` flag or `generateKb` config setting)
+- **AI instruction files** — Generates an `AGENTS.md` instruction file for AI coding assistants
 - **Dependency analysis** — Import/export/call graph with hub detection
 - **Incremental updates** — Regenerates on save / idle (extension), on file changes with `watch` (CLI), or on-demand
 - **Fully offline** — No telemetry, no API calls, no network access
@@ -83,20 +84,17 @@ npm run build
 ### CLI Usage
 
 ```bash
-node packages/cli/bin/aspectcode.js init         # create aspectcode.json
 node packages/cli/bin/aspectcode.js generate      # build KB artifacts
 node packages/cli/bin/aspectcode.js generate -v   # verbose output
 node packages/cli/bin/aspectcode.js generate --kb-only  # KB only, skip instructions
-node packages/cli/bin/aspectcode.js generate --copilot --cursor  # specific assistants
 node packages/cli/bin/aspectcode.js generate --list-connections --file src/app.ts
-node packages/cli/bin/aspectcode.js impact --file src/app.ts   # impact analysis
+node packages/cli/bin/aspectcode.js deps impact --file src/app.ts   # impact analysis
 node packages/cli/bin/aspectcode.js deps list --file src/app.ts
 node packages/cli/bin/aspectcode.js watch         # watch + regenerate on changes
 node packages/cli/bin/aspectcode.js watch --mode idle
 node packages/cli/bin/aspectcode.js show-config
 node packages/cli/bin/aspectcode.js set-update-rate idle
-node packages/cli/bin/aspectcode.js set-out-dir .aspect
-node packages/cli/bin/aspectcode.js clear-out-dir
+node packages/cli/bin/aspectcode.js generate --kb     # include KB (kb.md)
 node packages/cli/bin/aspectcode.js add-exclude dist
 node packages/cli/bin/aspectcode.js remove-exclude dist
 ```
