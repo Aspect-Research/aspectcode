@@ -4,9 +4,6 @@ import type { Emitter, EmitOptions, EmitResult, InstructionsMode } from '../emit
 import type { EmitterHost } from '../host';
 import {
   generateCanonicalContentForMode,
-  generateCopilotContent,
-  generateCursorContent,
-  generateClaudeContent,
 } from './content';
 import { mergeAspectCodeSection, removeAspectCodeSection } from './merge';
 
@@ -72,10 +69,8 @@ export function createInstructionsEmitter(): Emitter {
     name: 'instructions',
 
     async emit(_model: AnalysisModel, host: EmitterHost, options: EmitOptions): Promise<EmitResult> {
-      const workspaceRoot = options.workspaceRoot;
-      const outDir = options.outDir ?? workspaceRoot;
+      const outDir = options.outDir ?? options.workspaceRoot;
       const mode: InstructionsMode = options.instructionsMode ?? 'safe';
-      const assistants = options.assistants ?? {};
 
       const wrote: string[] = [];
 
@@ -84,57 +79,12 @@ export function createInstructionsEmitter(): Emitter {
           ? ((await readCustomInstructionsContent(host, outDir)) ?? generateCanonicalContentForMode('safe'))
           : generateCanonicalContentForMode(mode);
 
-      // Copilot
-      if (assistants.copilot) {
-        const filePath = host.join(outDir, '.github', 'copilot-instructions.md');
-        const content =
-          mode === 'custom'
-            ? ((await readCustomInstructionsContent(host, outDir)) ?? generateCopilotContent('safe'))
-            : generateCopilotContent(mode);
-
-        const changed = await upsertWithMarkers(host, filePath, mode, content, {});
-        if (changed) wrote.push(filePath);
-      }
-
-      // Cursor
-      if (assistants.cursor) {
-        const filePath = host.join(outDir, '.cursor', 'rules', 'aspectcode.mdc');
-        const content =
-          mode === 'custom'
-            ? ((await readCustomInstructionsContent(host, outDir)) ?? generateCursorContent('safe'))
-            : generateCursorContent(mode);
-
-        const changed = await upsertWithMarkers(host, filePath, mode, content, {});
-        if (changed) wrote.push(filePath);
-      }
-
-      // Claude
-      if (assistants.claude) {
-        const filePath = host.join(outDir, 'CLAUDE.md');
-        const content =
-          mode === 'custom'
-            ? ((await readCustomInstructionsContent(host, outDir)) ?? generateClaudeContent('safe'))
-            : generateClaudeContent(mode);
-
-        const changed = await upsertWithMarkers(host, filePath, mode, content, {
-          defaultHeader: '# Claude Code Instructions\n\n',
-        });
-        if (changed) wrote.push(filePath);
-      }
-
-      // Other
-      if (assistants.other) {
-        const filePath = host.join(outDir, 'AGENTS.md');
-        const content =
-          mode === 'custom'
-            ? ((await readCustomInstructionsContent(host, outDir)) ?? generateCanonicalContentForMode('safe'))
-            : aspectCodeContent;
-
-        const changed = await upsertWithMarkers(host, filePath, mode, content, {
-          defaultHeader: '# AI Coding Agent Instructions\n\n',
-        });
-        if (changed) wrote.push(filePath);
-      }
+      // AGENTS.md — the single instruction output target
+      const filePath = host.join(outDir, 'AGENTS.md');
+      const changed = await upsertWithMarkers(host, filePath, mode, aspectCodeContent, {
+        defaultHeader: '# AI Coding Agent Instructions\n\n',
+      });
+      if (changed) wrote.push(filePath);
 
       return { filesWritten: wrote };
     },

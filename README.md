@@ -38,7 +38,7 @@ node packages/cli/bin/aspectcode.js --help
 ## Features
 
 - **Knowledge Base generation** — Writes `.aspect/architecture.md`, `.aspect/map.md`, `.aspect/context.md`, and `.aspect/manifest.json`
-- **AI instruction files** — Generates assistant-specific instruction files for Copilot, Cursor, Claude, AGENTS.md
+- **AI instruction file** — Generates AGENTS.md for AI coding assistants
 - **Dependency analysis** — Import/export/call graph with hub detection
 - **Incremental updates** — Regenerates on save / idle (extension), on file changes with `watch` (CLI), or on-demand
 - **Fully offline** — No telemetry, no API calls, no network access
@@ -86,8 +86,7 @@ npm run build
 node packages/cli/bin/aspectcode.js init         # create aspectcode.json
 node packages/cli/bin/aspectcode.js generate      # build KB artifacts
 node packages/cli/bin/aspectcode.js generate -v   # verbose output
-node packages/cli/bin/aspectcode.js generate --kb-only  # KB only, skip instructions
-node packages/cli/bin/aspectcode.js generate --copilot --cursor  # specific assistants
+node packages/cli/bin/aspectcode.js generate --kb-only  # KB only, skip AGENTS.md
 node packages/cli/bin/aspectcode.js generate --list-connections --file src/app.ts
 node packages/cli/bin/aspectcode.js impact --file src/app.ts   # impact analysis
 node packages/cli/bin/aspectcode.js deps list --file src/app.ts

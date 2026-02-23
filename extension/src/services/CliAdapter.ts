@@ -249,34 +249,6 @@ export async function cliGenerate(
 }
 
 /**
- * Run `aspectcode generate --json` with specific assistant flags.
- * Used to generate instruction files (+ KB as a prerequisite).
- */
-export async function cliGenerateWithInstructions(
-  root: string,
-  assistants: { copilot?: boolean; cursor?: boolean; claude?: boolean; other?: boolean },
-  options?: {
-    outputChannel?: vscode.OutputChannel;
-    token?: vscode.CancellationToken;
-    instructionsMode?: string;
-  },
-): Promise<CliResult<GenerateJsonPayload>> {
-  const args = ['generate', '--json'];
-  if (assistants.copilot) args.push('--copilot');
-  if (assistants.cursor) args.push('--cursor');
-  if (assistants.claude) args.push('--claude');
-  if (assistants.other) args.push('--other');
-  if (options?.instructionsMode) args.push('--instructions-mode', options.instructionsMode);
-
-  return runCli<GenerateJsonPayload>({
-    root,
-    args,
-    outputChannel: options?.outputChannel,
-    token: options?.token,
-  });
-}
-
-/**
  * Run `aspectcode watch` as a long-running background process.
  * Returns the child process handle for lifecycle management.
  */

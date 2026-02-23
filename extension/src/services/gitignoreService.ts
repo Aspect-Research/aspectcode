@@ -2,7 +2,7 @@
  * Gitignore Service for Aspect Code
  *
  * Manages .gitignore entries for Aspect Code generated files.
- * Each target file (e.g., .aspect/, AGENTS.md, CLAUDE.md) is managed separately
+ * Each target file (e.g., .aspect/, AGENTS.md) is managed separately
  * with user opt-in stored in .aspect/.settings.json
  *
  * Design principles:
@@ -33,9 +33,6 @@ const ASPECT_CODE_BLOCK_START = '# Aspect Code (local AI context)';
 const TARGET_TO_PATTERN: Record<GitignoreTarget, string> = {
   '.aspect/': '.aspect/',
   'AGENTS.md': 'AGENTS.md',
-  'CLAUDE.md': 'CLAUDE.md',
-  '.github/copilot-instructions.md': '.github/copilot-instructions.md',
-  '.cursor/rules/aspectcode.mdc': '.cursor/rules/aspectcode.mdc',
 };
 
 /**
@@ -160,13 +157,7 @@ function isManagedEntryLine(line: string): boolean {
     lower === '/.aspect/' ||
     lower === '/.aspect' ||
     lower === 'agents.md' ||
-    lower === '/agents.md' ||
-    lower === 'claude.md' ||
-    lower === '/claude.md' ||
-    lower === '.github/copilot-instructions.md' ||
-    lower === '/.github/copilot-instructions.md' ||
-    lower === '.cursor/rules/aspectcode.mdc' ||
-    lower === '/.cursor/rules/aspectcode.mdc'
+    lower === '/agents.md'
   );
 }
 
@@ -361,12 +352,6 @@ function getTargetInfo(target: GitignoreTarget): IgnoreTarget {
       return { kind: 'dir', name: '.aspect' };
     case 'AGENTS.md':
       return { kind: 'file', name: 'AGENTS.md' };
-    case 'CLAUDE.md':
-      return { kind: 'file', name: 'CLAUDE.md' };
-    case '.github/copilot-instructions.md':
-      return { kind: 'file', name: '.github/copilot-instructions.md' };
-    case '.cursor/rules/aspectcode.mdc':
-      return { kind: 'file', name: '.cursor/rules/aspectcode.mdc' };
     default:
       // Exhaustive check - should never reach here
       const _exhaustive: never = target;

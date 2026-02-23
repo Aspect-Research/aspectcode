@@ -9,9 +9,6 @@ export {
   generateCanonicalContentForMode,
   generateCanonicalContentSafe,
   generateCanonicalContentPermissive,
-  generateCopilotContent,
-  generateCursorContent,
-  generateClaudeContent,
 } from './content';
 
 export { createInstructionsEmitter } from './instructionsEmitter';

@@ -16,7 +16,6 @@ export type {
   Emitter,
   EmitResult,
   EmitOptions,
-  AssistantFlags,
   InstructionsMode,
 } from './emitter';
 
@@ -76,11 +75,7 @@ export async function runEmitters(
   wrote.push(...tx.getWrites().map((w) => ({ path: w.finalPath, bytes: w.bytes })));
 
   // ── Instructions (outside the .aspect transaction) ─────────
-  const assistants = opts.assistants ?? {};
-  const wantsAnyInstructions = Boolean(
-    assistants.copilot || assistants.cursor || assistants.claude || assistants.other,
-  );
-  if (wantsAnyInstructions) {
+  if (opts.instructionsMode !== 'off') {
     const { createInstructionsEmitter } = await import('./instructions/instructionsEmitter');
     const instructions = createInstructionsEmitter();
 
@@ -96,7 +91,7 @@ export async function runEmitters(
 
     await instructions.emit(model, recordingHost, opts);
   } else {
-    skipped.push({ id: 'instructions', reason: 'No assistants enabled' });
+    skipped.push({ id: 'instructions', reason: 'Instructions mode is off' });
   }
 
   const stats = computeModelStats(model, 10);

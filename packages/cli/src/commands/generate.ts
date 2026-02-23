@@ -12,7 +12,7 @@ import {
   createNodeEmitterHost,
   runEmitters,
 } from '@aspectcode/emitters';
-import type { EmitOptions, AssistantFlags } from '@aspectcode/emitters';
+import type { EmitOptions } from '@aspectcode/emitters';
 import type { CommandContext, CommandResult } from '../cli';
 import { ExitCode } from '../cli';
 import { fmt, createSpinner } from '../logger';
@@ -57,28 +57,12 @@ export async function runGenerate(ctx: CommandContext): Promise<CommandResult> {
   // ── 4. Resolve instruction target ─────────────────────────
   const host = createNodeEmitterHost();
 
-  // Determine assistant selection: explicit flags override default.
-  const hasExplicitAssistants = flags.copilot || flags.cursor || flags.claude || flags.other;
-  const assistants: AssistantFlags = flags.kbOnly
-    ? {}
-    : hasExplicitAssistants
-      ? {
-          copilot: flags.copilot || undefined,
-          cursor: flags.cursor || undefined,
-          claude: flags.claude || undefined,
-          other: flags.other || undefined,
-        }
-      : { other: true };
-
   const instructionsMode = flags.kbOnly
     ? 'off'
     : (flags.instructionsMode ?? 'safe');
 
   if (!flags.kbOnly && !flags.json) {
-    const targets = Object.entries(assistants)
-      .filter(([, v]) => v)
-      .map(([k]) => k);
-    log.info(`Instructions: ${fmt.cyan(targets.join(', ') || '(none)')}`);
+    log.info(`Instructions: ${fmt.cyan('AGENTS.md')} (mode: ${instructionsMode})`);
   }
 
   // ── 5. Emit artifacts ─────────────────────────────────────
@@ -87,7 +71,6 @@ export async function runGenerate(ctx: CommandContext): Promise<CommandResult> {
   const emitOpts: EmitOptions = {
     workspaceRoot: root,
     outDir: resolvedOut,
-    assistants,
     instructionsMode,
     fileContents,
   };

@@ -93,7 +93,7 @@ stats. No `vscode` import. Target: ES2020 / CommonJS.
 | `detectAssistants(host, root)` | Detect installed AI assistants by config files |
 
 Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
-`AssistantFlags`, `InstructionsMode`.
+`InstructionsMode`.
 
 ### aspectcode (CLI)
 
@@ -115,7 +115,7 @@ No external command framework — hand-rolled argv parser.
 Key flags:
 - Global-ish: `--root`, `--verbose`, `--quiet`, `--help`, `--version`
 - `init`: `--force`
-- `generate`: `--out`, `--list-connections`, `--json`, `--file`, `--kb-only`, `--copilot`, `--cursor`, `--claude`, `--other`, `--instructions-mode`
+- `generate`: `--out`, `--list-connections`, `--json`, `--file`, `--kb-only`, `--instructions-mode`
 - `impact`: `--file` (required), `--json`
 - `deps list`: `--file` (connection filtering)
 - `watch`: `--mode` (`manual|onChange|idle`)
@@ -193,10 +193,9 @@ User action (click / save / idle)
   │           ├─ analyzeRepoWithDependencies()       @aspectcode/core
   │           └─ runEmitters(model, vscodeHost)       @aspectcode/emitters
   │
-  ├─ emitInstructionFilesOnlyViaEmitters()   commandHandlers.ts
-  │   ├─ TRY: cliGenerateWithInstructions(root, assistants)
-  │   │   (spawns: aspectcode generate --json --copilot --cursor …)
-  │   └─ FALLBACK: createInstructionsEmitter().emit()
+  ├─ handleGenerate()                     commandHandlers.ts
+  │   └─ cliGenerate(root)
+  │       (spawns: aspectcode generate --json)
   │
   └─ computeImpactSummaryForFile()     extension/src/assistants/kb.ts
       ├─ TRY: cliImpact(root, relPath)
@@ -219,10 +218,7 @@ CLI resolution order in `CliAdapter.resolveCliBin()`:
 | `.aspect/map.md` | KB emitter | Data models, symbol index, conventions |
 | `.aspect/context.md` | KB emitter | Module clusters, integrations, data flow |
 | `.aspect/manifest.json` | Manifest writer | Schema version, stats, file list |
-| `.github/copilot-instructions.md` | Instructions emitter | Copilot rules (marker-wrapped) |
-| `.cursor/rules/aspect.mdc` | Instructions emitter | Cursor rules |
-| `CLAUDE.md` | Instructions emitter | Claude rules |
-| `AGENTS.md` | Instructions emitter | Generic agent rules |
+| `AGENTS.md` | Instructions emitter | AI agent rules (marker-wrapped) |
 
 Instruction files use `<!-- ASPECT_CODE_START -->` / `<!-- ASPECT_CODE_END -->`
 markers. User content outside the markers is preserved on regeneration.
@@ -302,10 +298,10 @@ npm test --workspaces
 
 **Done:**
 1. ✅ CLI test coverage expanded (49 tests covering all commands/flags).
-2. ✅ New CLI flags: `--kb-only`, `--copilot`, `--cursor`, `--claude`, `--other`, `--instructions-mode`.
+2. ✅ CLI flags: `--kb-only`, `--instructions-mode`.
 3. ✅ New CLI command: `aspectcode impact --file <path> --json`.
 4. ✅ Extension spawns CLI for KB generation (`generate --json --kb-only`).
-5. ✅ Extension spawns CLI for instructions (`generate --json --copilot …`).
+5. ✅ Extension spawns CLI for AGENTS.md generation (`generate --json`).
 6. ✅ Extension spawns CLI for impact (`impact --file <path> --json`).
 7. ✅ `CliAdapter.ts` with hybrid resolution (local → npm → PATH).
 

@@ -87,7 +87,7 @@ CLI is unavailable. Three operations use this pattern today:
 | Operation | CLI command | Fallback |
 |-----------|-------------|----------|
 | KB generation | `aspectcode generate --json --kb-only` | `analyzeRepoWithDependencies()` + `runEmitters()` |
-| Instructions | `aspectcode generate --json --copilot …` | `createInstructionsEmitter().emit()` |
+| Instructions | `aspectcode generate --json` | `runEmitters()` |
 | Impact analysis | `aspectcode impact --file <path> --json` | `DependencyAnalyzer` in-process |
 
 ### CLI behavior baseline (must stay tested)
@@ -97,8 +97,7 @@ CLI is unavailable. Three operations use this pattern today:
 - `aspectcode generate --json` emits machine-readable write stats + connections.
 - `aspectcode generate --list-connections` prints dependency connections.
 - `aspectcode generate --json --file <path>` or `--list-connections --file <path>` filters connections to one workspace file.
-- `aspectcode generate --kb-only` generates KB artifacts only (skips instruction files).
-- `aspectcode generate --copilot --cursor --claude --other` selects which instruction files to emit.
+- `aspectcode generate --kb-only` generates KB artifacts only (skips AGENTS.md).
 - `aspectcode generate --instructions-mode safe|permissive|off` controls instruction content mode.
 - `aspectcode impact --file <path>` computes dependency impact for a single file.
 - `aspectcode impact --file <path> --json` emits machine-readable impact JSON.

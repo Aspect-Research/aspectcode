@@ -31,7 +31,7 @@ describe('InstructionsEmitter', () => {
     }
   });
 
-  it('creates file when missing', async () => {
+  it('creates AGENTS.md when missing', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-instr-'));
     const host = createNodeEmitterHost();
     const emitter = createInstructionsEmitter();
@@ -41,10 +41,9 @@ describe('InstructionsEmitter', () => {
       outDir: tmpDir,
       generatedAt: FIXED_TIMESTAMP,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
-    const filePath = path.join(tmpDir, '.github', 'copilot-instructions.md');
+    const filePath = path.join(tmpDir, 'AGENTS.md');
     assert.ok(fs.existsSync(filePath));
     const text = fs.readFileSync(filePath, 'utf8');
     assert.ok(text.includes(ASPECT_CODE_START));
@@ -56,8 +55,7 @@ describe('InstructionsEmitter', () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-instr-'));
     const host = createNodeEmitterHost();
 
-    const filePath = path.join(tmpDir, '.github', 'copilot-instructions.md');
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    const filePath = path.join(tmpDir, 'AGENTS.md');
 
     const before = '# Header\n\nPreamble\n';
     const old = `${ASPECT_CODE_START}\nOLD CONTENT\n${ASPECT_CODE_END}\n`;
@@ -70,7 +68,6 @@ describe('InstructionsEmitter', () => {
       outDir: tmpDir,
       generatedAt: FIXED_TIMESTAMP,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
     const updated = fs.readFileSync(filePath, 'utf8');
@@ -90,10 +87,9 @@ describe('InstructionsEmitter', () => {
       outDir: tmpDir,
       generatedAt: FIXED_TIMESTAMP,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
-    const filePath = path.join(tmpDir, '.github', 'copilot-instructions.md');
+    const filePath = path.join(tmpDir, 'AGENTS.md');
     let text = fs.readFileSync(filePath, 'utf8');
 
     // External edit outside markers (before the start marker)
@@ -107,7 +103,6 @@ describe('InstructionsEmitter', () => {
       outDir: tmpDir,
       generatedAt: FIXED_TIMESTAMP,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
     const updated = fs.readFileSync(filePath, 'utf8');
@@ -124,11 +119,10 @@ describe('InstructionsEmitter', () => {
       outDir: tmpDir,
       generatedAt: FIXED_TIMESTAMP,
       instructionsMode: 'safe' as const,
-      assistants: { copilot: true },
     };
 
     await emitter.emit(makeModel(tmpDir), host, opts);
-    const filePath = path.join(tmpDir, '.github', 'copilot-instructions.md');
+    const filePath = path.join(tmpDir, 'AGENTS.md');
     const a = fs.readFileSync(filePath, 'utf8');
 
     await emitter.emit(makeModel(tmpDir), host, opts);

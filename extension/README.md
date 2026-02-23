@@ -9,7 +9,7 @@ Aspect Code generates a structured knowledge base (`.aspect/`) that helps AI cod
 ## What It Does
 
 - **Generates `.aspect/` Knowledge Base** — Creates `architecture.md`, `map.md`, and `context.md` files describing your project structure
-- **Creates AI Instruction Files** — Generates instruction files for GitHub Copilot, Cursor, Claude, and AGENTS.md
+- **Creates AGENTS.md** — Generates an instruction file for AI coding assistants
 - **Visualizes Dependencies** — Interactive dependency graph showing file relationships and hub files
 - **Auto-Regenerates** — Updates KB on file save or after idle period or manually (configurable)
 
@@ -51,14 +51,11 @@ supports additional modes (`permissive`, `off`) for advanced workflows.
 
 ---
 
-## Supported Assistants
+## Output File
 
 | Assistant | Generated File |
 |-----------|----------------|
-| GitHub Copilot | `.github/copilot-instructions.md` |
-| Cursor | `.cursor/rules/aspect.mdc` |
-| Claude | `CLAUDE.md` |
-| Other | `AGENTS.md` |
+| All | `AGENTS.md` |
 
 ---
 
@@ -66,7 +63,7 @@ supports additional modes (`permissive`, `off`) for advanced workflows.
 
 | Command | Description |
 |---------|-------------|
-| Configure AI Assistants | Generate KB and instruction files |
+| Generate | Generate KB and AGENTS.md |
 | Copy KB Receipt Prompt | Copy prompt to verify AI can read KB |
 | Enable Safe Mode | Ensure instruction files use safe mode |
 

@@ -49,10 +49,6 @@ export function parseArgs(argv: string[]): CliArgs {
     json: false,
     force: false,
     kbOnly: false,
-    copilot: false,
-    cursor: false,
-    claude: false,
-    other: false,
     noColor: false,
     dryRun: false,
     autoOptimize: false,
@@ -153,7 +149,7 @@ ${optionLines.join('\n')}
 ${fmt.bold('EXAMPLES')}
   aspectcode init
   aspectcode generate
-  aspectcode gen --copilot --cursor
+  aspectcode gen --kb-only
   aspectcode g --json
   aspectcode optimize --max-iterations 5
   aspectcode optimize --dry-run

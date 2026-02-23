@@ -11,14 +11,6 @@ import type { EmitterHost } from './host';
 
 // ── Options ──────────────────────────────────────────────────
 
-/** Flags controlling which assistant instruction files to emit. */
-export interface AssistantFlags {
-  copilot?: boolean;
-  cursor?: boolean;
-  claude?: boolean;
-  other?: boolean;
-}
-
 /** Mode for instruction content generation. */
 export type InstructionsMode = 'safe' | 'permissive' | 'custom' | 'off';
 
@@ -43,9 +35,6 @@ export interface EmitOptions {
    * Pass a fixed value in tests for determinism.
    */
   generatedAt?: string;
-
-  /** Which assistant instruction files to generate. */
-  assistants?: AssistantFlags;
 
   /** Instruction content mode. */
   instructionsMode?: InstructionsMode;

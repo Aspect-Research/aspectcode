@@ -361,45 +361,11 @@ function Test-RepoExhaustive {
     if (-not (Test-Path (Join-Path (Join-Path $OutDir '.aspect') 'architecture.md'))) { throw ".aspect/architecture.md missing" }
   }))
 
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --copilot" -Action {
+  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate (AGENTS.md)" -Action {
     & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --copilot --quiet"
-    $copilotFile = Join-Path (Join-Path $OutDir '.github') 'copilot-instructions.md'
-    if (-not (Test-Path $copilotFile)) { throw "copilot-instructions.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --cursor" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --cursor --quiet"
-    $cursorFile = Join-Path (Join-Path (Join-Path $OutDir '.cursor') 'rules') 'aspectcode.mdc'
-    if (-not (Test-Path $cursorFile)) { throw ".cursor/rules/aspectcode.mdc not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --claude" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --claude --quiet"
-    $claudeFile = Join-Path $OutDir 'CLAUDE.md'
-    if (-not (Test-Path $claudeFile)) { throw "CLAUDE.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --other" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --other --quiet"
+    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --quiet"
     $agentsMd = Join-Path $OutDir 'AGENTS.md'
     if (-not (Test-Path $agentsMd)) { throw "AGENTS.md not generated" }
-  }))
-
-  [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --copilot --cursor --claude --other (all)" -Action {
-    & $cleanOut
-    Invoke-Cli "generate --root `"$CloneDir`" --out `"$OutDir`" --copilot --cursor --claude --other --quiet"
-    foreach ($f in @(
-      (Join-Path (Join-Path $OutDir '.github') 'copilot-instructions.md'),
-      (Join-Path (Join-Path (Join-Path $OutDir '.cursor') 'rules') 'aspectcode.mdc'),
-      (Join-Path $OutDir 'CLAUDE.md'),
-      (Join-Path $OutDir 'AGENTS.md')
-    )) {
-      if (-not (Test-Path $f)) { throw "Missing: $f" }
-    }
   }))
 
   [void]$results.Add((Invoke-Step -Name "[$RepoName] generate --instructions-mode safe" -Action {

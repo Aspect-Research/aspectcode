@@ -77,7 +77,6 @@ describe('runEmitters', () => {
       generatedAt: FIXED_TIMESTAMP,
       fileContents,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
     assert.equal(report.schemaVersion, '0.1');
@@ -89,8 +88,8 @@ describe('runEmitters', () => {
     assert.ok(fs.existsSync(path.join(outDir, '.aspect', 'context.md')));
     assert.ok(fs.existsSync(path.join(outDir, '.aspect', 'manifest.json')));
 
-    // Instructions should also land under outDir
-    assert.ok(fs.existsSync(path.join(outDir, '.github', 'copilot-instructions.md')));
+    // AGENTS.md should land under outDir
+    assert.ok(fs.existsSync(path.join(outDir, 'AGENTS.md')));
 
     // Ensure we did not implicitly write into workspaceRoot
     assert.ok(!fs.existsSync(path.join(workspaceDir, '.aspect', 'manifest.json')));
@@ -128,7 +127,6 @@ describe('runEmitters', () => {
         generatedAt: FIXED_TIMESTAMP,
         fileContents,
         instructionsMode: 'safe',
-        assistants: { copilot: false },
       });
     } catch {
       threw = true;
@@ -152,7 +150,6 @@ describe('runEmitters', () => {
       generatedAt: FIXED_TIMESTAMP,
       fileContents,
       instructionsMode: 'safe',
-      assistants: { copilot: true },
     });
 
     const mapPath = path.join(outDir, '.aspect', 'map.md');

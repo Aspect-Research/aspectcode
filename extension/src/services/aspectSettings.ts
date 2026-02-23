@@ -16,28 +16,14 @@ export type InstructionsMode = 'safe' | 'custom' | 'off';
 type UpdateRateMode = 'manual' | 'onChange' | 'idle';
 export type AutoRegenerateKbMode = UpdateRateMode | 'off' | 'onSave';
 
-export interface AssistantsSettings {
-  copilot?: boolean;
-  cursor?: boolean;
-  claude?: boolean;
-  other?: boolean;
-  autoGenerate?: boolean;
-}
-
 // File paths that can be individually configured for gitignore
-export type GitignoreTarget =
-  | '.aspect/'
-  | 'AGENTS.md'
-  | 'CLAUDE.md'
-  | '.github/copilot-instructions.md'
-  | '.cursor/rules/aspectcode.mdc';
+export type GitignoreTarget
+  = '.aspect/'
+  | 'AGENTS.md';
 
 const ALL_GITIGNORE_TARGETS: GitignoreTarget[] = [
   '.aspect/',
   'AGENTS.md',
-  'CLAUDE.md',
-  '.github/copilot-instructions.md',
-  '.cursor/rules/aspectcode.mdc',
 ];
 
 /**
@@ -53,11 +39,6 @@ interface AspectSettings {
   gitignore?: {
     [target in GitignoreTarget]?: boolean;
   };
-
-  /**
-   * Assistant enablement (mirrors aspectcode.assistants.* but stored locally)
-   */
-  assistants?: AssistantsSettings;
 
   /**
    * Update trigger mode.
@@ -205,10 +186,6 @@ export async function updateAspectSettings(
       ...existing.gitignore,
       ...update.gitignore,
     },
-    assistants: {
-      ...existing.assistants,
-      ...update.assistants,
-    },
     excludeDirectories: {
       ...existing.excludeDirectories,
       ...update.excludeDirectories,
@@ -285,29 +262,6 @@ export async function migrateAspectSettingsFromVSCode(
     }
   }
 
-  // assistants flags
-  const assistantKeys: Array<keyof AssistantsSettings> = [
-    'copilot',
-    'cursor',
-    'claude',
-    'other',
-    'autoGenerate',
-  ];
-
-  const currentAssistants = current.assistants ?? {};
-  const assistantUpdate: AssistantsSettings = {};
-  for (const key of assistantKeys) {
-    if (currentAssistants[key] !== undefined) continue;
-    const raw = vsSettings[`aspectcode.assistants.${String(key)}`];
-    if (typeof raw === 'boolean') {
-      assistantUpdate[key] = raw;
-      changed = true;
-    }
-  }
-  if (Object.keys(assistantUpdate).length > 0) {
-    update.assistants = assistantUpdate;
-  }
-
   if (!changed) {
     // No settings to migrate — mark complete so we never re-check
     await globalState?.update(MIGRATION_DONE_KEY, true);
@@ -373,21 +327,6 @@ export async function setExtensionEnabledSetting(
   await updateAspectSettings(workspaceRoot, { extensionEnabled: enabled }, options);
 }
 
-export async function getAssistantsSettings(
-  workspaceRoot: vscode.Uri,
-  _outputChannel?: vscode.OutputChannel,
-): Promise<Required<AssistantsSettings>> {
-  const settings = await readAspectSettings(workspaceRoot);
-  const a = settings.assistants ?? {};
-  return {
-    copilot: a.copilot ?? false,
-    cursor: a.cursor ?? false,
-    claude: a.claude ?? false,
-    other: a.other ?? false,
-    autoGenerate: a.autoGenerate ?? false,
-  };
-}
-
 /**
  * Get the gitignore preference for a specific target
  * Returns undefined if not yet set (user hasn't been asked)
@@ -423,13 +362,7 @@ function getTargetDescription(target: GitignoreTarget): string {
     case '.aspect/':
       return 'the Aspect Code knowledge base (.aspect/)';
     case 'AGENTS.md':
-      return 'AGENTS.md (general AI instructions)';
-    case 'CLAUDE.md':
-      return 'CLAUDE.md (Claude Code instructions)';
-    case '.github/copilot-instructions.md':
-      return 'GitHub Copilot instructions (.github/copilot-instructions.md)';
-    case '.cursor/rules/aspectcode.mdc':
-      return 'Cursor rules (.cursor/rules/aspectcode.mdc)';
+      return 'AGENTS.md (AI coding agent instructions)';
   }
 }
 

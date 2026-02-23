@@ -45,10 +45,6 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'list-connections',       type: 'boolean', description: 'Print dependency connections',      appliesTo: ['generate'], prop: 'listConnections' },
   { name: 'mode',                   type: 'enum',    description: 'Watch mode: manual|onChange|idle',   appliesTo: ['watch'], values: ['manual', 'onChange', 'idle'] },
   { name: 'kb-only',                type: 'boolean', description: 'Generate KB artifacts only (skip instruction files)', appliesTo: ['generate'], prop: 'kbOnly' },
-  { name: 'copilot',                type: 'boolean', description: 'Enable Copilot instruction file',   appliesTo: ['generate'] },
-  { name: 'cursor',                 type: 'boolean', description: 'Enable Cursor instruction file',    appliesTo: ['generate'] },
-  { name: 'claude',                 type: 'boolean', description: 'Enable Claude instruction file',    appliesTo: ['generate'] },
-  { name: 'other',                  type: 'boolean', description: 'Enable AGENTS.md instruction file', appliesTo: ['generate'] },
   { name: 'instructions-mode',      type: 'enum',    description: 'Instruction mode: safe|permissive|off', appliesTo: ['generate'], values: ['safe', 'permissive', 'off'], prop: 'instructionsMode' },
   { name: 'max-iterations',  short: 'n', type: 'string',  description: 'Max LLM agent iterations (default: 3)', appliesTo: ['optimize'], prop: 'maxIterations' },
   { name: 'dry-run',                     type: 'boolean', description: 'Print proposed changes without writing',  appliesTo: ['optimize'], prop: 'dryRun' },
@@ -94,15 +90,6 @@ export interface CliFlags {
 
   /** --kb-only: generate KB artifacts only, skip instruction files. */
   kbOnly: boolean;
-
-  /** --copilot: enable Copilot instruction file. */
-  copilot: boolean;
-  /** --cursor: enable Cursor instruction file. */
-  cursor: boolean;
-  /** --claude: enable Claude instruction file. */
-  claude: boolean;
-  /** --other: enable AGENTS.md instruction file. */
-  other: boolean;
 
   /** --instructions-mode: instruction generation mode. */
   instructionsMode?: 'safe' | 'permissive' | 'off';

@@ -68,9 +68,9 @@ async function preloadFileContents(files: string[]): Promise<Map<string, string>
  * Called by: onChange/idle auto-regen and generateKB command.
  *
  * This function:
- * 1. Checks if .aspect/ exists (skips if not - run configureAssistants first)
+ * 1. Checks if .aspect/ exists (skips if not — run generate first)
  * 2. Delegates to @aspectcode/emitters via generateKnowledgeBase
- * 3. Does NOT regenerate instruction files (those require configureAssistants)
+ * 3. Does NOT regenerate AGENTS.md (handled separately by generate command)
  *
  * @returns Object with regenerated flag and discovered files (for markKbFresh)
  */
@@ -93,14 +93,14 @@ export async function regenerateEverything(
   const workspaceRoot = workspaceFolders[0].uri;
 
   // Check if .aspect/ already exists - don't auto-create
-  // Users must explicitly initialize via configureAssistants command
+  // Users must explicitly initialize via generate command
   try {
     const aspectDir = vscode.Uri.joinPath(workspaceRoot, '.aspect');
     await vscode.workspace.fs.stat(aspectDir);
   } catch {
     // .aspect/ doesn't exist - skip regeneration
     outputChannel.appendLine(
-      '[KB] regenerateEverything: Skipped (.aspect/ not yet created - run configureAssistants to initialize)',
+      '[KB] regenerateEverything: Skipped (.aspect/ not yet created — run generate to initialize)',
     );
     return { regenerated: false, files: [] };
   }
@@ -266,8 +266,7 @@ async function generateKnowledgeBaseInProcess(
       outDir: rootFsPath,
       generatedAt,
       fileContents: fileContentCache,
-      // KB-only from this entry point; instruction generation is handled elsewhere.
-      assistants: {},
+      // KB-only from this entry point; AGENTS.md generation is handled elsewhere.
       instructionsMode: 'off',
     });
 
