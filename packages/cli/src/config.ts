@@ -23,6 +23,9 @@ export interface AspectCodeConfig {
 
   /** Extra directories to exclude from analysis. */
   exclude?: string[];
+
+  /** Automatically run optimize after each generate. */
+  autoOptimize?: boolean;
 }
 
 export type RawAspectCodeConfig = Record<string, unknown>;

@@ -25,6 +25,8 @@ function makeFlags(overrides: Partial<CliFlags> = {}): CliFlags {
     claude: false,
     other: false,
     noColor: false,
+    dryRun: false,
+    autoOptimize: false,
     ...overrides,
   };
 }

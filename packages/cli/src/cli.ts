@@ -50,6 +50,9 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'claude',                 type: 'boolean', description: 'Enable Claude instruction file',    appliesTo: ['generate'] },
   { name: 'other',                  type: 'boolean', description: 'Enable AGENTS.md instruction file', appliesTo: ['generate'] },
   { name: 'instructions-mode',      type: 'enum',    description: 'Instruction mode: safe|permissive|off', appliesTo: ['generate'], values: ['safe', 'permissive', 'off'], prop: 'instructionsMode' },
+  { name: 'max-iterations',  short: 'n', type: 'string',  description: 'Max LLM agent iterations (default: 3)', appliesTo: ['optimize'], prop: 'maxIterations' },
+  { name: 'dry-run',                     type: 'boolean', description: 'Print proposed changes without writing',  appliesTo: ['optimize'], prop: 'dryRun' },
+  { name: 'auto-optimize',               type: 'boolean', description: 'Run optimize after each generate',        appliesTo: ['watch'], prop: 'autoOptimize' },
 ] as const;
 
 // ── Parsed structures ────────────────────────────────────────
@@ -106,6 +109,15 @@ export interface CliFlags {
 
   /** --no-color: disable ANSI color output. */
   noColor: boolean;
+
+  /** --max-iterations / -n: max LLM agent iterations for optimize. */
+  maxIterations?: number;
+
+  /** --dry-run: print proposed optimize changes without writing. */
+  dryRun: boolean;
+
+  /** --auto-optimize: chain optimize after each generate in watch mode. */
+  autoOptimize: boolean;
 }
 
 /** Exit codes. */

@@ -19,11 +19,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "references": [
-    { "path": "../core" },
-    { "path": "../emitters" },
-    { "path": "../optimizer" }
-  ],
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "test"]
 }

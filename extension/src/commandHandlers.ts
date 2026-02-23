@@ -31,7 +31,7 @@ import {
   setUpdateRateSetting,
 } from './services/aspectSettings';
 import { cancelAndResetAllInFlightWork } from './services/enablementCancellation';
-import { cliGenerateWithInstructions } from './services/CliAdapter';
+import { cliGenerateWithInstructions, cliOptimize } from './services/CliAdapter';
 
 /**
  * Activate commands and file watchers.
@@ -103,6 +103,11 @@ export function activateCommands(
     vscode.commands.registerCommand('aspectcode.generate', async () => {
       if (!(await requireExtensionEnabled())) return;
       return await handleGenerate(state, channel, context, undefined, onStatusBarUpdate);
+    }),
+
+    vscode.commands.registerCommand('aspectcode.optimize', async () => {
+      if (!(await requireExtensionEnabled())) return;
+      return await handleOptimize(channel);
     }),
   );
 
@@ -526,4 +531,51 @@ async function handleGenerate(
     outputChannel.appendLine(`[Generate] Error: ${error}`);
     vscode.window.showErrorMessage(`Failed to generate: ${error}`);
   }
+}
+
+/**
+ * Optimize AGENTS.md instructions via LLM.
+ * Delegates to the CLI `optimize` command.
+ */
+async function handleOptimize(
+  outputChannel: vscode.OutputChannel,
+): Promise<void> {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    vscode.window.showErrorMessage('No workspace folder open');
+    return;
+  }
+
+  const root = workspaceFolders[0].uri.fsPath;
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: 'Aspect Code: Optimizing instructions…',
+      cancellable: true,
+    },
+    async (_progress, token) => {
+      outputChannel.appendLine('[Optimize] Starting LLM optimization…');
+
+      const result = await cliOptimize(root, {
+        outputChannel,
+        token,
+      });
+
+      if (result.exitCode === 0 && result.data) {
+        const { iterations, elapsedMs } = result.data;
+        const seconds = ((elapsedMs ?? 0) / 1000).toFixed(1);
+        vscode.window.showInformationMessage(
+          `Instructions optimized (${iterations} iteration${iterations === 1 ? '' : 's'}, ${seconds}s)`,
+        );
+        outputChannel.appendLine(
+          `[Optimize] Complete: ${iterations} iterations, ${seconds}s`,
+        );
+      } else {
+        const errMsg = result.stderr || 'Unknown error';
+        vscode.window.showErrorMessage(`Optimize failed: ${errMsg}`);
+        outputChannel.appendLine(`[Optimize] Failed: ${errMsg}`);
+      }
+    },
+  );
 }

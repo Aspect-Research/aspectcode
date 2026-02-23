@@ -18,6 +18,7 @@ import { runGenerate } from './commands/generate';
 import { runDepsList } from './commands/deps';
 import { runWatch } from './commands/watch';
 import { runImpact } from './commands/impact';
+import { runOptimize } from './commands/optimize';
 import {
   runAddExclude,
   runClearOutDir,
@@ -53,6 +54,8 @@ export function parseArgs(argv: string[]): CliArgs {
     claude: false,
     other: false,
     noColor: false,
+    dryRun: false,
+    autoOptimize: false,
   };
   const positionals: string[] = [];
   let command = '';
@@ -136,6 +139,7 @@ ${fmt.bold('COMMANDS')}
   watch                    Watch source files and regenerate on changes
   impact                   Compute impact analysis for a file
   deps list                List dependency connections
+  optimize  ${fmt.dim('(opt)')}        Optimize AGENTS.md instructions via LLM
   show-config              Show current ${fmt.cyan('aspectcode.json')} values
   set-update-rate <mode>   Set updateRate to manual|onChange|idle
   set-out-dir <path>       Set outDir
@@ -151,6 +155,8 @@ ${fmt.bold('EXAMPLES')}
   aspectcode generate
   aspectcode gen --copilot --cursor
   aspectcode g --json
+  aspectcode optimize --max-iterations 5
+  aspectcode optimize --dry-run
   aspectcode impact --file src/app.ts
   aspectcode deps list --file src/app.ts
   aspectcode watch --mode idle
@@ -231,6 +237,15 @@ async function main(): Promise<void> {
 
     case 'impact':
       result = await runImpact(ctx);
+      break;
+
+    case 'optimize':
+    case 'opt':
+      // Parse --max-iterations as a number
+      if (typeof ctx.flags.maxIterations === 'string') {
+        ctx.flags.maxIterations = parseInt(ctx.flags.maxIterations as unknown as string, 10) || 3;
+      }
+      result = await runOptimize(ctx);
       break;
 
     case 'show-config':

@@ -41,6 +41,7 @@
   "dependencies": {
     "@aspectcode/core": "0.2.1",
     "@aspectcode/emitters": "0.2.1",
+    "@aspectcode/optimizer": "0.2.1",
     "chokidar": "^4.0.3"
   },
   "devDependencies": {

@@ -63,6 +63,11 @@
         "command": "aspectcode.generate",
         "title": "Aspect Code: Generate",
         "icon": "$(book)"
+      },
+      {
+        "command": "aspectcode.optimize",
+        "title": "Aspect Code: Optimize Instructions",
+        "icon": "$(sparkle)"
       }
     ],
     "configuration": {

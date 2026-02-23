@@ -326,3 +326,39 @@ export function cliWatch(
 
   return child;
 }
+
+/** JSON payload emitted by `aspectcode optimize --json`. */
+export interface OptimizeJsonPayload {
+  iterations: number;
+  reasoning: string[];
+  path: string;
+  elapsedMs: number;
+  dryRun?: boolean;
+  optimizedInstructions?: string;
+}
+
+/**
+ * Run `aspectcode optimize --json` and return the parsed report.
+ */
+export async function cliOptimize(
+  root: string,
+  options?: {
+    outputChannel?: vscode.OutputChannel;
+    token?: vscode.CancellationToken;
+    maxIterations?: number;
+    dryRun?: boolean;
+  },
+): Promise<CliResult<OptimizeJsonPayload>> {
+  const args = ['optimize', '--json'];
+  if (options?.maxIterations) args.push('--max-iterations', String(options.maxIterations));
+  if (options?.dryRun) args.push('--dry-run');
+
+  return runCli<OptimizeJsonPayload>({
+    root,
+    args,
+    outputChannel: options?.outputChannel,
+    token: options?.token,
+    // Optimize can be slow (multiple LLM calls) — 5 minute timeout
+    timeoutMs: 300_000,
+  });
+}

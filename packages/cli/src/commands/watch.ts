@@ -5,6 +5,7 @@ import { ExitCode } from '../cli';
 import type { AspectCodeConfig } from '../config';
 import { fmt } from '../logger';
 import { runGenerate } from './generate';
+import { runOptimize } from './optimize';
 
 export type WatchMode = 'manual' | 'onChange' | 'idle';
 
@@ -91,6 +92,12 @@ export async function runWatch(ctx: CommandContext): Promise<CommandResult> {
     try {
       log.info(`${fmt.bold('watch')} trigger: ${reason}`);
       await runGenerate({ root, flags: { ...flags, listConnections: false, json: false }, config, log, positionals: [] });
+
+      // Auto-optimize after generate if enabled (flag or config)
+      if (flags.autoOptimize || config?.autoOptimize) {
+        log.info(`${fmt.bold('watch')} auto-optimizing instructions…`);
+        await runOptimize({ root, flags: { ...flags, json: false }, config, log, positionals: [] });
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       log.error(`watch regeneration failed: ${msg}`);
