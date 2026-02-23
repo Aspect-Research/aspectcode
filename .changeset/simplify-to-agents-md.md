@@ -1,16 +1,23 @@
 ---
-"@aspectcode/emitters": patch
 "aspectcode": patch
 ---
 
-Simplify instruction output to AGENTS.md only; trim CLI surface
+Simplify to AGENTS.md-only output; trim CLI surface
 
-Removed all multi-assistant generation infrastructure. The CLI and extension now
-produce a single `AGENTS.md` instruction file unconditionally — there are no
-assistant-selection flags, no quickpick UI, and no per-assistant content
-generators.
+**AGENTS.md only:** Removed all multi-assistant generation infrastructure. The
+CLI and extension now produce a single `AGENTS.md` instruction file
+unconditionally — there are no assistant-selection flags, no quickpick UI, and
+no per-assistant content generators. Previously separate output files
+(`.github/copilot-instructions.md`, `.cursor/rules/aspectcode.mdc`, `CLAUDE.md`)
+are no longer produced.
 
-Additionally, the CLI surface was trimmed:
+**Extension simplification:** The extension's `kb.ts` is now the single
+assistant module — all multi-assistant detection, configuration, and content
+generation code was removed. The `configureAssistants` command, assistant
+quickpick UI, and `detection.ts` module are gone. `kbShared.ts` provides the
+shared `buildRelativeFileContentMap` helper.
+
+**CLI trim-down:**
 - **Removed `init` command** — settings commands auto-create `aspectcode.json` when needed.
 - **Removed `outDir` persistence** — `set-out-dir` / `clear-out-dir` commands deleted; `outDir` config key removed. Use `--out` flag at runtime instead.
 - **Consolidated `impact` → `deps impact`** — impact analysis is now a subcommand of `deps` alongside `deps list`.
@@ -26,6 +33,10 @@ Additionally, the CLI surface was trimmed:
 `generateCopilotContent()`, `generateCursorContent()`, `generateClaudeContent()`,
 `detectAssistants()`, `runInit()`, `runSetOutDir()`, `runClearOutDir()`,
 `printAspectCodeBanner()`
+**Removed files:** `extension/src/assistants/detection.ts`,
+`extension/src/assistants/instructions.ts`,
+`packages/cli/src/commands/init.ts`, `packages/cli/src/commands/impact.ts`,
+`packages/cli/test/init.test.ts`
 **Removed output files:** `.github/copilot-instructions.md`,
 `.cursor/rules/aspectcode.mdc`, `CLAUDE.md`
 **Consolidated:** `runImpact()` → `runDepsImpact()` (now in `deps.ts`)
@@ -102,20 +113,17 @@ aspectcode <command> [options]
 #### Examples
 
 ```sh
-aspectcode init
 aspectcode generate
 aspectcode generate --kb
 aspectcode g --json
 aspectcode generate --kb-only
 aspectcode generate --instructions-mode permissive
 aspectcode generate --list-connections --file src/app.ts
-aspectcode impact --file src/app.ts
+aspectcode deps impact --file src/app.ts
 aspectcode deps list --file src/app.ts
 aspectcode watch --mode idle
 aspectcode show-config --json
 aspectcode set-update-rate onChange
-aspectcode set-out-dir ./output
-aspectcode clear-out-dir
 aspectcode add-exclude vendor
 aspectcode remove-exclude vendor
 ```

@@ -44,7 +44,7 @@ jobs:
           publish: npx changeset publish
           title: 'chore: version packages'
           commit: 'chore: version packages'
-          createGithubReleases: true
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -55,12 +55,18 @@ jobs:
           npm run build --workspace=extension
           cd extension && npx @vscode/vsce package --no-dependencies
 
-      - name: Attach VSIX to GitHub Release
+      - name: Create GitHub Release with VSIX
         if: steps.changesets.outputs.published == 'true'
         run: |
           CLI_VERSION=$(echo '${{ steps.changesets.outputs.publishedPackages }}' | jq -r '.[] | select(.name == "aspectcode") | .version')
           if [ -n "$CLI_VERSION" ]; then
-            gh release upload "aspectcode@${CLI_VERSION}" extension/*.vsix --clobber
+            TAG="aspectcode@${CLI_VERSION}"
+            # Create the release (only for the CLI package)
+            gh release create "$TAG" \
+              --title "aspectcode v${CLI_VERSION}" \
+              --generate-notes \
+              --target "${{ github.sha }}" \
+              extension/*.vsix
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
