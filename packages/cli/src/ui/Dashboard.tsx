@@ -1,20 +1,19 @@
 /**
- * Dashboard — ink-based self-updating CLI dashboard.
+ * Dashboard — condensed ink-based CLI dashboard.
  *
- * Phase-aware layout:
- *
- *   Active phases  → banner + status + spinner + completed steps
- *   Watching       → banner + "Watching" + last-run summary
- *   Done / --once  → banner + "Complete" + outputs
+ * Layout:
+ *   Banner
+ *   Status line  (spinner/icon + phase + stats)
+ *   [Detail]     (change trigger, outputs, warning, reasoning)
  */
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text } from 'ink';
 import { COLORS, getBannerText } from './theme';
 import { store } from './store';
-import type { DashboardState, PipelinePhase, StepEntry } from './store';
+import type { DashboardState, PipelinePhase } from './store';
 
-// ── Spinner hook ─────────────────────────────────────────────
+// ── Spinner ──────────────────────────────────────────────────
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -28,140 +27,104 @@ function useSpinner(active: boolean): string {
   return FRAMES[frame];
 }
 
-// ── Phase metadata ───────────────────────────────────────────
+// ── Phase labels ─────────────────────────────────────────────
 
-const PHASE_LABEL: Record<PipelinePhase, string> = {
+const PHASE_TEXT: Record<PipelinePhase, string> = {
   idle:          'Starting…',
   discovering:   'Discovering files…',
   analyzing:     'Analyzing…',
   'building-kb': 'Building knowledge base…',
   optimizing:    'Optimizing…',
   writing:       'Writing…',
-  watching:      'Watching for changes',
-  done:          'Complete',
+  watching:      'Watching',
+  done:          'Done',
   error:         'Error',
 };
 
-const ACTIVE_PHASES = new Set<PipelinePhase>([
-  'discovering', 'analyzing', 'building-kb', 'optimizing', 'writing',
+const WORKING = new Set<PipelinePhase>([
+  'idle', 'discovering', 'analyzing', 'building-kb', 'optimizing', 'writing',
 ]);
 
-// ── Step icon ────────────────────────────────────────────────
+// ── Stats string ─────────────────────────────────────────────
 
-function stepIcon(s: StepEntry['status']): { icon: string; color: string } {
-  switch (s) {
-    case 'ok':    return { icon: '✔', color: COLORS.green };
-    case 'warn':  return { icon: '⚠', color: COLORS.yellow };
-    case 'error': return { icon: '✖', color: COLORS.red };
-  }
+function statsText(s: DashboardState): string {
+  const parts: string[] = [];
+  if (s.fileCount > 0) parts.push(`${s.fileCount} files`);
+  if (s.edgeCount > 0) parts.push(`${s.edgeCount} edges`);
+  if (s.provider)       parts.push(s.provider);
+  if (s.elapsed)        parts.push(s.elapsed);
+  return parts.length > 0 ? parts.join(' · ') : '';
 }
 
-// ── Stats bar ────────────────────────────────────────────────
-
-const Stats: React.FC<{ state: DashboardState }> = ({ state }) => {
-  const parts: string[] = [];
-  if (state.fileCount > 0) parts.push(`${state.fileCount} files`);
-  if (state.edgeCount > 0) parts.push(`${state.edgeCount} edges`);
-  if (state.provider)       parts.push(state.provider);
-  if (state.elapsed)        parts.push(state.elapsed);
-  if (parts.length === 0) return null;
-  return <Text color={COLORS.gray}>{'  '}{parts.join(' · ')}</Text>;
-};
-
-// ── Main component ───────────────────────────────────────────
+// ── Component ────────────────────────────────────────────────
 
 const Dashboard: React.FC = () => {
-  const [state, setState] = useState<DashboardState>({ ...store.state });
-
+  const [s, setS] = useState<DashboardState>({ ...store.state });
   useEffect(() => {
-    const onUpdate = () => setState({ ...store.state });
-    store.on('change', onUpdate);
-    return () => { store.removeListener('change', onUpdate); };
+    const fn = () => setS({ ...store.state });
+    store.on('change', fn);
+    return () => { store.removeListener('change', fn); };
   }, []);
 
-  const isActive = ACTIVE_PHASES.has(state.phase);
-  const spinner = useSpinner(isActive);
+  const working = WORKING.has(s.phase);
+  const spinner = useSpinner(working);
+  const stats = statsText(s);
+  const detail = s.phaseDetail ? ` (${s.phaseDetail})` : '';
 
   return (
     <Box flexDirection="column">
-      {/* ── Banner ──────────────────────────────────────── */}
+      {/* ── Banner ───────────────────────────────────── */}
       <Box marginBottom={1}>
         <Text color={COLORS.primary} bold>{getBannerText()}</Text>
       </Box>
 
-      {/* ── Status line ─────────────────────────────────── */}
+      {/* ── Status line ──────────────────────────────── */}
       <Box>
-        {isActive && (
-          <Text color={COLORS.primary}>{`  ${spinner} ${PHASE_LABEL[state.phase]}`}</Text>
+        {working && (
+          <Text color={COLORS.primary}>{`  ${spinner} ${PHASE_TEXT[s.phase]}${detail}`}</Text>
         )}
-        {state.phase === 'watching' && (
-          <Text color={COLORS.green}>{`  ● ${PHASE_LABEL.watching}`}</Text>
+        {s.phase === 'watching' && (
+          <Text color={COLORS.green}>{'  ● Watching'}</Text>
         )}
-        {state.phase === 'done' && (
-          <Text color={COLORS.green}>{`  ✔ ${PHASE_LABEL.done}`}</Text>
+        {s.phase === 'done' && s.outputs.length > 0 && (
+          <Text color={COLORS.green}>{`  ✔ ${s.outputs.join(', ')}`}</Text>
         )}
-        {state.phase === 'error' && (
-          <Text color={COLORS.red}>{`  ✖ ${PHASE_LABEL.error}`}</Text>
+        {s.phase === 'done' && s.outputs.length === 0 && (
+          <Text color={COLORS.green}>{'  ✔ Done'}</Text>
         )}
-        {state.phase === 'idle' && (
-          <Text color={COLORS.gray}>{`  ○ ${PHASE_LABEL.idle}`}</Text>
+        {s.phase === 'error' && (
+          <Text color={COLORS.red}>{'  ✖ Error'}</Text>
         )}
-        <Stats state={state} />
+        {stats !== '' && (
+          <Text color={COLORS.gray}>{`  ${stats}`}</Text>
+        )}
       </Box>
 
-      {/* ── Change trigger ──────────────────────────────── */}
-      {state.lastChange !== '' && (
-        <Box>
-          <Text color={COLORS.gray}>{`  ↳ ${state.lastChange}`}</Text>
-        </Box>
+      {/* ── Change trigger ───────────────────────────── */}
+      {s.lastChange !== '' && working && (
+        <Text color={COLORS.gray}>{`  ↳ ${s.lastChange}`}</Text>
       )}
 
-      {/* ── Completed steps ─────────────────────────────── */}
-      {state.steps.length > 0 && (
-        <Box flexDirection="column" marginTop={1}>
-          {state.steps.map((step, i) => {
-            const { icon, color } = stepIcon(step.status);
-            return (
-              <Box key={i}>
-                <Text color={color}>{`  ${icon} `}</Text>
-                <Text color={COLORS.white}>{step.text}</Text>
-              </Box>
-            );
-          })}
-          {/* Show current phase as in-progress spinner line */}
-          {isActive && (
-            <Box>
-              <Text color={COLORS.primary}>{`  ${spinner} `}</Text>
-              <Text color={COLORS.gray}>{PHASE_LABEL[state.phase]}</Text>
-            </Box>
-          )}
-        </Box>
-      )}
-
-      {/* ── Warning ─────────────────────────────────────── */}
-      {state.warning !== '' && (
+      {/* ── Warning ──────────────────────────────────── */}
+      {s.warning !== '' && (
         <Box marginTop={0}>
-          <Text color={COLORS.yellow}>{`  ⚠ ${state.warning}`}</Text>
+          <Text color={COLORS.yellow}>{`  ⚠ ${s.warning}`}</Text>
         </Box>
       )}
 
-      {/* ── Outputs ─────────────────────────────────────── */}
-      {state.outputs.length > 0 && (
-        <Box flexDirection="column" marginTop={0}>
-          {state.outputs.map((o, i) => (
-            <Box key={i}>
-              <Text color={COLORS.green}>{'  ✔ '}</Text>
-              <Text color={COLORS.white}>{o}</Text>
-            </Box>
+      {/* ── Optimization reasoning ───────────────────── */}
+      {s.reasoning.length > 0 && (s.phase === 'done' || s.phase === 'watching') && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={COLORS.primaryDim}>{'  Optimization details:'}</Text>
+          {s.reasoning.map((r, i) => (
+            <Text key={i} color={COLORS.gray}>{`    ${r}`}</Text>
           ))}
         </Box>
       )}
 
-      {/* ── Watch hint ──────────────────────────────────── */}
-      {state.phase === 'watching' && (
-        <Box marginTop={1}>
-          <Text color={COLORS.gray} dimColor>{'  Press Ctrl+C to stop'}</Text>
-        </Box>
+      {/* ── Watch hint ───────────────────────────────── */}
+      {s.phase === 'watching' && (
+        <Text color={COLORS.gray} dimColor>{'  Ctrl+C to stop'}</Text>
       )}
     </Box>
   );

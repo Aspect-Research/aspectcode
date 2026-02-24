@@ -18,25 +18,21 @@ export type PipelinePhase =
   | 'done'
   | 'error';
 
-/** A completed pipeline step shown as a checkmark line. */
-export interface StepEntry {
-  text: string;
-  status: 'ok' | 'warn' | 'error';
-}
-
 export interface DashboardState {
   phase: PipelinePhase;
+  /** Human-readable label for the current sub-step (e.g. "iteration 2/3"). */
+  phaseDetail: string;
   fileCount: number;
   edgeCount: number;
   provider: string;
   lastChange: string;
   elapsed: string;
-  /** Completed steps in the current run (reset per run). */
-  steps: StepEntry[];
   /** Warning text (e.g. no API key). */
   warning: string;
-  /** Files written this run (e.g. ["AGENTS.md (full)", "kb.md"]). */
+  /** Files written this run (e.g. ["AGENTS.md updated", "kb.md written"]). */
   outputs: string[];
+  /** Optimization reasoning lines from the agent (score + feedback per iteration). */
+  reasoning: string[];
 }
 
 /**
@@ -45,14 +41,15 @@ export interface DashboardState {
 class DashboardStore extends EventEmitter {
   state: DashboardState = {
     phase: 'idle',
+    phaseDetail: '',
     fileCount: 0,
     edgeCount: 0,
     provider: '',
     lastChange: '',
     elapsed: '',
-    steps: [],
     warning: '',
     outputs: [],
+    reasoning: [],
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -60,8 +57,8 @@ class DashboardStore extends EventEmitter {
     this.emit('change');
   }
 
-  setPhase(phase: PipelinePhase): void {
-    this.update({ phase });
+  setPhase(phase: PipelinePhase, detail = ''): void {
+    this.update({ phase, phaseDetail: detail });
   }
 
   setStats(fileCount: number, edgeCount: number): void {
@@ -88,20 +85,19 @@ class DashboardStore extends EventEmitter {
     this.update({ outputs: [...this.state.outputs, output] });
   }
 
-  /** Add a completed step (shown as ✔/⚠/✖ line). */
-  pushStep(text: string, status: StepEntry['status'] = 'ok'): void {
-    const steps = [...this.state.steps, { text, status }];
-    this.update({ steps });
+  setReasoning(reasoning: string[]): void {
+    this.update({ reasoning });
   }
 
-  /** Reset per-run state (steps, warning, outputs) for a fresh run. */
+  /** Reset per-run state for a fresh pipeline run. */
   resetRun(): void {
     this.update({
-      steps: [],
       warning: '',
       outputs: [],
+      reasoning: [],
       elapsed: '',
       provider: '',
+      phaseDetail: '',
     });
   }
 }

@@ -17,6 +17,13 @@ import type { AspectCodeConfig } from './config';
 import { fmt } from './logger';
 import { store } from './ui/store';
 
+/** Result of the optimization attempt. */
+export interface OptimizeOutput {
+  content: string;
+  /** Per-iteration reasoning (empty when no API key / static fallback). */
+  reasoning: string[];
+}
+
 /**
  * Try to optimize AGENTS.md content via LLM.
  * Falls back to static instruction content when no API key is available.
@@ -26,7 +33,7 @@ export async function tryOptimize(
   kbContent: string,
   toolInstructions: Map<string, string>,
   config: AspectCodeConfig | undefined,
-): Promise<string> {
+): Promise<OptimizeOutput> {
   const { flags, log, root } = ctx;
   const optConfig = config?.optimize;
 
@@ -63,7 +70,10 @@ export async function tryOptimize(
     log.warn(
       'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
     );
-    return generateCanonicalContentForMode('safe', kbContent.length > 0);
+    return {
+      content: generateCanonicalContentForMode('safe', kbContent.length > 0),
+      reasoning: [],
+    };
   }
 
   log.info(`Optimizing with ${fmt.cyan(provider.name)}${model ? ` (${fmt.cyan(model)})` : ''}…`);
@@ -95,13 +105,26 @@ export async function tryOptimize(
   }
 
   // ── Run optimization agent ────────────────────────────────
+  // Wrap the logger to capture iteration progress for the dashboard
+  const iterationPattern = /^Optimize iteration (\d+)\/(\d+)/;
+  const optLog = flags.quiet ? undefined : {
+    info(msg: string)  {
+      const m = iterationPattern.exec(msg);
+      if (m) store.setPhase('optimizing', `iteration ${m[1]}/${m[2]}`);
+      log.info(msg);
+    },
+    warn(msg: string)  { log.warn(msg); },
+    error(msg: string) { log.error(msg); },
+    debug(msg: string) { log.debug(msg); },
+  };
+
   const result = await runOptimizeAgent({
     currentInstructions,
     kb: kbContent,
     toolInstructions: toolContext || undefined,
     maxIterations,
     provider,
-    log: flags.quiet ? undefined : log,
+    log: optLog,
     acceptThreshold,
     iterationDelayMs: 1_000,
   });
@@ -113,5 +136,9 @@ export async function tryOptimize(
     log.debug(`  ${fmt.dim(reason)}`);
   }
 
-  return result.optimizedInstructions;
+  store.setReasoning(result.reasoning);
+  return {
+    content: result.optimizedInstructions,
+    reasoning: result.reasoning,
+  };
 }

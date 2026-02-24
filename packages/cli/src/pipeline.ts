@@ -91,20 +91,21 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<ExitC
 
   // ── 5. Optimize or fallback ───────────────────────────────
   store.setPhase('optimizing');
-  const agentsContent = await tryOptimize(ctx, kbContent, toolInstructions, config);
+  const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config);
 
   // ── 6. Write AGENTS.md ────────────────────────────────────
   store.setPhase('writing');
   if (flags.dryRun) {
     log.info(fmt.bold('Dry run — proposed AGENTS.md:'));
     log.blank();
-    console.log(agentsContent);
+    console.log(optimizeResult.content);
     log.blank();
   } else {
-    await writeAgentsMd(host, root, agentsContent, ownership);
+    await writeAgentsMd(host, root, optimizeResult.content, ownership);
     const modeLabel = ownership === 'section' ? ' (section)' : '';
-    store.addOutput(`AGENTS.md written${modeLabel}`);
-    log.success(`AGENTS.md written${modeLabel}`);
+    const verb = optimizeResult.reasoning.length > 0 ? 'updated' : 'written';
+    store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
+    log.success(`AGENTS.md ${verb}${modeLabel}`);
   }
 
   // ── 7. Optionally write kb.md ─────────────────────────────

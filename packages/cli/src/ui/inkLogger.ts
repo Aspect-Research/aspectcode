@@ -1,7 +1,9 @@
 /**
  * Ink logger adapter — implements Logger + Spinner interfaces via the
- * DashboardStore, so all pipeline output flows through the ink dashboard
- * instead of raw console writes.
+ * DashboardStore so pipeline output flows through the ink dashboard.
+ *
+ * Most log calls are absorbed — the dashboard shows structured phases,
+ * not individual log lines. Only warnings and errors surface.
  */
 
 import type { Logger, Spinner } from '../logger';
@@ -9,36 +11,32 @@ import { store } from './store';
 import type { PipelinePhase } from './store';
 
 /**
- * Create a Logger that feeds the dashboard store.
- *
- * Most messages are silently absorbed (the dashboard shows structured
- * steps, not raw text). Only warnings and errors surface.
+ * Logger that feeds the dashboard store.
+ * Info/success/debug are absorbed; warnings and errors surface.
  */
 export function createDashboardLogger(): Logger {
   return {
-    info()               { /* absorbed — dashboard shows structured phases */ },
-    success(_msg: string) { /* step completion handled by spinner.stop()   */ },
+    info()               { /* absorbed — dashboard shows phases */ },
+    success(_msg: string){ /* absorbed — outputs tracked by pipeline */ },
     warn(msg: string)    { store.setWarning(msg); },
-    error(msg: string)   { store.pushStep(msg, 'error'); },
+    error(msg: string)   { store.setWarning(msg); },
     debug()              { /* absorbed */ },
     blank()              { /* no-op */ },
   };
 }
 
 /**
- * Create a Spinner that updates the dashboard phase and pushes a
- * completed step when it stops.
+ * Spinner that sets the dashboard phase. `stop()` is a no-op since the
+ * pipeline will advance to the next phase automatically.
  */
 export function createDashboardSpinner(phase: PipelinePhase, _initialMsg: string): Spinner {
   store.setPhase(phase);
   return {
-    update() { /* phase label is sufficient */ },
-    stop(msg: string) {
-      store.pushStep(msg, 'ok');
-    },
+    update() {},
+    stop()  {},
     fail(msg: string) {
       store.setPhase('error');
-      store.pushStep(msg, 'error');
+      store.setWarning(msg);
     },
   };
 }
