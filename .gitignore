@@ -99,8 +99,6 @@ AGENTS.md
 
 # Archive folders (historical code kept for reference)
 extension/src/archive/
-extension/src/assistants/archive/
-server/tests/archive/
 
 # Extension build output
 extension/dist/

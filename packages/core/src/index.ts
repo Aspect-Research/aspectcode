@@ -57,12 +57,8 @@ export {
   VENV_MARKERS,
   BUILD_OUTPUT_MARKERS,
   discoverFiles,
-  computeFingerprint,
-  readFingerprint,
-  writeFingerprint,
-  isKbStale,
 } from './fs/index';
-export type { DiscoverOptions, FingerprintData } from './fs/index';
+export type { DiscoverOptions } from './fs/index';
 
 // ── Re-exports: parsers ──────────────────────────────────────
 

@@ -10,13 +10,16 @@
 
 ## Overview
 
-Aspect Code generates a project-local knowledge base (`kb.md`) and
-assistant-specific instruction files that help AI coding assistants understand
+Aspect Code generates a project-local knowledge base (`kb.md`) and an
+`AGENTS.md` instruction file that help AI coding assistants understand
 your codebase before making changes. It works as a VS Code extension or a
 standalone CLI — both produce identical output. **Everything runs offline**
 with zero network dependencies.
 
-- Marketplace/end-user README: see `extension/README.md`
+When an LLM API key is available, Aspect Code can optionally optimize
+`AGENTS.md` via an agentic LLM loop (evaluate → improve → accept).
+
+- Marketplace / end-user README: see `extension/README.md`
 - Docs: https://aspectcode.com/docs
 
 ## Install
@@ -39,10 +42,11 @@ node packages/cli/bin/aspectcode.js --help
 ## Features
 
 - **Knowledge Base generation** — Writes `.aspect/architecture.md`, `.aspect/map.md`, `.aspect/context.md`, and `.aspect/manifest.json`
-- **AI instruction file** — Generates AGENTS.md for AI coding assistants
+- **AI instruction file** — Generates `AGENTS.md` for AI coding assistants (full-file ownership)
 - **Dependency analysis** — Import/export/call graph with hub detection
-- **Incremental updates** — Regenerates on save / idle (extension), on file changes with `watch` (CLI), or on-demand
-- **Fully offline** — No telemetry, no API calls, no network access
+- **LLM optimization** — Agentic evaluate → improve → accept loop (opt-in, requires API key)
+- **Watch mode** — Re-analyzes and updates on file changes (default behavior)
+- **Fully offline** — No telemetry, no API calls, no network access (unless optimizer is opted in)
 
 ## Supported Languages
 
@@ -55,11 +59,12 @@ Python, TypeScript, JavaScript, Java, C#
 ```
 aspectcode/
 ├── packages/
-│   ├── core/        @aspectcode/core      Pure analysis engine
-│   ├── emitters/    @aspectcode/emitters   Artifact generation
-│   └── cli/         aspectcode             CLI entry point
-├── extension/                              VS Code extension
-└── docs/                                   Architecture & guides
+│   ├── core/        @aspectcode/core       Pure analysis engine
+│   ├── emitters/    @aspectcode/emitters    Artifact generation
+│   ├── optimizer/   @aspectcode/optimizer   LLM-based AGENTS.md optimizer
+│   └── cli/         aspectcode              CLI entry point
+├── extension/                               VS Code extension (thin launcher)
+└── docs/                                    Architecture & guides
 ```
 
 See [docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md) for the
@@ -69,8 +74,8 @@ full architecture, data flow, and package API reference.
 
 ```bash
 npm install                     # install all workspace deps
-npm run build --workspaces      # build core → emitters → cli
-npm test --workspaces           # run all 149 tests
+npm run build --workspaces      # build core → emitters → optimizer → cli
+npm test --workspaces           # run all tests
 ```
 
 ### Extension Development
@@ -84,19 +89,14 @@ npm run build
 ### CLI Usage
 
 ```bash
-node packages/cli/bin/aspectcode.js generate      # build KB artifacts
-node packages/cli/bin/aspectcode.js generate -v   # verbose output
-node packages/cli/bin/aspectcode.js generate --kb-only  # KB only, skip AGENTS.md
-node packages/cli/bin/aspectcode.js generate --list-connections --file src/app.ts
-node packages/cli/bin/aspectcode.js deps impact --file src/app.ts   # impact analysis
-node packages/cli/bin/aspectcode.js deps list --file src/app.ts
-node packages/cli/bin/aspectcode.js watch         # watch + regenerate on changes
-node packages/cli/bin/aspectcode.js watch --mode idle
-node packages/cli/bin/aspectcode.js show-config
-node packages/cli/bin/aspectcode.js set-update-rate idle
-node packages/cli/bin/aspectcode.js generate --kb     # include KB (kb.md)
-node packages/cli/bin/aspectcode.js add-exclude dist
-node packages/cli/bin/aspectcode.js remove-exclude dist
+aspectcode                              # watch & auto-update AGENTS.md
+aspectcode --once                       # run once then exit
+aspectcode --once --kb                  # also write kb.md
+aspectcode --once --dry-run             # preview without writing
+aspectcode --provider openai            # force LLM provider for optimizer
+aspectcode --verbose                    # show debug output
+aspectcode --root /path/to/project      # set workspace root
+aspectcode --no-color                   # disable colored output
 ```
 
 ## Key Documentation
@@ -109,11 +109,12 @@ node packages/cli/bin/aspectcode.js remove-exclude dist
 
 ## CI and Test Tiers
 
+- **Main CI** (`.github/workflows/ci.yml`)
+  - Builds and tests all packages (core, emitters, cli, optimizer)
+  - Extension typecheck, lint, format, filesize, boundaries, build
+  - Parser parity check
 - **PR CI** (`.github/workflows/ci-pr.yml`)
-  - `packages/cli` tests
-  - `packages/emitters` tests
-  - extension CLI adapter integration test
-  - Windows sandbox CLI smoke tests
+  - Windows: sandbox CLI smoke tests (`test:cli:fast`)
 - **Nightly CI** (`.github/workflows/nightly-cli-repos.yml`)
   - Multi-repo cross-language CLI matrix
 
@@ -126,8 +127,9 @@ npm run test:ci:repos
 
 ## Releases
 
-Pushing a tag like `v0.1.1` creates a GitHub Release with the `.vsix`
-attached (via `.github/workflows/release.yml`).
+Versioning and publishing is automated via
+[changesets](https://github.com/changesets/changesets). See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
 
 ## License
 

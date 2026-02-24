@@ -18,7 +18,7 @@
     "forceConsistentCasingInFileNames": true,
     "noImplicitOverride": true
   },
-  "exclude": ["src/panel/webview/**", "test/**"],
+  "exclude": ["test/**"],
   "references": [
     { "path": "../packages/core" },
     { "path": "../packages/emitters" }

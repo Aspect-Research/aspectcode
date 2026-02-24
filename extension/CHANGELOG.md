@@ -17,11 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial pre-release of Aspect Code VS Code extension
 - Tree-sitter-powered static analysis for Python, TypeScript, JavaScript, Java, and C#
-- Knowledge base generation for AI assistants (Copilot, Cursor, Claude)
-- Incremental KB regeneration on save/idle
-- Webview panel with dependency graph visualization
-- Impact analysis for current file
-- Integration with `.copilot-instructions.md`, `.cursorrules`, `CLAUDE.md`, and `AGENTS.md`
+- Knowledge base generation for AI assistants
+- AI instruction file generation (AGENTS.md)
 
 ### Known Limitations
 - Alpha release - API and features may change

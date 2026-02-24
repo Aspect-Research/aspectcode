@@ -61,13 +61,9 @@ $repoRoot   = Resolve-Path (Join-Path $PSScriptRoot '..')
 $cliBin     = Join-Path $repoRoot 'packages\cli\bin\aspectcode.js'
 
 # -- Sandbox setup for CLI smoke tests --------------------------------
-# All CLI commands that generate output run inside a disposable temp
-# directory so that kb.md and AGENTS.md never appear at repo root.
 $sandboxRoot = Join-Path ([System.IO.Path]::GetTempPath()) "aspectcode-checklist-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-$sandboxOut  = Join-Path $sandboxRoot '_out'
 $fixtureDir  = Join-Path $repoRoot 'extension\test\fixtures\mini-repo'
 Copy-Item -Path $fixtureDir -Destination $sandboxRoot -Recurse -Force
-New-Item -Path $sandboxOut -ItemType Directory -Force | Out-Null
 
 Write-Host "Aspect Code test checklist" -ForegroundColor White
 Write-Host "Repo:    $repoRoot" -ForegroundColor Gray
@@ -99,46 +95,34 @@ if (-not $SkipWorkspaceTests) {
   [void]$results.Add((Invoke-Step -Name 'Test CLI package' -Action {
     Run-Cmd -Command 'npm test' -WorkingDirectory (Join-Path $repoRoot 'packages\cli')
   }))
+
+  [void]$results.Add((Invoke-Step -Name 'Test optimizer package' -Action {
+    Run-Cmd -Command 'npm test' -WorkingDirectory (Join-Path $repoRoot 'packages\optimizer')
+  }))
 }
 
-[void]$results.Add((Invoke-Step -Name 'CLI smoke: help' -Action {
+[void]$results.Add((Invoke-Step -Name 'CLI smoke: --help' -Action {
   Run-Cmd -Command "node `"$cliBin`" --help" -WorkingDirectory $repoRoot
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI smoke: generate (sandbox)' -Action {
-  Run-Cmd -Command "node `"$cliBin`" gen --root `"$sandboxRoot`" --out `"$sandboxOut`" --quiet" -WorkingDirectory $repoRoot
+[void]$results.Add((Invoke-Step -Name 'CLI smoke: --version' -Action {
+  Run-Cmd -Command "node `"$cliBin`" --version" -WorkingDirectory $repoRoot
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI smoke: impact (sandbox)' -Action {
-  Run-Cmd -Command "node `"$cliBin`" impact --root `"$sandboxRoot`" --file src/app.ts --quiet" -WorkingDirectory $repoRoot
+[void]$results.Add((Invoke-Step -Name 'CLI smoke: --once (sandbox)' -Action {
+  Run-Cmd -Command "node `"$cliBin`" --once --root `"$sandboxRoot`" --quiet" -WorkingDirectory $repoRoot
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI smoke: deps list (sandbox)' -Action {
-  Run-Cmd -Command "node `"$cliBin`" deps list --root `"$sandboxRoot`" --file src/app.ts --quiet" -WorkingDirectory $repoRoot
-}))
-
-[void]$results.Add((Invoke-Step -Name 'JSON purity check (sandbox)' -Action {
-  $tmpJson = Join-Path $env:TEMP 'aspectcode-smoke.json'
-  $tmpErr = Join-Path $env:TEMP 'aspectcode-smoke.err.log'
-  if (Test-Path $tmpJson) { Remove-Item $tmpJson -Force }
-  if (Test-Path $tmpErr) { Remove-Item $tmpErr -Force }
-
-  $cmd = "node `"$cliBin`" g --root `"$sandboxRoot`" --out `"$sandboxOut`" --json 1> `"$tmpJson`" 2> `"$tmpErr`""
-  Run-Cmd -Command $cmd -WorkingDirectory $repoRoot
-
-  $raw = Get-Content $tmpJson -Raw
-  $null = $raw | ConvertFrom-Json
-  if (-not $raw.TrimStart().StartsWith('{')) {
-    throw 'JSON output file does not look like a JSON object.'
-  }
+[void]$results.Add((Invoke-Step -Name 'CLI smoke: --once --kb (sandbox)' -Action {
+  Run-Cmd -Command "node `"$cliBin`" --once --kb --root `"$sandboxRoot`" --quiet" -WorkingDirectory $repoRoot
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Unknown flag warning path (sandbox)' -Action {
-  Run-Cmd -Command "node `"$cliBin`" gen --root `"$sandboxRoot`" --out `"$sandboxOut`" --bogus-flag --quiet 2>nul" -WorkingDirectory $repoRoot
+  Run-Cmd -Command "node `"$cliBin`" --once --root `"$sandboxRoot`" --bogus-flag --quiet 2>nul" -WorkingDirectory $repoRoot
 }))
 
 [void]$results.Add((Invoke-Step -Name 'No-color path (sandbox)' -Action {
-  Run-Cmd -Command "node `"$cliBin`" gen --root `"$sandboxRoot`" --out `"$sandboxOut`" --no-color --quiet" -WorkingDirectory $repoRoot
+  Run-Cmd -Command "node `"$cliBin`" --once --root `"$sandboxRoot`" --no-color --quiet" -WorkingDirectory $repoRoot
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Verify repo root is clean' -Action {
@@ -161,8 +145,7 @@ if ($IncludeExtension) {
 
   Write-Host "`nManual extension host verification:" -ForegroundColor Yellow
   Write-Host '1) Press F5 to launch Extension Development Host' -ForegroundColor Yellow
-  Write-Host '2) Run Generate KB and Impact commands in the host window' -ForegroundColor Yellow
-  Write-Host '3) Confirm kb.md and instruction files are generated' -ForegroundColor Yellow
+  Write-Host '2) Verify AGENTS.md is generated' -ForegroundColor Yellow
 }
 
 # -- Sandbox cleanup ---------------------------------------------------

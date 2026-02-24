@@ -43,9 +43,6 @@ export { createInstructionsEmitter } from './instructions/instructionsEmitter';
 export type { AiToolId } from './instructions/formats';
 export { AI_TOOL_DETECTION_PATHS } from './instructions/formats';
 
-export { detectAssistants, detectAiTools } from './instructions/detection';
-export type { AssistantId } from './instructions/constants';
-
 // ── runEmitters ──────────────────────────────────────────────
 
 import type { AnalysisModel } from '@aspectcode/core';

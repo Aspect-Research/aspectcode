@@ -37,6 +37,9 @@ jobs:
       - name: Build CLI
         run: npm run build --workspace=packages/cli
 
+      - name: Build optimizer
+        run: npm run build --workspace=packages/optimizer
+
       # ---- Tests ----
       - name: Test core
         run: npm test --workspace=packages/core
@@ -46,6 +49,9 @@ jobs:
 
       - name: Test CLI
         run: npm test --workspace=packages/cli
+
+      - name: Test optimizer
+        run: npm test --workspace=packages/optimizer
 
       # ---- Extension checks ----
       - name: Typecheck extension
@@ -71,9 +77,6 @@ jobs:
       - name: Build extension
         run: npm run build
         working-directory: extension
-
-      - name: Test extension CLI adapter
-        run: npm run test:integration:cli-adapter --workspace=extension
 
       # ---- Cross-cutting checks ----
       - name: Parser parity check

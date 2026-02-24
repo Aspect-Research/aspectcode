@@ -1,8 +1,15 @@
 import type { EmitterHost } from '../host';
-import type { AssistantId } from './constants';
-import { ASSISTANT_DETECTION_PATHS } from './constants';
 import type { AiToolId } from './formats';
 import { AI_TOOL_DETECTION_PATHS } from './formats';
+
+// ── Assistant detection ──────────────────────────────────────
+
+export type AssistantId = 'aspectKB' | 'agentsMd';
+
+const ASSISTANT_DETECTION_PATHS: ReadonlyArray<{ id: AssistantId; paths: string[] }> = [
+  { id: 'aspectKB', paths: ['.aspect'] },
+  { id: 'agentsMd', paths: ['AGENTS.md'] },
+];
 
 /**
  * Detects which Aspect Code artifacts exist (KB, instructions).

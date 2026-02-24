@@ -1,7 +1,3 @@
-export type { AssistantId } from './constants';
-
-export { detectAssistants, detectAiTools } from './detection';
-
 export {
   generateCanonicalContentForMode,
   generateCanonicalContentSafe,
