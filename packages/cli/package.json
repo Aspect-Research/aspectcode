@@ -49,7 +49,11 @@
     "@aspectcode/core": "0.3.0",
     "@aspectcode/emitters": "0.3.0",
     "@aspectcode/optimizer": "0.3.0",
-    "chokidar": "^4.0.3"
+    "@anthropic-ai/sdk": "^0.39.0",
+    "chokidar": "^4.0.3",
+    "dotenv": "^16.4.0",
+    "openai": "^4.70.0",
+    "web-tree-sitter": "^0.21.0"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
