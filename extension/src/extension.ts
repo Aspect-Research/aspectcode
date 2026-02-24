@@ -103,6 +103,16 @@ function startCli(root: string, extensionPath: string): void {
     isRunning = false;
     cliProcess = null;
     updateStatusBar();
+    if (code !== 0 && code !== null) {
+      vscode.window
+        .showWarningMessage(
+          `Aspect Code exited with code ${code}. Check the output channel for details.`,
+          'Show Output',
+        )
+        .then((choice) => {
+          if (choice === 'Show Output') outputChannel.show();
+        });
+    }
   });
 
   cliProcess.on('error', (err) => {
@@ -110,6 +120,22 @@ function startCli(root: string, extensionPath: string): void {
     isRunning = false;
     cliProcess = null;
     updateStatusBar();
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      vscode.window
+        .showErrorMessage(
+          'Aspect Code CLI not found. Install it with: npm install -g aspectcode',
+          'Install',
+        )
+        .then((choice) => {
+          if (choice === 'Install') {
+            const term = vscode.window.createTerminal('Install Aspect Code');
+            term.show();
+            term.sendText('npm install -g aspectcode');
+          }
+        });
+    } else {
+      vscode.window.showErrorMessage(`Aspect Code failed to start: ${err.message}`);
+    }
   });
 
   updateStatusBar();
@@ -187,11 +213,8 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // ── Auto-start if workspace has source files ──────────────
-  const root = getRoot();
-  if (root) {
-    startCli(root, context.extensionPath);
-  }
+  // Show status bar — user clicks to start
+  updateStatusBar();
 }
 
 export function deactivate() {
