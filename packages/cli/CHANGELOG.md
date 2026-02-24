@@ -1,5 +1,19 @@
 # aspectcode
 
+## 0.3.2
+
+### Patch Changes
+
+- [#12](https://github.com/asashepard/aspectcode/pull/12) [`4c170b8`](https://github.com/asashepard/aspectcode/commit/4c170b85ebb5080070a49a7fcb3dbf9836508526) Thanks [@asashepard](https://github.com/asashepard)! - Improve CLI experience with React-based dashboard and better output
+
+  - Add interactive React CLI dashboard using Ink for real-time status updates
+  - Add complaint processor for structured error handling and reporting
+  - Condense and improve continuous mode status output
+  - Update optimizer agent with expanded prompts and streaming support
+
+- Updated dependencies [[`4c170b8`](https://github.com/asashepard/aspectcode/commit/4c170b85ebb5080070a49a7fcb3dbf9836508526)]:
+  - @aspectcode/optimizer@0.3.2
+
 ## 0.3.1
 
 ### Patch Changes
