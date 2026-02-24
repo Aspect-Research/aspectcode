@@ -1,5 +1,14 @@
 # @aspectcode/emitters
 
+## 0.3.1
+
+### Patch Changes
+
+- [#10](https://github.com/asashepard/aspectcode/pull/10) [`2e74adc`](https://github.com/asashepard/aspectcode/commit/2e74adca877ceab771d1087001069b1b7e9d9a52) Thanks [@asashepard](https://github.com/asashepard)! - Fix CLI global install (bundle transitive deps: web-tree-sitter, openai, anthropic, dotenv), correct build order in all CI workflows and scripts, sync extension VSIX version to CLI on release, and add graceful error handling in the extension (install prompt when CLI not found, warning on crash, no auto-start)
+
+- Updated dependencies [[`2e74adc`](https://github.com/asashepard/aspectcode/commit/2e74adca877ceab771d1087001069b1b7e9d9a52)]:
+  - @aspectcode/core@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
