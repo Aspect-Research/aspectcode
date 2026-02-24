@@ -7,20 +7,20 @@
  * 3. Eval prompt — asks the LLM to score and critique a candidate.
  */
 
-/** Maximum KB characters to include before truncation. */
-const KB_CHAR_BUDGET = 60_000;
+/** Default maximum KB characters to include before truncation. */
+const DEFAULT_KB_CHAR_BUDGET = 60_000;
 
 /**
  * Truncate KB content to fit within the character budget.
  * Preserves the Architecture section (most valuable) and trims Map/Context.
  */
-export function truncateKb(kb: string): string {
-  if (kb.length <= KB_CHAR_BUDGET) return kb;
+export function truncateKb(kb: string, charBudget: number = DEFAULT_KB_CHAR_BUDGET): string {
+  if (kb.length <= charBudget) return kb;
 
   // Try to keep the Architecture section intact
   const archEnd = kb.indexOf('## Map');
-  if (archEnd > 0 && archEnd < KB_CHAR_BUDGET) {
-    const remaining = KB_CHAR_BUDGET - archEnd;
+  if (archEnd > 0 && archEnd < charBudget) {
+    const remaining = charBudget - archEnd;
     return (
       kb.slice(0, archEnd) +
       kb.slice(archEnd, archEnd + remaining) +
@@ -28,15 +28,15 @@ export function truncateKb(kb: string): string {
     );
   }
 
-  return kb.slice(0, KB_CHAR_BUDGET) + '\n\n[... KB truncated for token budget ...]\n';
+  return kb.slice(0, charBudget) + '\n\n[... KB truncated for token budget ...]\n';
 }
 
 /**
  * Build the system prompt that establishes the agent's role and
  * provides the full knowledge base as context.
  */
-export function buildSystemPrompt(kb: string): string {
-  const trimmedKb = truncateKb(kb);
+export function buildSystemPrompt(kb: string, kbCharBudget?: number): string {
+  const trimmedKb = truncateKb(kb, kbCharBudget);
 
   return `You are an expert AI coding assistant instruction optimizer.
 
@@ -108,8 +108,9 @@ ${priorFeedback}`;
 export function buildEvalPrompt(
   candidateInstructions: string,
   kb: string,
+  kbCharBudget?: number,
 ): string {
-  const trimmedKb = truncateKb(kb);
+  const trimmedKb = truncateKb(kb, kbCharBudget);
 
   return `You are evaluating AI coding assistant instructions (AGENTS.md) for quality.
 

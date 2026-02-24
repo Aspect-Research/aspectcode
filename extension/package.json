@@ -75,6 +75,29 @@
           "type": "boolean",
           "default": false,
           "description": "Enable verbose extension logs for debugging"
+        },
+        "aspectcode.optimize.provider": {
+          "type": "string",
+          "enum": ["openai", "anthropic"],
+          "description": "LLM provider for optimize command"
+        },
+        "aspectcode.optimize.model": {
+          "type": "string",
+          "description": "LLM model override (e.g. gpt-4o, claude-sonnet-4-20250514)"
+        },
+        "aspectcode.optimize.maxIterations": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 20,
+          "description": "Max agent iterations for optimize (1–20)"
+        },
+        "aspectcode.optimize.acceptThreshold": {
+          "type": "number",
+          "default": 8,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Minimum eval score to accept a candidate (1–10)"
         }
       }
     }

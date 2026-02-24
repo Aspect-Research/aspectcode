@@ -3,6 +3,8 @@
  *
  * Reads the current AGENTS.md and kb.md, calls the optimization agent,
  * and writes the improved instructions back into AGENTS.md (marker-based merge).
+ *
+ * Configuration precedence: CLI flag → aspectcode.json → .env → default.
  */
 
 import * as fs from 'fs';
@@ -12,6 +14,7 @@ import {
   loadEnvFile,
   runOptimizeAgent,
 } from '@aspectcode/optimizer';
+import type { ProviderOptions } from '@aspectcode/optimizer';
 import type { CommandContext, CommandResult } from '../cli';
 import { ExitCode } from '../cli';
 import { fmt } from '../logger';
@@ -79,9 +82,18 @@ function computeDiff(oldText: string, newText: string): string {
 }
 
 export async function runOptimize(ctx: CommandContext): Promise<CommandResult> {
-  const { root, flags, log } = ctx;
-  const maxIterations = flags.maxIterations ?? 3;
+  const { root, flags, config, log } = ctx;
+  const optConfig = config?.optimize;
+
+  // ── Resolve settings: CLI flag → aspectcode.json → default ──
+  const maxIterations = flags.maxIterations ?? optConfig?.maxIterations ?? 3;
   const dryRun = flags.dryRun ?? false;
+  const acceptThreshold = flags.acceptThreshold ?? optConfig?.acceptThreshold ?? 8;
+  const temperature = flags.temperature ?? optConfig?.temperature;
+  const model = flags.model ?? optConfig?.model;
+  const providerOverride = flags.provider ?? optConfig?.provider;
+  const maxTokens = optConfig?.maxTokens;
+
   const startMs = Date.now();
 
   if (!flags.json) {
@@ -98,9 +110,19 @@ export async function runOptimize(ctx: CommandContext): Promise<CommandResult> {
     return { exitCode: ExitCode.ERROR };
   }
 
+  // Apply provider override from config/flags into env so resolveProvider picks it up
+  if (providerOverride && !env['LLM_PROVIDER']) {
+    env['LLM_PROVIDER'] = providerOverride;
+  }
+
+  const providerOptions: ProviderOptions = {};
+  if (model) providerOptions.model = model;
+  if (temperature !== undefined) providerOptions.temperature = temperature;
+  if (maxTokens !== undefined) providerOptions.maxTokens = maxTokens;
+
   let provider;
   try {
-    provider = resolveProvider(env);
+    provider = resolveProvider(env, providerOptions);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(msg);
@@ -109,6 +131,7 @@ export async function runOptimize(ctx: CommandContext): Promise<CommandResult> {
 
   if (!flags.json) {
     log.info(`Provider: ${fmt.cyan(provider.name)}`);
+    if (model) log.info(`Model: ${fmt.cyan(model)}`);
   }
 
   // ── 2. Read AGENTS.md ─────────────────────────────────
@@ -148,6 +171,7 @@ export async function runOptimize(ctx: CommandContext): Promise<CommandResult> {
   // ── 5. Run optimization agent ─────────────────────────
   if (!flags.json) {
     log.info(`Max iterations: ${fmt.cyan(String(maxIterations))}`);
+    if (acceptThreshold !== 8) log.info(`Accept threshold: ${fmt.cyan(String(acceptThreshold))}`);
     log.blank();
   }
 
@@ -158,6 +182,8 @@ export async function runOptimize(ctx: CommandContext): Promise<CommandResult> {
     maxIterations,
     provider,
     log: flags.quiet ? undefined : log,
+    acceptThreshold,
+    iterationDelayMs: 1_000,
   });
 
   // ── 6. Output results ─────────────────────────────────

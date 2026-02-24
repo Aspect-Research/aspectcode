@@ -27,6 +27,16 @@ export interface LlmProvider {
   chat(messages: ChatMessage[]): Promise<string>;
 }
 
+/** Options passed to provider factory functions. */
+export interface ProviderOptions {
+  /** Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514"). */
+  model?: string;
+  /** Sampling temperature (0–2). */
+  temperature?: number;
+  /** Max tokens for the response. */
+  maxTokens?: number;
+}
+
 // ── Optimization options & results ──────────────────────────
 
 /** Logger interface matching the CLI logger shape. */
@@ -56,6 +66,18 @@ export interface OptimizeOptions {
 
   /** Optional logger for progress reporting. */
   log?: OptLogger;
+
+  /** Minimum eval score (1–10) to accept a candidate without further iteration. Default: 8. */
+  acceptThreshold?: number;
+
+  /** AbortSignal for cooperative cancellation. */
+  signal?: AbortSignal;
+
+  /** Delay in ms between iterations to avoid rate limiting. Default: 0. */
+  iterationDelayMs?: number;
+
+  /** Character budget for KB content in prompts. Default: 60000. */
+  kbCharBudget?: number;
 }
 
 /** Self-evaluation result from one iteration. */

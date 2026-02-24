@@ -314,6 +314,12 @@ async function handleGenerate(
 /**
  * Optimize AGENTS.md instructions via LLM.
  * Delegates to the CLI `optimize` command.
+ *
+ * Pre-flight checks:
+ * - AGENTS.md must exist (otherwise prompt to generate first)
+ * - An API key must be configured in .env (otherwise prompt to set one up)
+ *
+ * Reads optimize settings from VS Code configuration (aspectcode.optimize.*).
  */
 async function handleOptimize(
   outputChannel: vscode.OutputChannel,
@@ -326,23 +332,105 @@ async function handleOptimize(
 
   const root = workspaceFolders[0].uri.fsPath;
 
+  // ── Pre-flight: check AGENTS.md exists ─────────────────
+  const agentsUri = vscode.Uri.joinPath(workspaceFolders[0].uri, 'AGENTS.md');
+  try {
+    await vscode.workspace.fs.stat(agentsUri);
+  } catch {
+    const action = await vscode.window.showWarningMessage(
+      'AGENTS.md not found. Run Generate first to create it.',
+      'Generate Now',
+    );
+    if (action === 'Generate Now') {
+      await vscode.commands.executeCommand('aspectcode.generate');
+    }
+    return;
+  }
+
+  // ── Pre-flight: check API key exists in .env ───────────
+  const envUri = vscode.Uri.joinPath(workspaceFolders[0].uri, '.env');
+  let hasApiKey = false;
+  try {
+    const envContent = Buffer.from(
+      await vscode.workspace.fs.readFile(envUri),
+    ).toString('utf8');
+    hasApiKey =
+      envContent.includes('OPENAI_API_KEY=') ||
+      envContent.includes('ANTHROPIC_API_KEY=');
+  } catch {
+    // .env doesn't exist
+  }
+
+  if (!hasApiKey) {
+    const action = await vscode.window.showWarningMessage(
+      'No LLM API key found. Add OPENAI_API_KEY or ANTHROPIC_API_KEY to a .env file in your workspace root.',
+      'Set Up API Key',
+    );
+    if (action === 'Set Up API Key') {
+      const provider = await vscode.window.showQuickPick(
+        ['OpenAI', 'Anthropic'],
+        { placeHolder: 'Select your LLM provider' },
+      );
+      if (!provider) return;
+
+      const keyName = provider === 'OpenAI' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
+      const key = await vscode.window.showInputBox({
+        prompt: `Enter your ${provider} API key`,
+        placeHolder: provider === 'OpenAI' ? 'sk-...' : 'sk-ant-...',
+        password: true,
+        ignoreFocusOut: true,
+      });
+      if (!key) return;
+
+      // Write or append to .env
+      let existingContent = '';
+      try {
+        existingContent = Buffer.from(
+          await vscode.workspace.fs.readFile(envUri),
+        ).toString('utf8');
+      } catch {
+        // File doesn't exist yet
+      }
+      const newContent = existingContent
+        ? `${existingContent.trimEnd()}\n${keyName}=${key}\n`
+        : `${keyName}=${key}\n`;
+      await vscode.workspace.fs.writeFile(envUri, Buffer.from(newContent, 'utf8'));
+      outputChannel.appendLine(`[Optimize] API key saved to .env`);
+    } else {
+      return;
+    }
+  }
+
+  // ── Read optimize settings from VS Code config ─────────
+  const vsConfig = vscode.workspace.getConfiguration('aspectcode.optimize');
+  const maxIterations = vsConfig.get<number>('maxIterations');
+  const provider = vsConfig.get<string>('provider');
+  const model = vsConfig.get<string>('model');
+  const acceptThreshold = vsConfig.get<number>('acceptThreshold');
+
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: 'Aspect Code: Optimizing instructions…',
       cancellable: true,
     },
-    async (_progress, token) => {
+    async (progress, token) => {
       outputChannel.appendLine('[Optimize] Starting LLM optimization…');
+      progress.report({ message: 'Connecting to LLM provider…' });
 
       const result = await cliOptimize(root, {
         outputChannel,
         token,
+        maxIterations,
+        provider,
+        model,
+        acceptThreshold,
       });
 
       if (result.exitCode === 0 && result.data) {
         const { iterations, elapsedMs } = result.data;
         const seconds = ((elapsedMs ?? 0) / 1000).toFixed(1);
+        progress.report({ message: `Done — ${iterations} iteration${iterations === 1 ? '' : 's'}` });
         vscode.window.showInformationMessage(
           `Instructions optimized (${iterations} iteration${iterations === 1 ? '' : 's'}, ${seconds}s)`,
         );

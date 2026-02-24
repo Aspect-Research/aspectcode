@@ -5,9 +5,10 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { LlmProvider, ProviderName } from '../types';
+import type { LlmProvider, ProviderName, ProviderOptions } from '../types';
 import { PROVIDER_ENV_KEYS, LLM_PROVIDER_ENV } from '../types';
 import { createOpenAiProvider } from './openai';
+import { createAnthropicProvider } from './anthropic';
 
 /**
  * Parse a `.env` file into key=value pairs.
@@ -59,16 +60,13 @@ export function loadEnvFile(root: string): Record<string, string> {
 
 /**
  * Build the provider name → factory mapping.
- * Only OpenAI is wired up today; extend here for Anthropic, etc.
  */
 const PROVIDER_FACTORIES: Record<
   ProviderName,
-  (apiKey: string, model?: string) => LlmProvider
+  (apiKey: string, options?: ProviderOptions) => LlmProvider
 > = {
   openai: createOpenAiProvider,
-  anthropic: (_key: string, _model?: string) => {
-    throw new Error('Anthropic provider is not yet implemented');
-  },
+  anthropic: createAnthropicProvider,
 };
 
 /**
@@ -78,10 +76,20 @@ const PROVIDER_FACTORIES: Record<
  * 1. If `LLM_PROVIDER` is set, use that provider (error if key missing).
  * 2. Otherwise try providers in order: openai → anthropic.
  * 3. If no key is found, throw with setup instructions.
+ *
+ * @param env - Merged environment (from .env + process.env)
+ * @param providerOptions - Optional model/temperature/maxTokens overrides
  */
-export function resolveProvider(env: Record<string, string>): LlmProvider {
+export function resolveProvider(
+  env: Record<string, string>,
+  providerOptions?: ProviderOptions,
+): LlmProvider {
   const forcedProvider = env[LLM_PROVIDER_ENV] as ProviderName | undefined;
-  const model = env['LLM_MODEL'];
+  const model = providerOptions?.model ?? env['LLM_MODEL'];
+  const opts: ProviderOptions = {
+    ...providerOptions,
+    model,
+  };
 
   if (forcedProvider) {
     const envKey = PROVIDER_ENV_KEYS[forcedProvider];
@@ -97,7 +105,7 @@ export function resolveProvider(env: Record<string, string>): LlmProvider {
         `Add ${envKey}=sk-... to your .env file.`,
       );
     }
-    return PROVIDER_FACTORIES[forcedProvider](apiKey, model);
+    return PROVIDER_FACTORIES[forcedProvider](apiKey, opts);
   }
 
   // Auto-detect: try each provider in order
@@ -106,7 +114,7 @@ export function resolveProvider(env: Record<string, string>): LlmProvider {
     const envKey = PROVIDER_ENV_KEYS[name];
     const apiKey = env[envKey];
     if (apiKey) {
-      return PROVIDER_FACTORIES[name](apiKey, model);
+      return PROVIDER_FACTORIES[name](apiKey, opts);
     }
   }
 

@@ -17,8 +17,13 @@ import {
   parseEvalResponse,
 } from './prompts';
 
-/** Minimum eval score to accept a candidate without further iteration. */
-const ACCEPT_THRESHOLD = 8;
+/** Default minimum eval score to accept a candidate without further iteration. */
+const DEFAULT_ACCEPT_THRESHOLD = 8;
+
+/** Helper: sleep for `ms` milliseconds. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Run the optimization agent loop.
@@ -26,9 +31,20 @@ const ACCEPT_THRESHOLD = 8;
  * @returns The best optimized instructions found within maxIterations.
  */
 export async function runOptimizeAgent(options: OptimizeOptions): Promise<OptimizeResult> {
-  const { currentInstructions, kb, kbDiff, maxIterations, provider, log } = options;
+  const {
+    currentInstructions,
+    kb,
+    kbDiff,
+    maxIterations,
+    provider,
+    log,
+    acceptThreshold = DEFAULT_ACCEPT_THRESHOLD,
+    signal,
+    iterationDelayMs = 0,
+    kbCharBudget,
+  } = options;
 
-  const systemPrompt = buildSystemPrompt(kb);
+  const systemPrompt = buildSystemPrompt(kb, kbCharBudget);
   const reasoning: string[] = [];
 
   let bestCandidate = currentInstructions;
@@ -36,6 +52,24 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
   let priorFeedback: string | undefined;
 
   for (let i = 0; i < maxIterations; i++) {
+    // ── Check cancellation ───────────────────────────────
+    if (signal?.aborted) {
+      log?.info('Optimization cancelled.');
+      reasoning.push(`Iteration ${i + 1}: cancelled by user`);
+      break;
+    }
+
+    // ── Inter-iteration delay (skip before first) ────────
+    if (i > 0 && iterationDelayMs > 0) {
+      log?.debug(`Waiting ${iterationDelayMs}ms before next iteration…`);
+      await sleep(iterationDelayMs);
+      if (signal?.aborted) {
+        log?.info('Optimization cancelled during delay.');
+        reasoning.push(`Iteration ${i + 1}: cancelled by user`);
+        break;
+      }
+    }
+
     log?.info(`Optimize iteration ${i + 1}/${maxIterations}…`);
 
     // ── Step 1: Generate optimized candidate ─────────────
@@ -55,25 +89,33 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
     }
 
     // ── Step 2: Self-evaluate ────────────────────────────
+    if (signal?.aborted) {
+      // Accept the candidate we just got since we can't eval
+      if (bestScore === 0) {
+        bestCandidate = candidate;
+      }
+      reasoning.push(`Iteration ${i + 1}: cancelled before eval`);
+      break;
+    }
+
     log?.debug(`Evaluating candidate (iteration ${i + 1})…`);
 
     let evalResult: EvalResult;
     try {
       const evalMessages: ChatMessage[] = [
-        { role: 'user', content: buildEvalPrompt(candidate, kb) },
+        { role: 'user', content: buildEvalPrompt(candidate, kb, kbCharBudget) },
       ];
       const evalResponse = await provider.chat(evalMessages);
       evalResult = parseEvalResponse(evalResponse);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      log?.warn(`Eval call failed: ${msg}. Accepting candidate as-is.`);
+      log?.warn(`Eval call failed: ${msg}. Tracking candidate as best-effort.`);
       reasoning.push(`Iteration ${i + 1}: eval error — ${msg}`);
-      // Accept the candidate if eval fails
-      return {
-        optimizedInstructions: candidate,
-        iterations: i + 1,
-        reasoning,
-      };
+      // Track as best candidate if nothing better exists, but don't auto-accept
+      if (bestScore === 0) {
+        bestCandidate = candidate;
+      }
+      continue;
     }
 
     reasoning.push(
@@ -88,8 +130,8 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
     }
 
     // ── Step 3: Accept or refine ─────────────────────────
-    if (evalResult.score >= ACCEPT_THRESHOLD) {
-      log?.info(`  Accepted (score ≥ ${ACCEPT_THRESHOLD})`);
+    if (evalResult.score >= acceptThreshold) {
+      log?.info(`  Accepted (score ≥ ${acceptThreshold})`);
       return {
         optimizedInstructions: candidate,
         iterations: i + 1,
@@ -103,8 +145,8 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
       evalResult.suggestions.map((s) => `- ${s}`).join('\n');
   }
 
-  // Exhausted iterations — return best seen
-  log?.info(`Max iterations reached. Returning best candidate (score ${bestScore}/10).`);
+  // Exhausted iterations or cancelled — return best seen
+  log?.info(`Returning best candidate (score ${bestScore}/10).`);
   return {
     optimizedInstructions: bestCandidate,
     iterations: maxIterations,

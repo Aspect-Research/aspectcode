@@ -48,6 +48,10 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'instructions-mode',      type: 'enum',    description: 'Instruction mode: safe|permissive|off', appliesTo: ['generate'], values: ['safe', 'permissive', 'off'], prop: 'instructionsMode' },
   { name: 'max-iterations',  short: 'n', type: 'string',  description: 'Max LLM agent iterations (default: 3)', appliesTo: ['optimize'], prop: 'maxIterations' },
   { name: 'dry-run',                     type: 'boolean', description: 'Print proposed changes without writing',  appliesTo: ['optimize'], prop: 'dryRun' },
+  { name: 'provider',         short: 'p', type: 'enum',    description: 'LLM provider: openai|anthropic',         appliesTo: ['optimize'], values: ['openai', 'anthropic'] },
+  { name: 'model',            short: 'm', type: 'string',  description: 'LLM model override',                     appliesTo: ['optimize'] },
+  { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)',              appliesTo: ['optimize'] },
+  { name: 'accept-threshold',             type: 'string',  description: 'Min eval score to accept (1–10, default: 8)', appliesTo: ['optimize'], prop: 'acceptThreshold' },
   { name: 'auto-optimize',               type: 'boolean', description: 'Run optimize after each generate',        appliesTo: ['watch'], prop: 'autoOptimize' },
 ] as const;
 
@@ -102,6 +106,18 @@ export interface CliFlags {
 
   /** --dry-run: print proposed optimize changes without writing. */
   dryRun: boolean;
+
+  /** --provider / -p: LLM provider for optimize. */
+  provider?: 'openai' | 'anthropic';
+
+  /** --model / -m: LLM model override for optimize. */
+  model?: string;
+
+  /** --temperature: sampling temperature for optimize. */
+  temperature?: number;
+
+  /** --accept-threshold: min eval score to accept (1–10). */
+  acceptThreshold?: number;
 
   /** --auto-optimize: chain optimize after each generate in watch mode. */
   autoOptimize: boolean;

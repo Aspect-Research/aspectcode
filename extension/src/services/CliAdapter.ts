@@ -319,11 +319,19 @@ export async function cliOptimize(
     token?: vscode.CancellationToken;
     maxIterations?: number;
     dryRun?: boolean;
+    provider?: string;
+    model?: string;
+    acceptThreshold?: number;
+    temperature?: number;
   },
 ): Promise<CliResult<OptimizeJsonPayload>> {
   const args = ['optimize', '--json'];
   if (options?.maxIterations) args.push('--max-iterations', String(options.maxIterations));
   if (options?.dryRun) args.push('--dry-run');
+  if (options?.provider) args.push('--provider', options.provider);
+  if (options?.model) args.push('--model', options.model);
+  if (options?.acceptThreshold) args.push('--accept-threshold', String(options.acceptThreshold));
+  if (options?.temperature !== undefined) args.push('--temperature', String(options.temperature));
 
   return runCli<OptimizeJsonPayload>({
     root,

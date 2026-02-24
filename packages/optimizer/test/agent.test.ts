@@ -104,7 +104,7 @@ describe('runOptimizeAgent', () => {
     assert.ok(result.reasoning.some((r) => r.includes('LLM error')));
   });
 
-  it('handles eval error gracefully and accepts candidate', async () => {
+  it('handles eval error gracefully and tracks candidate', async () => {
     let callCount = 0;
     const provider: LlmProvider = {
       name: 'partial-fail',
@@ -116,8 +116,10 @@ describe('runOptimizeAgent', () => {
     };
 
     const result = await runOptimizeAgent(makeOptions({ provider, maxIterations: 2 }));
-    assert.equal(result.iterations, 1);
+    // Agent should track the candidate as best-effort but continue iterating
+    assert.equal(result.iterations, 2);
     assert.ok(result.optimizedInstructions.includes('Optimized content'));
+    assert.ok(result.reasoning.some((r) => r.includes('eval error')));
   });
 
   it('includes kbDiff in the optimization context', async () => {

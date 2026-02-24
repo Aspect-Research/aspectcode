@@ -237,9 +237,33 @@ async function main(): Promise<void> {
 
     case 'optimize':
     case 'opt':
-      // Parse --max-iterations as a number
+      // Parse string flags to numbers with validation
       if (typeof ctx.flags.maxIterations === 'string') {
-        ctx.flags.maxIterations = parseInt(ctx.flags.maxIterations as unknown as string, 10) || 3;
+        const parsed = parseInt(ctx.flags.maxIterations as unknown as string, 10);
+        ctx.flags.maxIterations = (Number.isFinite(parsed) && parsed >= 1 && parsed <= 20)
+          ? parsed
+          : 3;
+        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 20) {
+          log.warn('Invalid --max-iterations value; using default (3).');
+        }
+      }
+      if (typeof ctx.flags.temperature === 'string') {
+        const parsed = parseFloat(ctx.flags.temperature as unknown as string);
+        ctx.flags.temperature = (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2)
+          ? parsed
+          : undefined;
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
+          log.warn('Invalid --temperature value (must be 0–2); using default.');
+        }
+      }
+      if (typeof ctx.flags.acceptThreshold === 'string') {
+        const parsed = parseInt(ctx.flags.acceptThreshold as unknown as string, 10);
+        ctx.flags.acceptThreshold = (Number.isFinite(parsed) && parsed >= 1 && parsed <= 10)
+          ? parsed
+          : undefined;
+        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 10) {
+          log.warn('Invalid --accept-threshold value (must be 1–10); using default.');
+        }
       }
       result = await runOptimize(ctx);
       break;

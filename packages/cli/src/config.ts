@@ -26,6 +26,25 @@ export interface AspectCodeConfig {
 
   /** Automatically run optimize after each generate. */
   autoOptimize?: boolean;
+
+  /** Optimization settings. */
+  optimize?: OptimizeConfig;
+}
+
+/** Optimization-specific configuration in `aspectcode.json`. */
+export interface OptimizeConfig {
+  /** LLM provider to use: "openai" or "anthropic". */
+  provider?: string;
+  /** Model identifier (e.g. "gpt-4o", "claude-sonnet-4-20250514"). */
+  model?: string;
+  /** Max agent iterations (optimize → eval → refine). Default: 3. */
+  maxIterations?: number;
+  /** Minimum eval score (1–10) to accept a candidate. Default: 8. */
+  acceptThreshold?: number;
+  /** Sampling temperature (0–2). Default: 0.4. */
+  temperature?: number;
+  /** Max tokens for LLM response. Default: 4096. */
+  maxTokens?: number;
 }
 
 export type RawAspectCodeConfig = Record<string, unknown>;

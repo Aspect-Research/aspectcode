@@ -93,14 +93,9 @@ describe('resolveProvider', () => {
     assert.equal(provider.name, 'openai');
   });
 
-  it('throws for Anthropic (not yet implemented)', () => {
-    assert.throws(
-      () => resolveProvider({ ANTHROPIC_API_KEY: 'sk-ant-test' }),
-      (err: Error) => {
-        assert.ok(err.message.includes('not yet implemented'));
-        return true;
-      },
-    );
+  it('resolves Anthropic provider when ANTHROPIC_API_KEY is set', () => {
+    const provider = resolveProvider({ ANTHROPIC_API_KEY: 'sk-ant-test' });
+    assert.equal(provider.name, 'anthropic');
   });
 });
 
