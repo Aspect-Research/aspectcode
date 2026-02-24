@@ -1,19 +1,20 @@
 # System Architecture
 
 > Source-of-truth for layering, package responsibilities, and data flow.
-> Last updated: 2026-02-13 (CLI trimmed: init removed, impact → deps impact, outDir persistence removed).
 
 ---
 
 ## Overview
 
-Aspect Code generates a project-local knowledge base (`kb.md`)
+Aspect Code generates a project-local knowledge base (`.aspect/` directory)
 that helps AI coding assistants understand a codebase before making changes.
-It produces a single `kb.md` file (opt-in via `--kb` flag or `generateKb` config)
-and an `AGENTS.md` instruction file.
+It produces KB files (opt-in via `--kb` flag), an `AGENTS.md` instruction file
+(full-file ownership, no markers), and optionally optimizes `AGENTS.md` via
+an agentic LLM loop.
 
-**Everything runs offline.** There are no network calls, no telemetry, no
-phone-home checks. WASM grammars ship in-repo; all analysis is local.
+**Everything runs offline** by default. There are no network calls, no telemetry,
+no phone-home checks. WASM grammars ship in-repo; all analysis is local.
+The only network usage is the opt-in LLM optimizer (requires API key).
 
 ---
 
@@ -22,37 +23,38 @@ phone-home checks. WASM grammars ship in-repo; all analysis is local.
 ```
 aspectcode/                         ← npm workspaces root
 ├── packages/
-│   ├── core/       @aspectcode/core      Pure analysis (no vscode)
-│   ├── emitters/   @aspectcode/emitters  Artifact generation
-│   └── cli/        aspectcode            CLI entry point (npm package)
-├── extension/                            VS Code extension (thin adapter)
-└── docs/                                 This file, guides
+│   ├── core/       @aspectcode/core       Pure analysis (no vscode)
+│   ├── emitters/   @aspectcode/emitters   Artifact generation
+│   ├── optimizer/  @aspectcode/optimizer   LLM-based optimization
+│   └── cli/        aspectcode             CLI entry point (npm package)
+├── extension/                             VS Code extension (thin launcher)
+└── docs/                                  This file, guides
 ```
 
 ### Dependency Graph
 
 ```
-  ┌────────────┐
-  │  extension  │──calls──▶ aspectcode (subprocess, preferred)
-  │  (VS Code)  │──uses──▶ @aspectcode/core (in-process fallback)
-  │             │──uses──▶ @aspectcode/emitters (in-process fallback)
+  ┌─────────────┐
+  │  extension   │──spawns──▶ aspectcode (subprocess)
+  │  (VS Code)   │
   └─────────────┘
         │
-  ┌────────────┐
-  │    cli      │──uses──▶ @aspectcode/core
-  │  (Node.js)  │──uses──▶ @aspectcode/emitters
-  └────────────┘
+  ┌─────────────┐
+  │     cli      │──uses──▶ @aspectcode/core
+  │  (Node.js)   │──uses──▶ @aspectcode/emitters
+  │              │──uses──▶ @aspectcode/optimizer
+  └─────────────┘
         │
         ▼
-  ┌────────────┐     ┌────────────────┐
-  │    core     │◀────│    emitters     │
-  └────────────┘     └────────────────┘
+  ┌─────────────┐     ┌────────────────┐     ┌────────────────┐
+  │    core      │◀────│    emitters     │     │   optimizer    │
+  └─────────────┘     └────────────────┘     └────────────────┘
 ```
 
-**Rule:** `core` has zero knowledge of `emitters`, `cli`, or `extension`.
-`emitters` depends on `core` only. `cli` depends on both. `extension`
-prefers calling CLI as a subprocess; falls back to `core` + `emitters`
-in-process when the CLI binary is unavailable.
+**Rule:** `core` has zero knowledge of `emitters`, `optimizer`, `cli`, or
+`extension`. `emitters` depends on `core` only. `optimizer` depends on
+`core` + `emitters`. `cli` depends on all three. `extension` spawns the
+CLI as a subprocess — no direct package imports.
 
 ---
 
@@ -65,7 +67,7 @@ Pure TypeScript. No `vscode` import, no Node-specific I/O beyond
 
 | Export | Purpose |
 |--------|---------|
-| `analyzeRepo(root, files)` | Build an `AnalysisModel` from source files (sync, regex-based) |
+| `analyzeRepo(root, files)` | Build an `AnalysisModel` from source files |
 | `analyzeRepoWithDependencies(root, files, host)` | `analyzeRepo` + `DependencyAnalyzer` graph/hubs |
 | `discoverFiles(root, opts?)` | Recursive walk → sorted absolute paths |
 | `computeModelStats(model, topN)` | Summary stats from a model |
@@ -87,123 +89,101 @@ stats. No `vscode` import. Target: ES2020 / CommonJS.
 | `runEmitters(model, host, opts)` | Orchestrate all emitters → `EmitReport` |
 | `createNodeEmitterHost()` | Node fs-backed `EmitterHost` |
 | `createKBEmitter()` | KB content builder (architecture/map/context) |
-| `createInstructionsEmitter()` | AGENTS.md instruction file emitter |
+| `createInstructionsEmitter()` | AGENTS.md instruction file emitter (full-file ownership) |
 | `stableStringify(value)` | Deterministic JSON (sorted keys) |
 | `GenerationTransaction` | Atomic writes — temp files → rename, manifest last |
 
 Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
 `InstructionsMode`.
-`InstructionsMode`.
+
+### @aspectcode/optimizer
+
+LLM-based optimization for AGENTS.md content. Uses an agentic loop:
+evaluate current content → generate improvements → accept if quality
+threshold met.
+
+| Export | Purpose |
+|--------|---------|
+| `createAgent()` | Create an optimizer agent with configurable provider/model |
+| Providers | OpenAI and Anthropic adapters |
+
+Key types: `OptimizerOptions`, `AgentResult`.
 
 ### aspectcode (CLI)
 
-Node.js command-line interface. Depends on both `core` and `emitters`.
-No external command framework — hand-rolled argv parser.
+Node.js command-line interface. Depends on `core`, `emitters`, and
+`optimizer`. No subcommands — single command with flags.
 
-| Command | Purpose | Output mode |
-|---------|---------|-------------|
-| `aspectcode generate` | Discover → analyze → emit (full pipeline) | human-readable by default, JSON with `--json`; dependency output can be scoped by `--file` |
-| `aspectcode watch` | Watch files and trigger `generate` by mode | long-running process |
-| `aspectcode deps list` | Compute and list dependency connections only | human-readable; supports `--file` filter |
-| `aspectcode deps impact` | Compute dependency impact for a single file | human-readable by default, JSON with `--json` |
-| `aspectcode show-config` | Print current `aspectcode.json` values | human-readable by default, JSON with `--json` |
-| `aspectcode set-update-rate` | Set canonical `updateRate` and remove legacy key | human-readable by default, JSON with `--json` |
-| `aspectcode add-exclude` / `remove-exclude` | Add or remove entries in `exclude` | human-readable by default, JSON with `--json` |
+**Usage:** `aspectcode [options]`
 
-Key flags:
-- Global-ish: `--root`, `--verbose`, `--quiet`, `--help`, `--version`
-- `init`: `--force`
-- `generate`: `--out`, `--list-connections`, `--json`, `--file`, `--kb-only`, `--instructions-mode`
-- `impact`: `--file` (required), `--json`
-- `deps list`: `--file` (connection filtering)
-- `watch`: `--mode` (`manual|onChange|idle`)
-- settings commands: positional value where required, `--json`
+The pipeline: discover files → analyze → build KB in memory → emit
+artifacts → optimize AGENTS.md (if API key available) → watch for changes.
+
+| Flag | Short | Purpose |
+|------|-------|---------|
+| `--help` | `-h` | Show help |
+| `--version` | `-V` | Print version |
+| `--verbose` | `-v` | Show debug output |
+| `--quiet` | `-q` | Suppress non-error output |
+| `--root <path>` | `-r` | Workspace root (default: cwd) |
+| `--kb` | | Also write kb.md to disk |
+| `--dry-run` | | Print output without writing |
+| `--once` | | Run once then exit (no watch) |
+| `--no-color` | | Disable colored output |
+| `--provider <name>` | `-p` | LLM provider: `openai` or `anthropic` |
+| `--model <name>` | `-m` | LLM model override |
+| `--max-iterations <n>` | `-n` | Max LLM agent iterations (default: 3) |
+| `--accept-threshold <n>` | | Min eval score to accept (1–10, default: 8) |
+| `--temperature <n>` | | Sampling temperature (0–2) |
 
 Config file: `aspectcode.json`.
 
-Current config compatibility rules:
-- Canonical update key: `updateRate` (`manual | onChange | idle`)
-- Legacy key accepted: `autoRegenerateKb` (`off | onSave | idle`) and mapped to canonical values
-- Instruction mode is safe-only (`instructionsMode: "safe"` enforced)
-
 ### extension/
 
-VS Code extension. Thin adapter: lifecycle, commands, file watchers,
-tree-sitter initialization. Delegates generation and impact
-analysis to the CLI binary via subprocess (`CliAdapter.ts`), falling
-back to in-process `core` + `emitters` when the CLI is unavailable.
+VS Code extension. Ultra-thin launcher: resolves the CLI binary,
+spawns `aspectcode` as a subprocess in watch mode, and provides
+Start/Stop commands in the Command Palette plus a status bar indicator.
 
-Key service: `CliAdapter.ts` resolves the CLI binary (workspace-local →
-npm resolve → PATH fallback) and spawns it with JSON output capture,
-cancellation support, and timeout handling.
+Single source file: `extension/src/extension.ts`.
 
 ---
 
 ## Data Flow
 
-### CLI Pipeline (`generate`)
+### CLI Pipeline (`aspectcode --once`)
 
 ```
-aspectcode generate
+aspectcode --once
   │
   ├─ 1. discoverFiles(root)              @aspectcode/core
-  ├─ 2. fs.readFileSync each file        Node built-in
-  ├─ 3. analyzeRepo(root, fileMap)        @aspectcode/core  (sync)
-  └─ 4. runEmitters(model, host, opts)    @aspectcode/emitters
-       ├─ KB emitter → kb.md (when --kb or generateKb: true)
-       └─ Instructions emitter → AGENTS.md
+  ├─ 2. read file contents               Node built-in
+  ├─ 3. analyzeRepo(root, fileMap)        @aspectcode/core
+  ├─ 4. runEmitters(model, host, opts)    @aspectcode/emitters
+  │    ├─ KB emitter → .aspect/ (when --kb)
+  │    └─ Instructions emitter → AGENTS.md (full-file ownership)
+  └─ 5. optimizer (when API key present)  @aspectcode/optimizer
+       └─ evaluate → improve → accept loop on AGENTS.md
 ```
 
-### CLI Pipeline (`deps list`)
+### CLI Pipeline (watch mode, default)
 
 ```
-aspectcode deps list
+aspectcode
   │
-  ├─ 1. discoverFiles(root)                     @aspectcode/core
-  ├─ 2. read file contents into cache           Node built-in
-  ├─ 3. DependencyAnalyzer.analyzeDependencies  @aspectcode/core
-  └─ 4. print normalized connection rows        CLI formatter
+  ├─ 1. run pipeline (same as --once)
+  ├─ 2. start filesystem watchers
+  └─ 3. re-run pipeline on file changes
+       └─ keep process alive until SIGINT/SIGTERM
 ```
 
-### CLI Pipeline (`watch`)
+### Extension Pipeline
 
 ```
-aspectcode watch
+User clicks Start (or auto-start on activation)
   │
-  ├─ 1. start filesystem watchers (ignore generated/vendor paths)
-  ├─ 2. apply mode timing (`onChange` debounce / `idle` timeout / `manual` no auto-run)
-  ├─ 3. trigger `runGenerate(...)` on eligible events
-  └─ 4. keep process alive until SIGINT/SIGTERM
+  └─ extension.ts → spawn `aspectcode` subprocess (watch mode)
+     └─ CLI runs its pipeline, watches, auto-updates
 ```
-
-### Extension Pipeline (current — CLI-first with fallback)
-
-```
-User action (click / save / idle)
-  │
-  ├─ regenerateEverything()            extension/src/assistants/kb.ts
-  │   └─ generateKnowledgeBase()
-  │       ├─ TRY: cliGenerate(root, ['--kb-only'])
-  │       │   (spawns: aspectcode generate --json --kb-only)
-  │       │   exit 0 + valid JSON → done
-  │       └─ FALLBACK: generateKnowledgeBaseInProcess()
-  │           ├─ analyzeRepoWithDependencies()       @aspectcode/core
-  │           └─ runEmitters(model, vscodeHost)       @aspectcode/emitters
-  │
-  ├─ handleGenerate()                     commandHandlers.ts
-  │   └─ cliGenerate(root)
-  │       (spawns: aspectcode generate --json)
-  │
-  └─ computeImpactSummaryForFile()     extension/src/assistants/kb.ts
-      ├─ TRY: cliDepsImpact(root, relPath)
-      │   (spawns: aspectcode deps impact --file <path> --json)
-      └─ FALLBACK: DependencyAnalyzer in-process
-```
-
-CLI resolution order in `CliAdapter.resolveCliBin()`:
-1. Workspace-local: `<root>/packages/cli/bin/aspectcode.js`
-2. npm resolve: `require.resolve('aspectcode/bin/aspectcode.js')`
-3. Global PATH: `aspectcode`
 
 ---
 
@@ -215,10 +195,10 @@ CLI resolution order in `CliAdapter.resolveCliBin()`:
 | `.aspect/map.md` | KB emitter | Data models, symbol index, conventions |
 | `.aspect/context.md` | KB emitter | Module clusters, integrations, data flow |
 | `.aspect/manifest.json` | Manifest writer | Schema version, stats, file list |
-| `AGENTS.md` | Instructions emitter | AI agent rules (marker-wrapped) |
+| `AGENTS.md` | Instructions emitter | AI agent instructions (full-file ownership) |
 
-Instruction files use `<!-- ASPECT_CODE_START -->` / `<!-- ASPECT_CODE_END -->`
-markers. User content outside the markers is preserved on regeneration.
+`AGENTS.md` is fully owned by Aspect Code — the entire file is overwritten
+on each generation. No markers are used.
 
 ---
 
@@ -238,31 +218,22 @@ This prevents partial/corrupt output if a write fails mid-generation.
 
 | Concern | How it's handled |
 |---------|-----------------|
-| Tree-sitter WASM | 7 `.wasm` files committed in `extension/parsers/` |
+| Tree-sitter WASM | `.wasm` files committed in `extension/parsers/` and `packages/core/parsers/` |
 | NPM packages | root `package-lock.json`; `npm ci --prefer-offline` works |
 | Build tools | `tsc`, `esbuild`, `mocha` — all local binaries |
-| Telemetry | None. Zero network calls in any package |
+| Telemetry | None. Zero network calls (except opt-in optimizer) |
 | VSIX packaging | `parsers/` included via `.vscodeignore` allowlist |
 
 ---
 
 ## Testing
 
-### Migration policy: CLI tests first
-
-For all upcoming CLI-first migration work, implement tests before behavior changes:
-1. Add/extend CLI tests that fail for the desired behavior.
-2. Implement command/config changes in CLI.
-3. Re-run CLI tests; only then wire extension integration.
-
-This keeps extension changes low-risk while command behavior stabilizes.
-
-| Package | Runner | Count | Notes |
-|---------|--------|-------|-------|
-| `@aspectcode/core` | mocha + ts-node | 11 | Snapshot tests against fixture repo |
-| `@aspectcode/emitters` | mocha + ts-node | 79 | KB, instructions, manifest, transaction |
-| `aspectcode` | mocha + ts-node | 44 | parseArgs, config, generate, deps, impact, settings, watch |
-| Extension | mocha + ts-node | 10 | KB invariant + shared analysis tests |
+| Package | Runner | Notes |
+|---------|--------|-------|
+| `@aspectcode/core` | mocha + ts-node | Snapshot tests against fixture repo |
+| `@aspectcode/emitters` | mocha + ts-node | KB, instructions, manifest, transaction |
+| `@aspectcode/optimizer` | mocha + ts-node | Agent, prompt, provider |
+| `aspectcode` | mocha + ts-node | parseArgs, config, generate, settings, watch |
 
 All tests are offline. Temp directories via `os.tmpdir()`, fixed
 timestamps for determinism.
@@ -285,27 +256,3 @@ npm test --workspaces
 | Test files | `*.test.ts`, mocha + `node:assert/strict` |
 | JSON output | `stableStringify()` for determinism |
 | Path handling | `toPosix()` everywhere; no raw backslashes in output |
-
----
-
-## Phase 4 Status
-
-> Extension calls CLI for generation, instruction emission, and impact
-> analysis; falls back to in-process when CLI unavailable.
-
-**Done:**
-1. ✅ CLI test coverage expanded (49 tests covering all commands/flags).
-2. ✅ CLI flags: `--kb-only`, `--instructions-mode`.
-3. ✅ New CLI command: `aspectcode impact --file <path> --json`.
-4. ✅ Extension spawns CLI for KB generation (`generate --json --kb-only`).
-5. ✅ Extension spawns CLI for AGENTS.md generation (`generate --json`).
-6. ✅ Extension spawns CLI for impact (`impact --file <path> --json`).
-7. ✅ `CliAdapter.ts` with hybrid resolution (local → npm → PATH).
-
-**Remaining:**
-- Full watch delegation via CLI subprocess (`cliWatch` helper exists, not yet primary path).
-- `state.ts` cleanup (mutable singleton → scoped context).
-- Remove remaining extension-side `DependencyAnalyzer` / `importExtractors` once CLI path is stable.
-
-Optional: `aspectcode watch --json` with streaming updates (newline-
-delimited JSON) for live regeneration without polling.

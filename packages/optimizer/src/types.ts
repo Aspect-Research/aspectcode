@@ -49,14 +49,17 @@ export interface OptLogger {
 
 /** Options for a single optimization run. */
 export interface OptimizeOptions {
-  /** Current AGENTS.md content (the marked section only). */
+  /** Current AGENTS.md content. */
   currentInstructions: string;
 
-  /** Full kb.md content. */
+  /** Full KB content (architecture + map + context). */
   kb: string;
 
   /** Line-level diff of KB changes (undefined on first run). */
   kbDiff?: string;
+
+  /** Concatenated content from other AI tool instruction files (read-only context). */
+  toolInstructions?: string;
 
   /** Maximum agent iterations (optimize → eval → refine). */
   maxIterations: number;

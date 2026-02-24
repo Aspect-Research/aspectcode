@@ -23,14 +23,25 @@ export type { EmitReport } from './report';
 
 // ── Manifest ─────────────────────────────────────────────────
 
-export type { Manifest, ManifestStats } from './manifest';export { buildManifest } from './manifest';
+export type { Manifest, ManifestStats } from './manifest';
+export { buildManifest } from './manifest';
+
 // ── KB helpers ───────────────────────────────────────────────
 
 export * from './kb';
 
 // ── Instructions ────────────────────────────────────────────
 
-export * from './instructions';
+export {
+  generateCanonicalContentForMode,
+  generateCanonicalContentSafe,
+  generateCanonicalContentPermissive,
+} from './instructions/content';
+
+export { createInstructionsEmitter } from './instructions/instructionsEmitter';
+
+export type { AiToolId } from './instructions/formats';
+export { AI_TOOL_DETECTION_PATHS } from './instructions/formats';
 
 // ── runEmitters ──────────────────────────────────────────────
 
@@ -43,7 +54,6 @@ import { GenerationTransaction } from './transaction';
 
 /**
  * Run all built-in emitters in sequence.
- *
  * Returns the combined list of files written.
  */
 export async function runEmitters(
@@ -71,15 +81,14 @@ export async function runEmitters(
     await tx.commit();
     wrote.push(...tx.getWrites().map((w) => ({ path: w.finalPath, bytes: w.bytes })));
   } else {
-    skipped.push({ id: 'kb', reason: 'KB generation not enabled (use --kb or set generateKb)' });
+    skipped.push({ id: 'kb', reason: 'KB generation not enabled (use --kb)' });
   }
 
-  // ── Instructions (outside the .aspect transaction) ─────────
+  // ── Instructions (AGENTS.md — full file ownership) ─────────
   if (opts.instructionsMode !== 'off') {
     const { createInstructionsEmitter } = await import('./instructions/instructionsEmitter');
     const instructions = createInstructionsEmitter();
 
-    // Wrap host to capture bytes for report
     const recordingHost: EmitterHost = {
       ...host,
       writeFile: async (filePath: string, content: string) => {

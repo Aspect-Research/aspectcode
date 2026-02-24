@@ -1,29 +1,16 @@
 /**
  * aspectcode CLI — main entry point.
  *
- * Hand-rolled argv parser (no external deps). Routes to command handlers.
- * Flag definitions live in cli.ts (FLAG_DEFS) — parseArgs and printHelp
- * derive from that single source of truth.
+ * No subcommands. `aspectcode [flags]` runs the pipeline:
+ *   analyze → build KB → ingest tool files → optimize → write AGENTS.md → watch
  */
 
 import * as path from 'path';
-import type { CliArgs, CliFlags, CommandResult } from './cli';
+import type { CliFlags } from './cli';
 import { ExitCode, FLAG_DEFS, flagPropName } from './cli';
-import type { CommandContext } from './cli';
-import { loadConfig } from './config';
 import { createLogger, disableColor, fmt } from './logger';
 import { getVersion } from './version';
-import { runGenerate } from './commands/generate';
-import { runDepsList, runDepsImpact } from './commands/deps';
-import { runWatch } from './commands/watch';
-import { runImpact } from './commands/impact';
-import { runOptimize } from './commands/optimize';
-import {
-  runAddExclude,
-  runRemoveExclude,
-  runSetUpdateRate,
-  runShowConfig,
-} from './commands/settings';
+import { runPipeline } from './pipeline';
 
 // ── Build lookup tables from FLAG_DEFS ───────────────────────
 
@@ -36,71 +23,46 @@ const shortMap = new Map(
 
 // ── Argv parsing ─────────────────────────────────────────────
 
-export function parseArgs(argv: string[]): CliArgs {
+export function parseArgs(argv: string[]): CliFlags {
   const flags: CliFlags = {
     help: false,
     version: false,
     verbose: false,
     quiet: false,
-    listConnections: false,
-    json: false,
-    kbOnly: false,
-    noColor: false,
+    kb: false,
     dryRun: false,
-    autoOptimize: false,
+    once: false,
+    noColor: false,
   };
-  const positionals: string[] = [];
-  let command = '';
 
   const args = argv.slice(2); // skip node + script
   let i = 0;
 
   while (i < args.length) {
     const arg = args[i];
-
-    // Try --long-name or -x lookup
     const eqIdx = arg.indexOf('=');
     const key = eqIdx > 0 ? arg.slice(0, eqIdx) : arg;
     const def = longMap.get(key) ?? shortMap.get(key);
 
     if (def) {
       const prop = flagPropName(def) as keyof CliFlags;
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const record = flags as any;
       if (def.type === 'boolean') {
         record[prop] = true;
-      } else if (def.type === 'string') {
+      } else {
         const val = eqIdx > 0 ? arg.slice(eqIdx + 1) : args[++i];
         record[prop] = val;
-      } else if (def.type === 'enum' && def.values) {
-        const val = eqIdx > 0 ? arg.slice(eqIdx + 1) : args[++i];
-        if (def.values.includes(val)) {
-          record[prop] = val;
-        }
-      }
-    } else if (arg.startsWith('--') && eqIdx > 0) {
-      // Unknown --flag=value — try lookup by prefix before '='
-      const stderr = process.stderr;
-      if (stderr && typeof stderr.write === 'function') {
-        stderr.write(`Warning: unknown flag ${key}\n`);
       }
     } else if (arg.startsWith('-')) {
-      // Unknown flag — warn but keep going for forward compat
-      const stderr = process.stderr;
-      if (stderr && typeof stderr.write === 'function') {
-        stderr.write(`Warning: unknown flag ${arg}\n`);
-      }
-    } else if (!command) {
-      command = arg;
-    } else {
-      positionals.push(arg);
+      process.stderr.write(`Warning: unknown flag ${arg}\n`);
     }
+    // positionals are ignored — no subcommands
 
     i++;
   }
 
-  return { command, flags, positionals };
+  return flags;
 }
 
 // ── Help text ────────────────────────────────────────────────
@@ -111,50 +73,52 @@ function printHelp(): void {
   for (const def of FLAG_DEFS) {
     const shortPart = def.short ? `-${def.short}, ` : '    ';
     const longPart = `--${def.name}`;
-    const valuePart =
-      def.type === 'string' ? ' <value>' :
-      def.type === 'enum' ? ` <${(def.values ?? []).join('|')}>` : '';
+    const valuePart = def.type === 'string' ? ' <value>' : '';
     const left = `  ${shortPart}${longPart}${valuePart}`;
     const pad = Math.max(2, 30 - left.length);
     optionLines.push(`${left}${' '.repeat(pad)}${def.description}`);
   }
 
   console.log(`
-${fmt.bold('aspectcode')} — generate AI-assistant knowledge bases from your codebase
+${fmt.bold('aspectcode')} — optimize AGENTS.md for your codebase
 
 ${fmt.bold('USAGE')}
-  aspectcode <command> [options]
+  aspectcode [options]
 
-${fmt.bold('COMMANDS')}
-  generate  ${fmt.dim('(gen, g)')}       Discover, analyze, and emit KB artifacts
-  watch                    Watch source files and regenerate on changes
-  deps list                List dependency connections
-  optimize  ${fmt.dim('(opt)')}        Optimize AGENTS.md instructions via LLM
-  show-config              Show current ${fmt.cyan('aspectcode.json')} values
-  set-update-rate <mode>   Set updateRate to manual|onChange|idle
-  add-exclude <path>       Add an exclude path
-  remove-exclude <path>    Remove an exclude path
+  Analyzes your codebase, builds a knowledge base, reads existing AI tool
+  instruction files for context, optimizes AGENTS.md via LLM (when API key
+  is available), and watches for changes.
 
 ${fmt.bold('OPTIONS')}
 ${optionLines.join('\n')}
 
 ${fmt.bold('EXAMPLES')}
-  aspectcode generate
-  aspectcode gen --kb-only
-  aspectcode g --json
-  aspectcode optimize --max-iterations 5
-  aspectcode optimize --dry-run
-  aspectcode impact --file src/app.ts
-  aspectcode deps list --file src/app.ts
-  aspectcode watch --mode idle
+  aspectcode                      ${fmt.dim('# watch & auto-update AGENTS.md')}
+  aspectcode --once               ${fmt.dim('# run once then exit')}
+  aspectcode --once --kb          ${fmt.dim('# also write kb.md')}
+  aspectcode --once --dry-run     ${fmt.dim('# preview without writing')}
+  aspectcode --provider openai    ${fmt.dim('# force specific LLM provider')}
 `.trimStart());
+}
+
+// ── Number-parsing helpers ───────────────────────────────────
+
+function parseIntFlag(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'string') return fallback;
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
+}
+
+function parseFloatFlag(value: unknown, min: number, max: number): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const n = parseFloat(value);
+  return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
 }
 
 // ── Main ─────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(process.argv);
-  const { command, flags } = parsed;
+  const flags = parseArgs(process.argv);
 
   // Global flags that exit early
   if (flags.version) {
@@ -169,123 +133,25 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!command) {
-    printHelp();
-    process.exitCode = ExitCode.USAGE;
-    return;
-  }
-
-  // Apply --no-color before any output
   if (flags.noColor) {
     disableColor();
+  }
+
+  // Parse numeric string flags
+  if (typeof flags.maxIterations === 'string') {
+    flags.maxIterations = parseIntFlag(flags.maxIterations, 1, 20, 3);
+  }
+  if (typeof flags.acceptThreshold === 'string') {
+    flags.acceptThreshold = parseIntFlag(flags.acceptThreshold, 1, 10, 8);
+  }
+  if (typeof flags.temperature === 'string') {
+    flags.temperature = parseFloatFlag(flags.temperature, 0, 2);
   }
 
   const log = createLogger({ verbose: flags.verbose, quiet: flags.quiet });
   const root = path.resolve(flags.root ?? process.cwd());
 
-  // Build shared context — loadConfig returns undefined when no aspectcode.json exists
-  const config = loadConfig(root);
-
-  const ctx: CommandContext = {
-    root,
-    flags,
-    config,
-    log,
-    positionals: parsed.positionals,
-  };
-
-  let result: CommandResult;
-
-  switch (command) {
-    case 'generate':
-    case 'gen':
-    case 'g':
-      result = await runGenerate(ctx);
-      break;
-
-    case 'deps': {
-      const sub = parsed.positionals[0] ?? 'list';
-      if (sub === 'list') {
-        result = await runDepsList(ctx);
-      } else if (sub === 'impact') {
-        result = await runDepsImpact(ctx);
-      } else {
-        log.error(`Unknown deps subcommand: ${fmt.bold(sub)}`);
-        result = { exitCode: ExitCode.USAGE };
-      }
-      break;
-    }
-
-    case 'watch':
-      result = await runWatch(ctx);
-      break;
-
-    case 'impact':
-      result = await runImpact(ctx);
-      break;
-
-    case 'optimize':
-    case 'opt':
-      // Parse string flags to numbers with validation
-      if (typeof ctx.flags.maxIterations === 'string') {
-        const parsed = parseInt(ctx.flags.maxIterations as unknown as string, 10);
-        ctx.flags.maxIterations = (Number.isFinite(parsed) && parsed >= 1 && parsed <= 20)
-          ? parsed
-          : 3;
-        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 20) {
-          log.warn('Invalid --max-iterations value; using default (3).');
-        }
-      }
-      if (typeof ctx.flags.temperature === 'string') {
-        const parsed = parseFloat(ctx.flags.temperature as unknown as string);
-        ctx.flags.temperature = (Number.isFinite(parsed) && parsed >= 0 && parsed <= 2)
-          ? parsed
-          : undefined;
-        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 2) {
-          log.warn('Invalid --temperature value (must be 0–2); using default.');
-        }
-      }
-      if (typeof ctx.flags.acceptThreshold === 'string') {
-        const parsed = parseInt(ctx.flags.acceptThreshold as unknown as string, 10);
-        ctx.flags.acceptThreshold = (Number.isFinite(parsed) && parsed >= 1 && parsed <= 10)
-          ? parsed
-          : undefined;
-        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 10) {
-          log.warn('Invalid --accept-threshold value (must be 1–10); using default.');
-        }
-      }
-      result = await runOptimize(ctx);
-      break;
-
-    case 'show-config':
-      result = await runShowConfig(ctx);
-      break;
-
-    case 'set-update-rate': {
-      const value = parsed.positionals[0] ?? '';
-      result = await runSetUpdateRate(ctx, value);
-      break;
-    }
-
-    case 'add-exclude': {
-      const value = parsed.positionals[0] ?? '';
-      result = await runAddExclude(ctx, value);
-      break;
-    }
-
-    case 'remove-exclude': {
-      const value = parsed.positionals[0] ?? '';
-      result = await runRemoveExclude(ctx, value);
-      break;
-    }
-
-    default:
-      log.error(`Unknown command: ${fmt.bold(command)}`);
-      log.info(`Run ${fmt.bold('aspectcode --help')} for usage.`);
-      result = { exitCode: ExitCode.USAGE };
-  }
-
-  process.exitCode = result.exitCode;
+  process.exitCode = await runPipeline({ root, flags, log });
 }
 
 /** Entry point — called from bin/aspectcode.js. */

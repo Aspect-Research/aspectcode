@@ -20,12 +20,6 @@ const DEFAULT_MAX_LINES = 400;
 // Each Phase-N PR must reduce these caps as files are split.
 const GRANDFATHERED = {
   'src/extension.ts': 450,
-  'src/services/gitignoreService.ts': 450,
-  'src/services/FileDiscoveryService.ts': 600,
-  'src/test/kb.test.ts': 720,
-  'src/commandHandlers.ts': 550,
-  'src/services/aspectSettings.ts': 500,
-  'src/services/WorkspaceFingerprint.ts': 500,
 };
 
 // ── Helpers ──────────────────────────────────────────────────

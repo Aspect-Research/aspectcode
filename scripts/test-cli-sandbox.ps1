@@ -9,8 +9,8 @@
   on exit.
 
   This is the recommended way for humans and agents to manually exercise
-  the CLI during development - it prevents kb.md and AGENTS.md from
-  being written to the repo root.
+  the CLI during development - it prevents AGENTS.md from being written
+  to the repo root.
 
 .PARAMETER SkipCleanup
   Keep the temp sandbox after the run (useful for inspecting output).
@@ -66,7 +66,6 @@ $fixtureDir = Join-Path $repoRoot 'extension\test\fixtures\mini-repo'
 
 # Create temp sandbox
 $sandboxRoot = Join-Path ([System.IO.Path]::GetTempPath()) "aspectcode-sandbox-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-$sandboxOut  = Join-Path $sandboxRoot '_out'
 
 Write-Host "Aspect Code - CLI Sandbox Test" -ForegroundColor White
 Write-Host "Repo:    $repoRoot" -ForegroundColor Gray
@@ -88,28 +87,33 @@ if (-not $SkipBuild) {
 # ── Prepare sandbox ──────────────────────────────────────────────────
 [void]$results.Add((Invoke-Step -Name 'Create sandbox from fixture' -Action {
   Copy-Item -Path $fixtureDir -Destination $sandboxRoot -Recurse -Force
-  New-Item -Path $sandboxOut -ItemType Directory -Force | Out-Null
   Write-Host "  Copied fixture -> $sandboxRoot" -ForegroundColor Gray
 }))
 
 # ── CLI smoke tests (all scoped to sandbox) ──────────────────────────
 
-[void]$results.Add((Invoke-Step -Name 'CLI help (sanity)' -Action {
+[void]$results.Add((Invoke-Step -Name 'CLI --help' -Action {
   & node $cliBin --help | Out-Null
   if ($LASTEXITCODE -ne 0) { throw '--help failed' }
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI generate (--root sandbox --out _out)' -Action {
-  & node $cliBin generate --kb --root $sandboxRoot --out $sandboxOut --quiet
-  if ($LASTEXITCODE -ne 0) { throw 'generate failed' }
+[void]$results.Add((Invoke-Step -Name 'CLI --version' -Action {
+  $ver = & node $cliBin --version 2>&1
+  if ($LASTEXITCODE -ne 0) { throw '--version failed' }
+  if (-not ($ver -match '^\d+\.\d+')) { throw "Unexpected version output: $ver" }
 }))
 
-[void]$results.Add((Invoke-Step -Name 'Verify kb.md in sandbox output' -Action {
-  $kbFile = Join-Path $sandboxOut 'kb.md'
-  if (-not (Test-Path $kbFile)) {
-    throw "kb.md not found in sandbox output: $kbFile"
+[void]$results.Add((Invoke-Step -Name 'CLI --once (sandbox)' -Action {
+  & node $cliBin --once --root $sandboxRoot --quiet
+  if ($LASTEXITCODE -ne 0) { throw '--once failed' }
+}))
+
+[void]$results.Add((Invoke-Step -Name 'Verify AGENTS.md in sandbox' -Action {
+  $agentsFile = Join-Path $sandboxRoot 'AGENTS.md'
+  if (-not (Test-Path $agentsFile)) {
+    throw "AGENTS.md not found in sandbox: $agentsFile"
   }
-  Write-Host "  Found kb.md" -ForegroundColor Gray
+  Write-Host "  Found AGENTS.md" -ForegroundColor Gray
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Verify repo root is clean' -Action {
@@ -124,40 +128,47 @@ if (-not $SkipBuild) {
   Write-Host "  Repo root is clean (no kb.md, no AGENTS.md)" -ForegroundColor Gray
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI generate --json (--root sandbox --out _out)' -Action {
-  $tmpJson = Join-Path $env:TEMP 'aspectcode-sandbox-smoke.json'
-  $tmpErr  = Join-Path $env:TEMP 'aspectcode-sandbox-smoke.err.log'
-  if (Test-Path $tmpJson) { Remove-Item $tmpJson -Force }
-  if (Test-Path $tmpErr)  { Remove-Item $tmpErr -Force }
-  cmd.exe /d /s /c "node `"$cliBin`" g --root `"$sandboxRoot`" --out `"$sandboxOut`" --json 1>`"$tmpJson`" 2>`"$tmpErr`""
-  $raw = Get-Content $tmpJson -Raw
-  $null = $raw | ConvertFrom-Json
-  if (-not $raw.TrimStart().StartsWith('{')) {
-    throw 'JSON output file does not look like a JSON object.'
+[void]$results.Add((Invoke-Step -Name 'CLI --once --kb (sandbox)' -Action {
+  & node $cliBin --once --kb --root $sandboxRoot --quiet
+  if ($LASTEXITCODE -ne 0) { throw '--once --kb failed' }
+  $kbFile = Join-Path $sandboxRoot 'kb.md'
+  if (-not (Test-Path $kbFile)) {
+    throw "kb.md not found in sandbox after --kb: $kbFile"
   }
-  Write-Host "  JSON parsed OK" -ForegroundColor Gray
+  Write-Host "  Found kb.md" -ForegroundColor Gray
 }))
 
-[void]$results.Add((Invoke-Step -Name 'CLI deps impact (--root sandbox)' -Action {
-  $targetFile = 'src\app.ts'
-  & node $cliBin deps impact --root $sandboxRoot --file $targetFile --quiet 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "deps impact --file $targetFile failed" }
-}))
+[void]$results.Add((Invoke-Step -Name 'CLI --once --dry-run (sandbox)' -Action {
+  # Remove output files first
+  $agentsFile = Join-Path $sandboxRoot 'AGENTS.md'
+  $kbFile = Join-Path $sandboxRoot 'kb.md'
+  if (Test-Path $agentsFile) { Remove-Item $agentsFile -Force }
+  if (Test-Path $kbFile) { Remove-Item $kbFile -Force }
 
-[void]$results.Add((Invoke-Step -Name 'CLI deps list (--root sandbox)' -Action {
-  $targetFile = 'src\app.ts'
-  & node $cliBin deps list --root $sandboxRoot --file $targetFile --quiet 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw "deps list --file $targetFile failed" }
+  & node $cliBin --once --dry-run --root $sandboxRoot --quiet
+  if ($LASTEXITCODE -ne 0) { throw '--once --dry-run failed' }
+
+  # Dry-run should NOT write files
+  if (Test-Path $agentsFile) {
+    throw "AGENTS.md was written during --dry-run"
+  }
+  Write-Host "  No files written (correct for dry-run)" -ForegroundColor Gray
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Unknown flag warning path' -Action {
-  cmd.exe /d /s /c "node `"$cliBin`" gen --root `"$sandboxRoot`" --out `"$sandboxOut`" --bogus-flag --quiet 2>nul"
+  # Temporarily allow stderr so the warning doesn't become a terminating error
+  $ErrorActionPreference = 'SilentlyContinue'
+  & node $cliBin --once --root $sandboxRoot --bogus-flag --quiet 2>$null
+  $ErrorActionPreference = 'Stop'
+  # Should still succeed (unknown flags print a warning but don't error)
   if ($LASTEXITCODE -ne 0) { throw 'unknown flag path failed' }
 }))
 
-[void]$results.Add((Invoke-Step -Name 'No-color path' -Action {
-  & node $cliBin gen --root $sandboxRoot --out $sandboxOut --no-color --quiet 2>&1 | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'no-color path failed' }
+[void]$results.Add((Invoke-Step -Name 'CLI --no-color path' -Action {
+  $ErrorActionPreference = 'SilentlyContinue'
+  & node $cliBin --once --root $sandboxRoot --no-color --quiet 2>$null
+  $ErrorActionPreference = 'Stop'
+  if ($LASTEXITCODE -ne 0) { throw '--no-color path failed' }
 }))
 
 [void]$results.Add((Invoke-Step -Name 'Final repo-root cleanliness check' -Action {

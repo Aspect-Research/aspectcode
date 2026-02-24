@@ -1,10 +1,3 @@
-export type { AssistantId } from './constants';
-export { ASPECT_CODE_START, ASPECT_CODE_END } from './constants';
-
-export { detectAssistants } from './detection';
-
-export { mergeAspectCodeSection, removeAspectCodeSection } from './merge';
-
 export {
   generateCanonicalContentForMode,
   generateCanonicalContentSafe,
@@ -12,3 +5,6 @@ export {
 } from './content';
 
 export { createInstructionsEmitter } from './instructionsEmitter';
+
+export type { AiToolId } from './formats';
+export { AI_TOOL_DETECTION_PATHS } from './formats';

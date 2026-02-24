@@ -35,16 +35,16 @@ export function truncateKb(kb: string, charBudget: number = DEFAULT_KB_CHAR_BUDG
  * Build the system prompt that establishes the agent's role and
  * provides the full knowledge base as context.
  */
-export function buildSystemPrompt(kb: string, kbCharBudget?: number): string {
+export function buildSystemPrompt(kb: string, kbCharBudget?: number, toolInstructions?: string): string {
   const trimmedKb = truncateKb(kb, kbCharBudget);
 
-  return `You are an expert AI coding assistant instruction optimizer.
+  let prompt = `You are an expert AI coding assistant instruction optimizer.
 
 Your job is to improve AGENTS.md instructions — the guidelines that AI coding
 assistants follow when working in a codebase. You optimize these instructions
 so they are maximally useful, precise, and aligned with the actual codebase.
 
-You have access to the project's knowledge base (kb.md) which contains:
+You have access to the project's knowledge base which contains:
 - Architecture: high-risk files, directory layout, entry points
 - Map: data models, symbol index, naming conventions
 - Context: module clusters, external integrations, data flows
@@ -53,8 +53,23 @@ Use this knowledge to make the instructions specific, actionable, and grounded
 in the real structure of the codebase. Remove vague advice, strengthen specific
 guidance, and add project-specific rules that an AI assistant would benefit from.
 
-## Knowledge Base (kb.md)
+## Knowledge Base
 ${trimmedKb}`;
+
+  if (toolInstructions) {
+    prompt += `
+
+## Existing AI Tool Instructions (Context)
+
+The following are instructions from other AI coding tools already present in
+this workspace. Use them as additional context to understand the project's
+coding standards, conventions, and any domain-specific guidelines. Your
+optimized AGENTS.md should complement (not duplicate) this content.
+
+${toolInstructions}`;
+  }
+
+  return prompt;
 }
 
 /**

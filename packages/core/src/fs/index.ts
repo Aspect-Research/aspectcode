@@ -18,3 +18,11 @@ export {
 
 export { discoverFiles } from './walker';
 export type { DiscoverOptions } from './walker';
+
+export {
+  computeFingerprint,
+  readFingerprint,
+  writeFingerprint,
+  isKbStale,
+} from './fingerprint';
+export type { FingerprintData } from './fingerprint';

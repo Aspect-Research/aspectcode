@@ -8,7 +8,7 @@ Thanks for your interest in contributing to Aspect Code!
 # From repo root — installs all workspace packages
 npm install
 
-# Build all packages (core → emitters → cli → extension)
+# Build all packages (core → emitters → optimizer → cli → extension)
 npm run build --workspaces
 cd extension && npm run build && cd ..
 
@@ -22,11 +22,12 @@ Development Host.
 ## Repository Structure
 
 ```
-packages/core/        @aspectcode/core      Pure analysis (no vscode)
-packages/emitters/    @aspectcode/emitters   Artifact generation
-packages/cli/         aspectcode             CLI entry point
-extension/                                   VS Code extension
-docs/                                        Architecture & guides
+packages/core/        @aspectcode/core       Pure analysis (no vscode)
+packages/emitters/    @aspectcode/emitters    Artifact generation
+packages/optimizer/   @aspectcode/optimizer   LLM-based optimization
+packages/cli/         aspectcode              CLI entry point
+extension/                                    VS Code extension (thin launcher)
+docs/                                         Architecture & guides
 ```
 
 Full architecture: [docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md)
@@ -38,7 +39,7 @@ Full architecture: [docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md)
 | Command | What it does |
 |---------|-------------|
 | `npm install` | Install all workspace dependencies |
-| `npm run build --workspaces` | Build core → emitters → cli |
+| `npm run build --workspaces` | Build core → emitters → optimizer → cli |
 | `npm test --workspaces` | Run all package tests |
 
 ### Extension (`cd extension`)
@@ -67,8 +68,7 @@ Full architecture: [docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md)
 ## CLI Testing (Safe Sandbox)
 
 When manually exercising the CLI during development, **always use the
-sandbox test runner** to avoid writing `kb.md` or `AGENTS.md` into
-the repo root:
+sandbox test runner** to avoid writing `AGENTS.md` into the repo root:
 
 ```bash
 # Full run: build all packages, then test CLI in temp sandbox
@@ -86,13 +86,13 @@ You can also run the script directly for extra options:
 ```
 
 The sandbox script copies `extension/test/fixtures/mini-repo` into a
-temp directory and runs all CLI commands with explicit `--root` and
-`--out` flags pointing there. It verifies the repo root stays clean.
+temp directory and runs CLI commands (`--once`, `--once --kb`,
+`--once --dry-run`, `--no-color`, etc.) with explicit `--root` flags
+pointing there. It verifies the repo root stays clean.
 
 **For agents / AI coding assistants:** When testing the CLI, always
-pass `--root <path>` pointing to a temp copy of the fixture repo, and
-`--out <path>` pointing to a temp output directory. Never run
-`aspectcode generate` from the repo root without explicit flags.
+pass `--root <path>` pointing to a temp copy of the fixture repo.
+Never run `aspectcode` from the repo root without explicit flags.
 
 The VS Code task **"Aspect Code: Test CLI (sandbox)"** is also
 available from the Command Palette (Tasks: Run Task).
@@ -100,11 +100,10 @@ available from the Command Palette (Tasks: Run Task).
 ### Multi-Repo Testing
 
 For comprehensive cross-language validation, the multi-repo test runner
-clones real open-source repos and runs the full CLI command matrix
-against each one:
+clones real open-source repos and runs CLI commands against each one:
 
 ```bash
-# Full run: build + clone repos + exhaustive tests
+# Full run: build + clone repos + test
 npm run test:cli:repos
 
 # Fast run: skip build
@@ -119,12 +118,11 @@ filter to a single repo:
 ```
 
 The test matrix per repo covers:
-- All settings commands (`set-update-rate`, `add-exclude`, `remove-exclude`, `show-config`)
-- `generate` with every flag combination (`--kb-only`, `--instructions-mode safe|permissive|off`, `--no-color`, `--verbose`, `--list-connections`)
-- `generate --json` with structure validation
-- `deps list` and `deps impact` (with `--file`, `--json`, `--list-connections`)
-- Error paths (unknown commands, invalid args)
-- Repo-root pollution checks after every repo
+- `--once` (basic analysis + AGENTS.md)
+- `--once --kb` (also write KB)
+- `--once --dry-run` (preview mode)
+- `--no-color` and `--verbose` flags
+- Repo-root pollution checks
 
 All cloned repos are deleted after testing. Use `-SkipCleanup` to keep
 them for inspection.
@@ -134,14 +132,13 @@ them for inspection.
 Aspect Code uses three CI tiers:
 
 - **Main CI (`.github/workflows/ci.yml`)** — runs on every push to `main` and every PR
-  - Builds and tests all packages (core, emitters, cli)
+  - Builds and tests all packages (core, emitters, cli, optimizer)
   - Extension typecheck, lint, format, filesize, boundaries, build
-  - Extension CLI adapter integration test
   - Parser parity check (`extension/parsers/` ↔ `packages/core/parsers/`)
 - **PR CI (`.github/workflows/ci-pr.yml`)**
   - Windows: sandbox CLI smoke tests (`test:cli:fast`)
 - **Nightly CI (`.github/workflows/nightly-cli-repos.yml`)**
-  - Windows: exhaustive multi-repo matrix (`test:cli:repos:fast`)
+  - Windows: multi-repo matrix (`test:cli:repos:fast`)
 
 To reproduce PR CI locally:
 
@@ -157,7 +154,7 @@ npm run test:ci:repos
 
 ## Releasing
 
-### npm packages (`@aspectcode/core`, `@aspectcode/emitters`, `aspectcode`)
+### npm packages (`@aspectcode/core`, `@aspectcode/emitters`, `@aspectcode/optimizer`, `aspectcode`)
 
 Versioning and publishing is automated via [changesets](https://github.com/changesets/changesets):
 
@@ -200,9 +197,9 @@ files to both directories.
 
 - Bug fixes and reliability improvements
 - Testing — adding tests for existing code
-- Reducing the size of grandfathered large files (see `docs/ARCHITECTURE.md`)
-- Moving logic from extension into `packages/core` or `packages/emitters`
 - CLI enhancements
+- Optimizer improvements (new providers, better prompts)
+- Additional language support
 
 If you're unsure, open an issue describing what you want to change.
 
@@ -213,16 +210,14 @@ Read **[docs/SYSTEM-ARCHITECTURE.md](docs/SYSTEM-ARCHITECTURE.md)** and
 Key rules:
 
 1. **Package boundaries:** `core` has no `vscode` import. `emitters` depends
-   only on `core`. `cli` depends on both. Extension depends on both.
-2. **File size limit:** New files must be ≤ 400 lines. Grandfathered files
-   must not grow beyond their current cap.
-3. **Layering (extension):** `services/` must not import from
-   `assistants/`, `commandHandlers`, or `extension.ts`.
-4. **Formatting:** All code is formatted with Prettier. Run `npm run format`
+   only on `core`. `optimizer` depends on `core` + `emitters`. `cli` depends
+   on all three. Extension spawns CLI as subprocess.
+2. **File size limit:** New files must be ≤ 400 lines.
+3. **Formatting:** All code is formatted with Prettier. Run `npm run format`
    before committing.
-5. **Linting:** All code must pass ESLint. Run `npm run lint` before
+4. **Linting:** All code must pass ESLint. Run `npm run lint` before
    committing.
-6. **Types:** Shared types go in the appropriate package (`packages/core/src/`
+5. **Types:** Shared types go in the appropriate package (`packages/core/src/`
    or `packages/emitters/src/`). Prefer explicit types over `any`.
 
 ## Pull Requests
@@ -232,17 +227,8 @@ Key rules:
 - Add/update tests when there's a clear place to do so.
 - Avoid reformatting unrelated code (Prettier handles formatting; don't
   mix style changes with logic changes).
-- Run `npm run check:all` before pushing.
+- Run `npm run check:all` (in `extension/`) before pushing.
 - CI must pass before merge.
-
-## Development Notes
-
-- The extension should not write any workspace files until the user
-  explicitly triggers setup (e.g., via the **+** button).
-- When changing packaging/bundling, verify the VSIX contains required
-  runtime files (notably the Tree-sitter WASM grammars in `parsers/`).
-- The `types/` directory is reserved for shared type definitions. Use it
-  for interfaces and types that cross module boundaries.
 
 ## License
 

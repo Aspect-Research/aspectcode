@@ -6,7 +6,6 @@ import { afterEach, describe, it } from 'mocha';
 import type { AnalysisModel } from '@aspectcode/core';
 import { createNodeEmitterHost } from '../src/host';
 import { createInstructionsEmitter } from '../src/instructions/instructionsEmitter';
-import { ASPECT_CODE_END, ASPECT_CODE_START } from '../src/instructions/constants';
 
 const FIXED_TIMESTAMP = '2026-02-11T00:00:00.000Z';
 
@@ -44,23 +43,20 @@ describe('InstructionsEmitter', () => {
     });
 
     const filePath = path.join(tmpDir, 'AGENTS.md');
-    assert.ok(fs.existsSync(filePath));
+    assert.ok(fs.existsSync(filePath), 'AGENTS.md should be created');
     const text = fs.readFileSync(filePath, 'utf8');
-    assert.ok(text.includes(ASPECT_CODE_START));
-    assert.ok(text.includes(ASPECT_CODE_END));
-    assert.ok(text.includes('## Aspect Code'));
+    assert.ok(text.includes('## Aspect Code'), 'Should contain Aspect Code heading');
+    assert.ok(text.length > 0, 'Content should not be empty');
   });
 
-  it('updates between markers only', async () => {
+  it('overwrites entire file on re-emit (full-file ownership)', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-instr-'));
     const host = createNodeEmitterHost();
 
     const filePath = path.join(tmpDir, 'AGENTS.md');
 
-    const before = '# Header\n\nPreamble\n';
-    const old = `${ASPECT_CODE_START}\nOLD CONTENT\n${ASPECT_CODE_END}\n`;
-    const after = '\nTrailing note\n';
-    fs.writeFileSync(filePath, before + old + after, 'utf8');
+    // Pre-populate with arbitrary content
+    fs.writeFileSync(filePath, '# Header\n\nPreamble\nOLD CONTENT\nTrailing note\n', 'utf8');
 
     const emitter = createInstructionsEmitter();
     await emitter.emit(makeModel(tmpDir), host, {
@@ -71,13 +67,13 @@ describe('InstructionsEmitter', () => {
     });
 
     const updated = fs.readFileSync(filePath, 'utf8');
-    assert.ok(updated.startsWith(before), 'Preamble should be unchanged');
-    assert.ok(updated.endsWith(after), 'Trailing content should be unchanged');
-    assert.ok(!updated.includes('OLD CONTENT'), 'Old marker content should be replaced');
-    assert.ok(updated.includes('## Aspect Code'), 'New canonical content should be inserted');
+    assert.ok(!updated.includes('OLD CONTENT'), 'Previous content should be replaced');
+    assert.ok(!updated.includes('Preamble'), 'Previous preamble should be replaced');
+    assert.ok(!updated.includes('Trailing note'), 'Previous trailing content should be replaced');
+    assert.ok(updated.includes('## Aspect Code'), 'New canonical content should be present');
   });
 
-  it('leaves external edits untouched', async () => {
+  it('replaces external edits on re-emit', async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-instr-'));
     const host = createNodeEmitterHost();
     const emitter = createInstructionsEmitter();
@@ -92,12 +88,11 @@ describe('InstructionsEmitter', () => {
     const filePath = path.join(tmpDir, 'AGENTS.md');
     let text = fs.readFileSync(filePath, 'utf8');
 
-    // External edit outside markers (before the start marker)
-    const markerIndex = text.indexOf(ASPECT_CODE_START);
-    assert.ok(markerIndex >= 0, 'Expected start marker to exist');
-    text = `${text.substring(0, markerIndex)}EXTERNAL NOTE\n${text.substring(markerIndex)}`;
+    // Simulate an external edit
+    text = 'EXTERNAL NOTE\n' + text;
     fs.writeFileSync(filePath, text, 'utf8');
 
+    // Re-emit — full-file ownership replaces everything
     await emitter.emit(makeModel(tmpDir), host, {
       workspaceRoot: tmpDir,
       outDir: tmpDir,
@@ -106,7 +101,25 @@ describe('InstructionsEmitter', () => {
     });
 
     const updated = fs.readFileSync(filePath, 'utf8');
-    assert.ok(updated.includes('EXTERNAL NOTE'), 'External edits should remain');
+    assert.ok(!updated.includes('EXTERNAL NOTE'), 'External edits should be overwritten');
+    assert.ok(updated.includes('## Aspect Code'), 'Canonical content should be present');
+  });
+
+  it('skips emit when mode is off', async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-instr-'));
+    const host = createNodeEmitterHost();
+    const emitter = createInstructionsEmitter();
+
+    const result = await emitter.emit(makeModel(tmpDir), host, {
+      workspaceRoot: tmpDir,
+      outDir: tmpDir,
+      generatedAt: FIXED_TIMESTAMP,
+      instructionsMode: 'off',
+    });
+
+    const filePath = path.join(tmpDir, 'AGENTS.md');
+    assert.ok(!fs.existsSync(filePath), 'AGENTS.md should not be created when mode is off');
+    assert.equal(result.filesWritten.length, 0, 'No files should be written');
   });
 
   it('is deterministic formatting', async () => {

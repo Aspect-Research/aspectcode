@@ -35,6 +35,7 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
     currentInstructions,
     kb,
     kbDiff,
+    toolInstructions,
     maxIterations,
     provider,
     log,
@@ -44,7 +45,7 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
     kbCharBudget,
   } = options;
 
-  const systemPrompt = buildSystemPrompt(kb, kbCharBudget);
+  const systemPrompt = buildSystemPrompt(kb, kbCharBudget, toolInstructions);
   const reasoning: string[] = [];
 
   let bestCandidate = currentInstructions;

@@ -48,59 +48,16 @@
   "contributes": {
     "commands": [
       {
-        "command": "aspectcode.toggleExtensionEnabled",
-        "title": "Aspect Code: Toggle Enabled"
+        "command": "aspectcode.start",
+        "title": "Aspect Code: Start",
+        "icon": "$(play)"
       },
       {
-        "command": "aspectcode.generate",
-        "title": "Aspect Code: Generate",
-        "icon": "$(book)"
-      },
-      {
-        "command": "aspectcode.optimize",
-        "title": "Aspect Code: Optimize Instructions",
-        "icon": "$(sparkle)"
+        "command": "aspectcode.stop",
+        "title": "Aspect Code: Stop",
+        "icon": "$(debug-stop)"
       }
-    ],
-    "configuration": {
-      "type": "object",
-      "title": "Aspect Code",
-      "properties": {
-        "aspectcode.suppressSetupPrompt": {
-          "type": "boolean",
-          "default": false,
-          "description": "When true, Aspect Code will never prompt you to set up new repositories. Individual repos can also be dismissed from the prompt itself."
-        },
-        "aspectcode.devLogs": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable verbose extension logs for debugging"
-        },
-        "aspectcode.optimize.provider": {
-          "type": "string",
-          "enum": ["openai", "anthropic"],
-          "description": "LLM provider for optimize command"
-        },
-        "aspectcode.optimize.model": {
-          "type": "string",
-          "description": "LLM model override (e.g. gpt-4o, claude-sonnet-4-20250514)"
-        },
-        "aspectcode.optimize.maxIterations": {
-          "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "maximum": 20,
-          "description": "Max agent iterations for optimize (1–20)"
-        },
-        "aspectcode.optimize.acceptThreshold": {
-          "type": "number",
-          "default": 8,
-          "minimum": 1,
-          "maximum": 10,
-          "description": "Minimum eval score to accept a candidate (1–10)"
-        }
-      }
-    }
+    ]
   },
   "main": "./dist/extension.js",
   "scripts": {
@@ -110,8 +67,6 @@
     "watch": "npm run watch:extension",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --outfile=dist/extension.js --external:vscode --watch",
     "compile": "npm run build",
-    "test:e2e": "mocha --require ts-node/register --ui tdd \"src/test/**/*.test.ts\"",
-    "test:integration:cli-adapter": "mocha --require ts-node/register --ui tdd \"src/test/cliAdapter.test.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/ --max-warnings 200",
     "lint:fix": "eslint src/ --fix --max-warnings 200",
@@ -122,7 +77,6 @@
     "check:all": "npm run lint && npm run format:check && npm run check:filesize && npm run check:boundaries"
   },
   "devDependencies": {
-    "@types/diff": "^5.2.2",
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.92.0",
     "esbuild": "^0.21.5",
@@ -133,13 +87,5 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.5.4",
     "typescript-eslint": "^8.0.0"
-  },
-  "dependencies": {
-    "@aspectcode/core": "*",
-    "@aspectcode/emitters": "*",
-    "diff": "^5.2.0",
-    "tree-sitter-wasms": "0.1.13",
-    "web-tree-sitter": "^0.21.0",
-    "yaml": "2.8.1"
   }
 }
