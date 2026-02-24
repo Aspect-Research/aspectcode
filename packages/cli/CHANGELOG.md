@@ -1,5 +1,13 @@
 # aspectcode
 
+## 0.3.3
+
+### Patch Changes
+
+- [#14](https://github.com/asashepard/aspectcode/pull/14) [`2d27fc9`](https://github.com/asashepard/aspectcode/commit/2d27fc97653760d10a873052badbe57a9bb8f3a2) Thanks [@asashepard](https://github.com/asashepard)! - Fix CLI hanging on startup when AGENTS.md exists
+
+  Move the ownership prompt (selectPrompt) to run before the Ink dashboard mounts, preventing a stdin deadlock between Ink's useInput and the raw-mode readline prompt.
+
 ## 0.3.2
 
 ### Patch Changes
