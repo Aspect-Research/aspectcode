@@ -20,8 +20,22 @@ export interface AspectCodeConfig {
   /** Extra directories to exclude from analysis. */
   exclude?: string[];
 
+  /**
+   * Whether to generate the KB file (.aspect/).
+   * Defaults to false. Set true to include KB generation in `generate`.
+   */
+  generateKb?: boolean;
+
   /** Automatically run optimize after each generate. */
   autoOptimize?: boolean;
+
+  /**
+   * List of output format IDs for instruction files.
+   * When set, generates instructions for these AI tools (plus AGENTS.md always).
+   * Supported: 'copilot', 'cursor', 'claudeCode', 'windsurf', 'cline',
+   * 'gemini', 'aider', 'amazonq', 'codex'.
+   */
+  outputFormats?: string[];
 
   /** Optimization settings. */
   optimize?: OptimizeConfig;

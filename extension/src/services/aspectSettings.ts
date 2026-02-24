@@ -7,12 +7,22 @@
  */
 
 import * as vscode from 'vscode';
-import type { ExclusionSettings } from './DirectoryExclusion';
 
-// Re-export ExclusionSettings for consumers
-export type { ExclusionSettings } from './DirectoryExclusion';
+/** Directory exclusion settings for file discovery. */
+export interface ExclusionSettings {
+  /** Always exclude these directories (relative paths from workspace root) */
+  always?: string[];
+  /** Never exclude these directories, even if auto-detected (relative paths) */
+  never?: string[];
+  /** Computed exclusions (stored by FileDiscoveryService) */
+  _computed?: {
+    excludeGlob: string;
+    excludedDirs: string[];
+    computedAt: number;
+  };
+}
 
-export type InstructionsMode = 'safe' | 'permissive' | 'off';
+export type InstructionsMode = 'safe' | 'permissive' | 'custom' | 'off';
 type UpdateRateMode = 'manual' | 'onChange' | 'idle';
 export type AutoRegenerateKbMode = UpdateRateMode | 'off' | 'onSave';
 
@@ -363,10 +373,9 @@ export async function setGitignorePreference(
  */
 function getTargetDescription(target: GitignoreTarget): string {
   switch (target) {
-    case 'kb.md':
-      return 'the Aspect Code knowledge base (kb.md)';
+    case '.aspect/':
+      return 'the .aspect/ directory (local AI context)';
     case 'AGENTS.md':
-      return 'AGENTS.md (AI coding agent instructions)';
       return 'AGENTS.md (AI coding agent instructions)';
   }
 }

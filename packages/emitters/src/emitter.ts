@@ -12,7 +12,7 @@ import type { EmitterHost } from './host';
 // ── Options ──────────────────────────────────────────────────
 
 /** Mode for instruction content generation. */
-export type InstructionsMode = 'safe' | 'permissive' | 'off';
+export type InstructionsMode = 'safe' | 'permissive' | 'custom' | 'off';
 
 /** Options passed to every emitter. */
 export interface EmitOptions {
@@ -49,6 +49,17 @@ export interface EmitOptions {
    * Set to `true` to generate the knowledge base.
    */
   generateKb?: boolean;
+
+  /**
+   * List of output format IDs to emit instruction files for.
+   *
+   * When omitted or empty, only `AGENTS.md` is written (the universal target).
+   * Supported values: 'agents', 'copilot', 'cursor', 'claudeCode',
+   * 'windsurf', 'cline', 'gemini', 'aider', 'amazonq', 'codex'.
+   *
+   * AGENTS.md is always written regardless of this list.
+   */
+  outputFormats?: string[];
 }
 
 // ── Result ───────────────────────────────────────────────────

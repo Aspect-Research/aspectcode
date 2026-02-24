@@ -43,6 +43,7 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'file',                   type: 'string',  description: 'Filter by file path',               appliesTo: ['generate', 'deps'] },
   { name: 'list-connections',       type: 'boolean', description: 'Print dependency connections',      appliesTo: ['generate'], prop: 'listConnections' },
   { name: 'mode',                   type: 'enum',    description: 'Watch mode: manual|onChange|idle',   appliesTo: ['watch'], values: ['manual', 'onChange', 'idle'] },
+  { name: 'kb',                     type: 'boolean', description: 'Generate the knowledge base (.aspect/ artifacts)',        appliesTo: ['generate'] },
   { name: 'kb-only',                type: 'boolean', description: 'Generate KB artifacts only (skip instruction files)', appliesTo: ['generate'], prop: 'kbOnly' },
   { name: 'instructions-mode',      type: 'enum',    description: 'Instruction mode: safe|permissive|off', appliesTo: ['generate'], values: ['safe', 'permissive', 'off'], prop: 'instructionsMode' },
   { name: 'max-iterations',  short: 'n', type: 'string',  description: 'Max LLM agent iterations (default: 3)', appliesTo: ['optimize'], prop: 'maxIterations' },
@@ -52,6 +53,10 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)',              appliesTo: ['optimize'] },
   { name: 'accept-threshold',             type: 'string',  description: 'Min eval score to accept (1–10, default: 8)', appliesTo: ['optimize'], prop: 'acceptThreshold' },
   { name: 'auto-optimize',               type: 'boolean', description: 'Run optimize after each generate',        appliesTo: ['watch'], prop: 'autoOptimize' },
+  { name: 'output-formats',              type: 'string',  description: 'Comma-separated output format IDs',         appliesTo: ['generate', 'watch'], prop: 'outputFormats' },
+  { name: 'detect-tools',                type: 'boolean', description: 'Auto-detect AI tools and prompt for output', appliesTo: ['generate'], prop: 'detectTools' },
+  { name: 'status',                      type: 'boolean', description: 'Check if watch daemon is running',           appliesTo: ['watch'], prop: 'watchStatus' },
+  { name: 'stop',                        type: 'boolean', description: 'Stop the watch daemon',                      appliesTo: ['watch'], prop: 'watchStop' },
 ] as const;
 
 // ── Parsed structures ────────────────────────────────────────
@@ -88,6 +93,9 @@ export interface CliFlags {
   /** --mode: watch mode override. */
   mode?: 'manual' | 'onChange' | 'idle';
 
+  /** --kb: generate the knowledge base (.aspect/ artifacts). */
+  kb: boolean;
+
   /** --kb-only: generate KB artifacts only, skip instruction files. */
   kbOnly: boolean;
 
@@ -117,6 +125,18 @@ export interface CliFlags {
 
   /** --auto-optimize: chain optimize after each generate in watch mode. */
   autoOptimize: boolean;
+
+  /** --output-formats: comma-separated list of output format IDs. */
+  outputFormats?: string;
+
+  /** --detect-tools: auto-detect AI tools and prompt for output formats. */
+  detectTools: boolean;
+
+  /** --status: check if watch daemon is running. */
+  watchStatus: boolean;
+
+  /** --stop: stop the watch daemon. */
+  watchStop: boolean;
 }
 
 /** Exit codes. */

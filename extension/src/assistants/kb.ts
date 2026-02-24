@@ -154,8 +154,8 @@ export async function generateKnowledgeBase(
       }ms`,
     );
 
-    // Prompt user for kb.md gitignore preference AFTER KB is generated.
-    const kbTarget: GitignoreTarget = 'kb.md';
+    // Prompt user for .aspect/ gitignore preference AFTER KB is generated.
+    const kbTarget: GitignoreTarget = '.aspect/';
     void ensureGitignoreForTarget(workspaceRoot, kbTarget, outputChannel).catch((e) => {
       outputChannel.appendLine(`[KB] Gitignore prompt failed (non-critical): ${e}`);
     });
@@ -276,9 +276,9 @@ async function generateKnowledgeBaseInProcess(
 
   outputChannel.appendLine(`[KB] Knowledge base generation complete in ${Date.now() - kbStart}ms`);
 
-  // Prompt user for kb.md gitignore preference AFTER KB is generated.
+  // Prompt user for .aspect/ gitignore preference AFTER KB is generated.
   // This runs async (non-blocking) so it doesn't hold up the rest of the flow.
-  const kbTarget: GitignoreTarget = 'kb.md';
+  const kbTarget: GitignoreTarget = '.aspect/';
   void ensureGitignoreForTarget(workspaceRoot, kbTarget, outputChannel).catch((e) => {
     outputChannel.appendLine(`[KB] Gitignore prompt failed (non-critical): ${e}`);
   });

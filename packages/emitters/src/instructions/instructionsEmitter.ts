@@ -6,6 +6,17 @@ import {
   generateCanonicalContentForMode,
 } from './content';
 import { mergeAspectCodeSection, removeAspectCodeSection } from './merge';
+import { resolveFormatTargets } from './formats';
+
+async function readCustomInstructionsContent(host: EmitterHost, outDir: string): Promise<string | null> {
+  const filePath = host.join(outDir, '.aspect', 'instructions.md');
+  try {
+    const text = await host.readFile(filePath);
+    return text.trim();
+  } catch {
+    return null;
+  }
+}
 
 async function readIfExists(host: EmitterHost, filePath: string): Promise<{ exists: boolean; text: string }> {
   try {
@@ -66,12 +77,21 @@ export function createInstructionsEmitter(): Emitter {
           ? ((await readCustomInstructionsContent(host, outDir)) ?? generateCanonicalContentForMode('safe'))
           : generateCanonicalContentForMode(mode);
 
-      // AGENTS.md — the single instruction output target
-      const filePath = host.join(outDir, 'AGENTS.md');
-      const changed = await upsertWithMarkers(host, filePath, mode, aspectCodeContent, {
-        defaultHeader: '# AI Coding Agent Instructions\n\n',
-      });
-      if (changed) wrote.push(filePath);
+      // Resolve which format targets to write
+      const targets = resolveFormatTargets(options.outputFormats ?? []);
+
+      for (const target of targets) {
+        const filePath = host.join(outDir, target.filePath);
+
+        if (target.createParentDir) {
+          await host.mkdirp(path.dirname(filePath));
+        }
+
+        const changed = await upsertWithMarkers(host, filePath, mode, aspectCodeContent, {
+          defaultHeader: target.defaultHeader || undefined,
+        });
+        if (changed) wrote.push(filePath);
+      }
 
       return { filesWritten: wrote };
     },

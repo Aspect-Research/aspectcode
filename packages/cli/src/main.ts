@@ -16,8 +16,9 @@ import { getVersion } from './version';
 import { runGenerate } from './commands/generate';
 import { runDepsList, runDepsImpact } from './commands/deps';
 import { runWatch } from './commands/watch';
-import { runImpact } from './commands/impact';
+// Impact command routes through deps subcommand (runDepsImpact)
 import { runOptimize } from './commands/optimize';
+import { runInit } from './commands/init';
 import {
   runAddExclude,
   runRemoveExclude,
@@ -44,10 +45,14 @@ export function parseArgs(argv: string[]): CliArgs {
     quiet: false,
     listConnections: false,
     json: false,
+    kb: false,
     kbOnly: false,
     noColor: false,
     dryRun: false,
     autoOptimize: false,
+    detectTools: false,
+    watchStatus: false,
+    watchStop: false,
   };
   const positionals: string[] = [];
   let command = '';
@@ -126,6 +131,7 @@ ${fmt.bold('USAGE')}
   aspectcode <command> [options]
 
 ${fmt.bold('COMMANDS')}
+  init                     Set up aspectcode.json interactively
   generate  ${fmt.dim('(gen, g)')}       Discover, analyze, and emit KB artifacts
   watch                    Watch source files and regenerate on changes
   deps list                List dependency connections
@@ -220,8 +226,12 @@ async function main(): Promise<void> {
       result = await runWatch(ctx);
       break;
 
+    case 'init':
+      result = await runInit(ctx);
+      break;
+
     case 'impact':
-      result = await runImpact(ctx);
+      result = await runDepsImpact(ctx);
       break;
 
     case 'optimize':

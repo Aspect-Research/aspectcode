@@ -7,13 +7,22 @@
  * and collecting output from CLI invocations.
  *
  * Resolution strategy (hybrid):
- *   1. Workspace-local: `<repoRoot>/packages/cli/bin/aspectcode.js`
- *   2. npm link / global: `aspectcode` on PATH
+ *   1. Bundled: `<extensionPath>/cli-bundle/bin/aspectcode.js`
+ *   2. Workspace-local: `<repoRoot>/packages/cli/bin/aspectcode.js`
+ *   3. npm link / global: `aspectcode` on PATH
  */
 
-import type * as vscode from 'vscode';
+import * as vscode from 'vscode';
 import * as path from 'path';
 import { spawn, type ChildProcess } from 'child_process';
+
+/** Set by the extension activation to provide the extension install path. */
+let extensionPath: string | undefined;
+
+/** Called once during activation to set the extension path for CLI resolution. */
+export function setExtensionPath(extPath: string): void {
+  extensionPath = extPath;
+}
 
 // ============================================================================
 // Types
@@ -66,21 +75,31 @@ export interface CliRunOptions {
 // ============================================================================
 
 /**
- * Resolve the CLI entry script. Prefers the workspace-local copy so that the
- * version always matches the extension's bundled core/emitters packages.
+ * Resolve the CLI entry script. Prefers the bundled copy inside the extension,
+ * then workspace-local, then PATH.
  */
 function resolveCliBin(workspaceRoot: string): { node: string; script: string } | { bin: string } {
-  // 1. Workspace-local (monorepo layout)
+  // 1. Bundled inside extension VSIX
+  if (extensionPath) {
+    const bundledScript = path.join(extensionPath, 'cli-bundle', 'bin', 'aspectcode.js');
+    try {
+      require('fs').accessSync(bundledScript);
+      return { node: process.execPath, script: bundledScript };
+    } catch {
+      // Not found — fall through.
+    }
+  }
+
+  // 2. Workspace-local (monorepo layout)
   const localScript = path.join(workspaceRoot, 'packages', 'cli', 'bin', 'aspectcode.js');
   try {
-    // Check synchronously — this is called infrequently (once per command).
     require('fs').accessSync(localScript);
     return { node: process.execPath, script: localScript };
   } catch {
     // Not found — fall through.
   }
 
-  // 2. Try resolving from node_modules (npm link / workspace hoisting)
+  // 3. Try resolving from node_modules (npm link / workspace hoisting)
   try {
     const resolved = require.resolve('aspectcode/bin/aspectcode.js');
     return { node: process.execPath, script: resolved };
@@ -88,7 +107,7 @@ function resolveCliBin(workspaceRoot: string): { node: string; script: string } 
     // Not installed.
   }
 
-  // 3. Global / PATH fallback
+  // 4. Global / PATH fallback
   return { bin: 'aspectcode' };
 }
 
@@ -341,4 +360,99 @@ export async function cliOptimize(
     // Optimize can be slow (multiple LLM calls) — 5 minute timeout
     timeoutMs: 300_000,
   });
+}
+
+// ============================================================================
+// Init — interactive setup
+// ============================================================================
+
+/**
+ * Open a VS Code terminal and run `aspectcode init` interactively.
+ * Returns the created terminal so callers can listen for close events.
+ */
+export function cliInit(
+  root: string,
+  options?: { outputChannel?: vscode.OutputChannel },
+): vscode.Terminal {
+  const resolved = resolveCliBin(root);
+
+  let shellCommand: string;
+  if ('script' in resolved) {
+    shellCommand = `node "${resolved.script}" --root "${root}" init`;
+  } else {
+    shellCommand = `aspectcode --root "${root}" init`;
+  }
+
+  options?.outputChannel?.appendLine(`[CLI] Opening terminal for init: ${shellCommand}`);
+
+  const terminal = vscode.window.createTerminal({
+    name: 'Aspect Code: Init',
+    cwd: root,
+    env: { NODE_OPTIONS: '' },
+  });
+  terminal.show();
+  terminal.sendText(shellCommand);
+  return terminal;
+}
+
+// ============================================================================
+// Watch daemon — managed lifecycle
+// ============================================================================
+
+export interface WatchDaemonHandle {
+  /** The underlying child process. */
+  child: ChildProcess;
+  /** Stop the watch daemon. */
+  stop(): void;
+  /** Whether the daemon is still running. */
+  readonly running: boolean;
+}
+
+/**
+ * Start `aspectcode watch` as a managed daemon.
+ * Provides a clean handle for the extension to track lifecycle and stop on deactivation.
+ */
+export function cliWatchDaemon(
+  root: string,
+  options?: {
+    mode?: 'manual' | 'onChange' | 'idle';
+    outputChannel?: vscode.OutputChannel;
+    onExit?: (code: number | null) => void;
+  },
+): WatchDaemonHandle {
+  const child = cliWatch(root, {
+    mode: options?.mode,
+    outputChannel: options?.outputChannel,
+  });
+
+  let running = true;
+
+  child.on('close', (code) => {
+    running = false;
+    options?.outputChannel?.appendLine(`[CLI:watch] Daemon exited with code ${code}`);
+    options?.onExit?.(code);
+  });
+
+  child.on('error', (err) => {
+    running = false;
+    options?.outputChannel?.appendLine(`[CLI:watch] Daemon error: ${err.message}`);
+    options?.onExit?.(1);
+  });
+
+  return {
+    child,
+    stop() {
+      if (running) {
+        options?.outputChannel?.appendLine('[CLI:watch] Stopping daemon');
+        child.kill('SIGTERM');
+        // Force-kill after 3s if still alive (Windows needs this).
+        setTimeout(() => {
+          if (running) child.kill('SIGKILL');
+        }, 3000);
+      }
+    },
+    get running() {
+      return running;
+    },
+  };
 }

@@ -31,7 +31,7 @@ const ASPECT_CODE_BLOCK_START = '# Aspect Code (local AI context)';
  * (The GitignoreTarget is already the pattern itself, but we keep this for clarity)
  */
 const TARGET_TO_PATTERN: Record<GitignoreTarget, string> = {
-  'kb.md': 'kb.md',
+  '.aspect/': '.aspect/',
   'AGENTS.md': 'AGENTS.md',
 };
 
@@ -348,15 +348,14 @@ export async function ensureGitignoreForTarget(
  */
 function getTargetInfo(target: GitignoreTarget): IgnoreTarget {
   switch (target) {
-    case 'kb.md':
-      return { kind: 'file', name: 'kb.md' };
+    case '.aspect/':
+      return { kind: 'dir', name: '.aspect/' };
     case 'AGENTS.md':
       return { kind: 'file', name: 'AGENTS.md' };
     default:
       // Exhaustive check - should never reach here
       const _exhaustive: never = target;
       throw new Error(`Unknown target: ${_exhaustive}`);
-    }
   }
 }
 

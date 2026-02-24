@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS } from '@aspectcode/core';
 import type { CliFlags, CommandContext, CommandResult } from '../cli';
@@ -48,6 +49,16 @@ function isIgnoredPath(filePath: string): boolean {
 
 export async function runWatch(ctx: CommandContext): Promise<CommandResult> {
   const { root, flags, config, log } = ctx;
+
+  // ── Daemon management subcommands ─────────────────────────
+  if (flags.watchStatus) {
+    return handleWatchStatus(root, log);
+  }
+
+  if (flags.watchStop) {
+    return handleWatchStop(root, log);
+  }
+
   const chokidarModule = await import('chokidar');
   // Handle both ESM default export and CJS module shapes
   const chokidar = chokidarModule.default ?? chokidarModule;
@@ -57,7 +68,37 @@ export async function runWatch(ctx: CommandContext): Promise<CommandResult> {
   log.info(`Workspace: ${fmt.cyan(root)}`);
   log.info(`Mode:      ${fmt.cyan(mode)}`);
   log.info(`Watching:  ${fmt.dim(`**/*.{${exts}}`)}`);
-  log.info(fmt.dim('No initial run. Waiting for file changes...'));
+
+  // ── Write PID file for daemon management ──────────────────
+  const pidPath = path.join(root, '.aspect', '.pid');
+  try {
+    await fs.promises.mkdir(path.join(root, '.aspect'), { recursive: true });
+    await fs.promises.writeFile(pidPath, String(process.pid), 'utf-8');
+  } catch {
+    // Non-critical — daemon management features won't work
+  }
+
+  // Cleanup PID on exit
+  const cleanupPid = () => {
+    try { fs.unlinkSync(pidPath); } catch { /* ignore */ }
+  };
+  process.on('exit', cleanupPid);
+
+  // ── Initial run: generate if KB is stale/missing ──────────
+  const aspectDir = path.join(root, '.aspect');
+  const kbExists = fs.existsSync(path.join(aspectDir, 'architecture.md'));
+  if (!kbExists) {
+    log.info(fmt.bold('Initial run:') + ' KB not found, generating…');
+    await runGenerate({ root, flags: { ...flags, listConnections: false, json: false }, config, log, positionals: [] });
+
+    if (flags.autoOptimize || config?.autoOptimize) {
+      log.info(fmt.bold('Initial run:') + ' auto-optimizing instructions…');
+      await runOptimize({ root, flags: { ...flags, json: false }, config, log, positionals: [] });
+    }
+    log.blank();
+  } else {
+    log.info(fmt.dim('KB exists. Waiting for file changes…'));
+  }
   log.blank();
 
   const watcher = chokidar.watch('.', {
@@ -175,4 +216,73 @@ export async function runWatch(ctx: CommandContext): Promise<CommandResult> {
     process.once('SIGINT', onSigInt);
     process.once('SIGTERM', onSigTerm);
   });
+}
+
+// ── Daemon management helpers ────────────────────────────────
+
+const PID_FILE = '.aspect/.pid';
+
+function readPidFile(root: string): number | null {
+  try {
+    const pidPath = path.join(root, PID_FILE);
+    const content = fs.readFileSync(pidPath, 'utf-8').trim();
+    const pid = parseInt(content, 10);
+    return Number.isFinite(pid) ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+function isProcessRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0); // Signal 0 = check if alive
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function handleWatchStatus(
+  root: string,
+  log: ReturnType<typeof import('../logger').createLogger>,
+): CommandResult {
+  const pid = readPidFile(root);
+  if (pid && isProcessRunning(pid)) {
+    log.info(`Watch daemon running (PID ${pid})`);
+    return { exitCode: ExitCode.OK };
+  }
+  log.info('Watch daemon is not running');
+  // Clean up stale PID file
+  if (pid) {
+    try { fs.unlinkSync(path.join(root, PID_FILE)); } catch { /* ignore */ }
+  }
+  return { exitCode: ExitCode.ERROR };
+}
+
+function handleWatchStop(
+  root: string,
+  log: ReturnType<typeof import('../logger').createLogger>,
+): CommandResult {
+  const pid = readPidFile(root);
+  if (!pid) {
+    log.info('Watch daemon is not running (no PID file)');
+    return { exitCode: ExitCode.OK };
+  }
+
+  if (!isProcessRunning(pid)) {
+    log.info('Watch daemon is not running (stale PID file, cleaning up)');
+    try { fs.unlinkSync(path.join(root, PID_FILE)); } catch { /* ignore */ }
+    return { exitCode: ExitCode.OK };
+  }
+
+  try {
+    process.kill(pid, 'SIGTERM');
+    log.info(`Watch daemon stopped (PID ${pid})`);
+    // Give it a moment, then clean up PID file
+    try { fs.unlinkSync(path.join(root, PID_FILE)); } catch { /* ignore */ }
+    return { exitCode: ExitCode.OK };
+  } catch (e) {
+    log.error(`Failed to stop watch daemon (PID ${pid}): ${e}`);
+    return { exitCode: ExitCode.ERROR };
+  }
 }
