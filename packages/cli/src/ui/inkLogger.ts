@@ -9,36 +9,36 @@ import { store } from './store';
 import type { PipelinePhase } from './store';
 
 /**
- * Create a Logger that pushes all messages to the dashboard store
- * instead of writing to stdout/stderr.
+ * Create a Logger that feeds the dashboard store.
+ *
+ * Most messages are silently absorbed (the dashboard shows structured
+ * steps, not raw text). Only warnings and errors surface.
  */
 export function createDashboardLogger(): Logger {
   return {
-    info(msg: string)    { store.pushActivity(msg, 'info');    },
-    success(msg: string) { store.pushActivity(msg, 'success'); },
-    warn(msg: string)    { store.pushActivity(msg, 'warn');    },
-    error(msg: string)   { store.pushActivity(msg, 'error');   },
-    debug(msg: string)   { store.pushActivity(msg, 'debug');   },
-    blank()              { /* no-op — dashboard handles spacing */ },
+    info()               { /* absorbed — dashboard shows structured phases */ },
+    success(_msg: string) { /* step completion handled by spinner.stop()   */ },
+    warn(msg: string)    { store.setWarning(msg); },
+    error(msg: string)   { store.pushStep(msg, 'error'); },
+    debug()              { /* absorbed */ },
+    blank()              { /* no-op */ },
   };
 }
 
 /**
- * Create a Spinner that updates the dashboard phase instead of writing
- * animated frames to stderr.
+ * Create a Spinner that updates the dashboard phase and pushes a
+ * completed step when it stops.
  */
 export function createDashboardSpinner(phase: PipelinePhase, _initialMsg: string): Spinner {
   store.setPhase(phase);
   return {
-    update(msg: string) {
-      store.pushActivity(msg, 'info');
-    },
+    update() { /* phase label is sufficient */ },
     stop(msg: string) {
-      store.pushActivity(msg, 'success');
+      store.pushStep(msg, 'ok');
     },
     fail(msg: string) {
       store.setPhase('error');
-      store.pushActivity(msg, 'error');
+      store.pushStep(msg, 'error');
     },
   };
 }

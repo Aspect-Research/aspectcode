@@ -61,8 +61,7 @@ export async function tryOptimize(
   } catch {
     // No API key available — fall back to static content
     log.warn(
-      'No LLM API key found. Writing static AGENTS.md. ' +
-      `Set ${fmt.bold('OPENAI_API_KEY')} or ${fmt.bold('ANTHROPIC_API_KEY')} in .env for optimization.`,
+      'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
     );
     return generateCanonicalContentForMode('safe', kbContent.length > 0);
   }

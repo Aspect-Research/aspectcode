@@ -54,6 +54,7 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<ExitC
   const { root, flags, log } = ctx;
   const config = loadConfig(root);
   const startMs = Date.now();
+  store.resetRun();
 
   // ── 1. Discover & read files ──────────────────────────────
   store.setPhase('discovering');
@@ -101,19 +102,21 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<ExitC
     log.blank();
   } else {
     await writeAgentsMd(host, root, agentsContent, ownership);
-    const agentsPath = path.relative(root, path.join(root, 'AGENTS.md')).replace(/\\/g, '/');
     const modeLabel = ownership === 'section' ? ' (section)' : '';
-    log.success(`${agentsPath} written${modeLabel}`);
+    store.addOutput(`AGENTS.md written${modeLabel}`);
+    log.success(`AGENTS.md written${modeLabel}`);
   }
 
   // ── 7. Optionally write kb.md ─────────────────────────────
   if (flags.kb && !flags.dryRun) {
     await writeKbMd(host, root, kbContent);
+    store.addOutput('kb.md written');
     log.success('kb.md written');
   }
 
   const elapsedMs = Date.now() - startMs;
   store.setElapsed(`${(elapsedMs / 1000).toFixed(1)}s`);
+  store.setPhase('done');
   log.info(fmt.dim(`Done in ${(elapsedMs / 1000).toFixed(1)}s`));
   return ExitCode.OK;
 }

@@ -15,12 +15,13 @@ export type PipelinePhase =
   | 'optimizing'
   | 'writing'
   | 'watching'
+  | 'done'
   | 'error';
 
-export interface ActivityEntry {
-  time: string;
+/** A completed pipeline step shown as a checkmark line. */
+export interface StepEntry {
   text: string;
-  level: 'info' | 'success' | 'warn' | 'error' | 'debug';
+  status: 'ok' | 'warn' | 'error';
 }
 
 export interface DashboardState {
@@ -30,14 +31,12 @@ export interface DashboardState {
   provider: string;
   lastChange: string;
   elapsed: string;
-  activity: ActivityEntry[];
-}
-
-const MAX_ACTIVITY = 12;
-
-function timestamp(): string {
-  const d = new Date();
-  return d.toLocaleTimeString('en-US', { hour12: false });
+  /** Completed steps in the current run (reset per run). */
+  steps: StepEntry[];
+  /** Warning text (e.g. no API key). */
+  warning: string;
+  /** Files written this run (e.g. ["AGENTS.md (full)", "kb.md"]). */
+  outputs: string[];
 }
 
 /**
@@ -51,7 +50,9 @@ class DashboardStore extends EventEmitter {
     provider: '',
     lastChange: '',
     elapsed: '',
-    activity: [],
+    steps: [],
+    warning: '',
+    outputs: [],
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -79,10 +80,29 @@ class DashboardStore extends EventEmitter {
     this.update({ elapsed });
   }
 
-  pushActivity(text: string, level: ActivityEntry['level'] = 'info'): void {
-    const entry: ActivityEntry = { time: timestamp(), text, level };
-    const activity = [...this.state.activity, entry].slice(-MAX_ACTIVITY);
-    this.update({ activity });
+  setWarning(warning: string): void {
+    this.update({ warning });
+  }
+
+  addOutput(output: string): void {
+    this.update({ outputs: [...this.state.outputs, output] });
+  }
+
+  /** Add a completed step (shown as ✔/⚠/✖ line). */
+  pushStep(text: string, status: StepEntry['status'] = 'ok'): void {
+    const steps = [...this.state.steps, { text, status }];
+    this.update({ steps });
+  }
+
+  /** Reset per-run state (steps, warning, outputs) for a fresh run. */
+  resetRun(): void {
+    this.update({
+      steps: [],
+      warning: '',
+      outputs: [],
+      elapsed: '',
+      provider: '',
+    });
   }
 }
 
