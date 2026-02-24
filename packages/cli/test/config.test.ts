@@ -6,7 +6,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { loadConfig, defaultConfig, CONFIG_FILE_NAME } from '../src/config';
+import { loadConfig, CONFIG_FILE_NAME } from '../src/config';
 
 describe('config', () => {
   let tmpDir: string;
@@ -23,11 +23,19 @@ describe('config', () => {
     assert.equal(loadConfig(tmpDir), undefined);
   });
 
-  it('loads a valid config file', () => {
-    const cfg = { outDir: 'build' };
+  it('loads a valid config file with exclude', () => {
+    const cfg = { exclude: ['vendor', 'dist'] };
     fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
     const loaded = loadConfig(tmpDir);
-    assert.deepEqual(loaded, { ...cfg, instructionsMode: 'safe' });
+    assert.deepEqual(loaded?.exclude, ['vendor', 'dist']);
+  });
+
+  it('loads a valid config file with optimize settings', () => {
+    const cfg = { optimize: { provider: 'openai', maxIterations: 5 } };
+    fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
+    const loaded = loadConfig(tmpDir);
+    assert.equal(loaded?.optimize?.provider, 'openai');
+    assert.equal(loaded?.optimize?.maxIterations, 5);
   });
 
   it('throws on malformed JSON', () => {
@@ -35,25 +43,9 @@ describe('config', () => {
     assert.throws(() => loadConfig(tmpDir), /invalid JSON/);
   });
 
-  it('defaultConfig returns expected shape', () => {
-    const d = defaultConfig();
-    assert.equal(d.instructionsMode, 'safe');
-    assert.equal(d.updateRate, 'onChange');
-  });
-
-  it('maps legacy autoRegenerateKb values to updateRate', () => {
-    const cfg = { autoRegenerateKb: 'onSave' };
-    fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
+  it('returns empty object for empty JSON object', () => {
+    fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), '{}');
     const loaded = loadConfig(tmpDir);
-    assert.equal(loaded?.updateRate, 'onChange');
-    assert.equal(loaded?.instructionsMode, 'safe');
-  });
-
-  it('maps legacy off mode to manual', () => {
-    const cfg = { autoRegenerateKb: 'off', instructionsMode: 'permissive' };
-    fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
-    const loaded = loadConfig(tmpDir);
-    assert.equal(loaded?.updateRate, 'manual');
-    assert.equal(loaded?.instructionsMode, 'safe');
+    assert.deepEqual(loaded, {});
   });
 });

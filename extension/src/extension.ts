@@ -1,265 +1,193 @@
 /**
- * Aspect Code VS Code Extension — thin launcher.
+ * Aspect Code VS Code Extension — ultra-thin CLI launcher.
  *
- * All heavy lifting lives in the CLI (`@aspectcode/cli`). This extension:
- *   1. Auto-starts `aspectcode watch` when a workspace has `aspectcode.json`.
- *   2. Provides a handful of commands (generate, optimize, setup, toggle).
- *   3. Shows a status bar item reflecting the daemon state.
- *
- * No tree-sitter, no in-process analysis, no emitters.
+ * Two commands: start / stop. Spawns `aspectcode --root <workspace>`.
+ * Shows status in the status bar. That's it.
  */
 
 import * as vscode from 'vscode';
-import { detectAssistants } from './assistants/detection';
-import { activateCommands, type DaemonState } from './commandHandlers';
-import {
-  setExtensionPath,
-  cliWatchDaemon,
-  type WatchDaemonHandle,
-} from './services/CliAdapter';
-import {
-  getExtensionEnabledSetting,
-  readAspectSettings,
-} from './services/aspectSettings';
+import { spawn, type ChildProcess } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // ============================================================================
-// Module-level state
+// State
 // ============================================================================
 
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
-let watchDaemon: WatchDaemonHandle | null = null;
+let cliProcess: ChildProcess | null = null;
+let isRunning = false;
+
+// ============================================================================
+// CLI Resolution
+// ============================================================================
+
+function resolveCliBin(workspaceRoot: string, extensionPath: string): { node: string; script: string } | { bin: string } {
+  // 1. Bundled inside extension
+  const bundledScript = path.join(extensionPath, 'cli-bundle', 'bin', 'aspectcode.js');
+  try {
+    fs.accessSync(bundledScript);
+    return { node: process.execPath, script: bundledScript };
+  } catch { /* not found */ }
+
+  // 2. Workspace-local (monorepo dev)
+  const localScript = path.join(workspaceRoot, 'packages', 'cli', 'bin', 'aspectcode.js');
+  try {
+    fs.accessSync(localScript);
+    return { node: process.execPath, script: localScript };
+  } catch { /* not found */ }
+
+  // 3. Global fallback
+  return { bin: 'aspectcode' };
+}
+
+// ============================================================================
+// Process Management
+// ============================================================================
+
+function startCli(root: string, extensionPath: string): void {
+  if (isRunning) return;
+
+  const resolved = resolveCliBin(root, extensionPath);
+  let command: string;
+  let args: string[];
+
+  if ('script' in resolved) {
+    command = resolved.node;
+    args = [resolved.script, '--root', root];
+  } else {
+    command = resolved.bin;
+    args = ['--root', root];
+  }
+
+  outputChannel.appendLine(`[AspectCode] Starting: ${command} ${args.join(' ')}`);
+
+  try {
+    cliProcess = spawn(command, args, {
+      cwd: root,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: !('script' in resolved),
+      env: { ...process.env, NODE_OPTIONS: '' },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    outputChannel.appendLine(`[AspectCode] Failed to start: ${msg}`);
+    updateStatusBar();
+    return;
+  }
+
+  isRunning = true;
+
+  cliProcess.stdout?.on('data', (chunk: Buffer) => {
+    for (const line of chunk.toString().split('\n').filter(Boolean)) {
+      outputChannel.appendLine(line);
+    }
+  });
+
+  cliProcess.stderr?.on('data', (chunk: Buffer) => {
+    for (const line of chunk.toString().split('\n').filter(Boolean)) {
+      outputChannel.appendLine(`[err] ${line}`);
+    }
+  });
+
+  cliProcess.on('close', (code) => {
+    outputChannel.appendLine(`[AspectCode] Process exited (code=${code})`);
+    isRunning = false;
+    cliProcess = null;
+    updateStatusBar();
+  });
+
+  cliProcess.on('error', (err) => {
+    outputChannel.appendLine(`[AspectCode] Process error: ${err.message}`);
+    isRunning = false;
+    cliProcess = null;
+    updateStatusBar();
+  });
+
+  updateStatusBar();
+}
+
+function stopCli(): void {
+  if (!cliProcess || !isRunning) return;
+  outputChannel.appendLine('[AspectCode] Stopping…');
+  cliProcess.kill('SIGTERM');
+  setTimeout(() => {
+    if (isRunning && cliProcess) {
+      cliProcess.kill('SIGKILL');
+    }
+  }, 3000);
+}
 
 // ============================================================================
 // Status Bar
 // ============================================================================
 
-type StatusBarState = 'running' | 'stopped' | 'error' | 'uninitialized' | 'disabled';
-let currentStatusBarState: StatusBarState = 'uninitialized';
-
-export function getDaemonState(): DaemonState {
-  return {
-    running: watchDaemon?.running ?? false,
-    statusBarState: currentStatusBarState,
-  };
-}
-
-async function updateStatusBar(): Promise<void> {
+function updateStatusBar(): void {
   if (!statusBarItem) return;
 
-  const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-  if (!rootUri) {
-    statusBarItem.hide();
-    return;
-  }
-
-  // Check enabled
-  let enabled = true;
-  try {
-    enabled = await getExtensionEnabledSetting(rootUri);
-  } catch {
-    /* default to true */
-  }
-
-  if (!enabled) {
-    currentStatusBarState = 'disabled';
-    statusBarItem.text = '$(beaker)';
-    statusBarItem.tooltip = 'Aspect Code: Disabled — click to enable';
-    statusBarItem.command = 'aspectcode.toggleExtensionEnabled';
+  if (isRunning) {
+    statusBarItem.text = '$(beaker~spin) Aspect Code';
+    statusBarItem.tooltip = 'Aspect Code: Running — click to stop';
+    statusBarItem.command = 'aspectcode.stop';
+    statusBarItem.backgroundColor = undefined;
+  } else {
+    statusBarItem.text = '$(beaker) Aspect Code';
+    statusBarItem.tooltip = 'Aspect Code: Stopped — click to start';
+    statusBarItem.command = 'aspectcode.start';
     statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-    statusBarItem.show();
-    return;
   }
 
-  // Check if artifacts exist
-  const detected = await detectAssistants(rootUri);
-  const hasAnything = detected.size > 0;
-
-  if (!hasAnything) {
-    currentStatusBarState = 'uninitialized';
-    statusBarItem.text = '$(beaker)';
-    statusBarItem.tooltip = 'Aspect Code: Not configured — click to set up';
-    statusBarItem.command = 'aspectcode.setup';
-    statusBarItem.backgroundColor = undefined;
-    statusBarItem.show();
-    return;
-  }
-
-  if (watchDaemon?.running) {
-    currentStatusBarState = 'running';
-    statusBarItem.text = '$(beaker)';
-    statusBarItem.tooltip = 'Aspect Code: Watching for changes';
-    statusBarItem.command = 'aspectcode.generate';
-    statusBarItem.backgroundColor = undefined;
-    statusBarItem.show();
-    return;
-  }
-
-  currentStatusBarState = 'stopped';
-  statusBarItem.text = '$(beaker)';
-  statusBarItem.tooltip = 'Aspect Code: Watch stopped — click to generate';
-  statusBarItem.command = 'aspectcode.generate';
-  statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
   statusBarItem.show();
-}
-
-// ============================================================================
-// Watch daemon lifecycle
-// ============================================================================
-
-function startDaemon(root: string): void {
-  if (watchDaemon?.running) return;
-
-  outputChannel.appendLine('[Daemon] Starting watch daemon…');
-  watchDaemon = cliWatchDaemon(root, {
-    outputChannel,
-    onExit(code) {
-      outputChannel.appendLine(`[Daemon] Watch daemon exited (code=${code})`);
-      void updateStatusBar();
-    },
-  });
-  void updateStatusBar();
-}
-
-export function stopDaemon(): void {
-  if (!watchDaemon?.running) return;
-  watchDaemon.stop();
-  watchDaemon = null;
-  void updateStatusBar();
-}
-
-export function restartDaemon(root: string): void {
-  stopDaemon();
-  startDaemon(root);
-}
-
-// ============================================================================
-// First-open prompt
-// ============================================================================
-
-const DISMISSED_REPOS_KEY = 'aspectcode.dismissedRepos';
-
-async function maybeShowSetupPrompt(
-  context: vscode.ExtensionContext,
-  rootUri: vscode.Uri,
-): Promise<void> {
-  const globalSuppressed = vscode.workspace
-    .getConfiguration()
-    .get<boolean>('aspectcode.suppressSetupPrompt', false);
-  if (globalSuppressed) return;
-
-  const dismissedRepos = context.globalState.get<string[]>(DISMISSED_REPOS_KEY, []);
-  const repoKey = rootUri.toString();
-  if (dismissedRepos.includes(repoKey)) return;
-
-  // Skip if artifacts already exist
-  const detected = await detectAssistants(rootUri);
-  if (detected.size > 0) return;
-
-  // Skip if aspectcode.json exists (CLI-initialized)
-  try {
-    await vscode.workspace.fs.stat(vscode.Uri.joinPath(rootUri, 'aspectcode.json'));
-    return;
-  } catch {
-    /* file doesn't exist — proceed with prompt */
-  }
-
-  const action = await vscode.window.showInformationMessage(
-    "This repo doesn't have Aspect Code configured. Set up AI assistant context?",
-    'Set Up',
-    'Not for This Repo',
-    'Never Ask',
-  );
-
-  if (action === 'Set Up') {
-    void vscode.commands.executeCommand('aspectcode.setup');
-  } else if (action === 'Not for This Repo') {
-    const updated = [...dismissedRepos, repoKey];
-    await context.globalState.update(DISMISSED_REPOS_KEY, updated);
-  } else if (action === 'Never Ask') {
-    await vscode.workspace
-      .getConfiguration()
-      .update('aspectcode.suppressSetupPrompt', true, vscode.ConfigurationTarget.Global);
-  }
 }
 
 // ============================================================================
 // Activation
 // ============================================================================
 
-export async function activate(context: vscode.ExtensionContext) {
+export function activate(context: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Aspect Code');
-
-  const extensionVersion = getExtensionVersion(context);
-  outputChannel.appendLine(`[Startup] Aspect Code v${extensionVersion}`);
-
-  // Tell CliAdapter where the bundled CLI lives.
-  setExtensionPath(context.extensionPath);
+  context.subscriptions.push(outputChannel);
 
   // Status bar
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, -100);
-  statusBarItem.text = '$(beaker)';
-  statusBarItem.show();
-  context.subscriptions.push(statusBarItem, outputChannel);
+  context.subscriptions.push(statusBarItem);
+  updateStatusBar();
 
-  // Register commands
-  activateCommands(context, outputChannel, updateStatusBar);
+  const getRoot = (): string | undefined =>
+    vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-  // Auto-start watch daemon if workspace has aspectcode.json
-  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (workspaceRoot) {
-    try {
-      const settings = await readAspectSettings(vscode.Uri.file(workspaceRoot));
-      const hasConfig = settings !== undefined && Object.keys(settings).length > 0;
-      const enabled = await getExtensionEnabledSetting(vscode.Uri.file(workspaceRoot));
-
-      if (hasConfig && enabled) {
-        startDaemon(workspaceRoot);
+  // ── Commands: start / stop ───────────────────────────────
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aspectcode.start', () => {
+      const root = getRoot();
+      if (!root) {
+        vscode.window.showErrorMessage('No workspace folder open');
+        return;
       }
-    } catch {
-      outputChannel.appendLine('[Startup] No aspectcode.json found — skipping auto-start');
-    }
-
-    // Watch aspectcode.json for changes (e.g. CLI `init` creates it)
-    const configWatcher = vscode.workspace.createFileSystemWatcher('**/aspectcode.json');
-    configWatcher.onDidCreate(() => {
-      outputChannel.appendLine('[Watcher] aspectcode.json created');
-      if (!watchDaemon?.running && workspaceRoot) {
-        startDaemon(workspaceRoot);
+      if (isRunning) {
+        vscode.window.showInformationMessage('Aspect Code is already running');
+        return;
       }
-      void updateStatusBar();
-    });
-    configWatcher.onDidChange(() => void updateStatusBar());
-    configWatcher.onDidDelete(() => {
-      outputChannel.appendLine('[Watcher] aspectcode.json deleted');
-      stopDaemon();
-      void updateStatusBar();
-    });
-    context.subscriptions.push(configWatcher);
-  }
+      startCli(root, context.extensionPath);
+    }),
 
-  // Initial status bar
-  void updateStatusBar();
+    vscode.commands.registerCommand('aspectcode.stop', () => {
+      if (!isRunning) {
+        vscode.window.showInformationMessage('Aspect Code is not running');
+        return;
+      }
+      stopCli();
+    }),
+  );
 
-  // First-open prompt (delayed)
-  const rootUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-  if (rootUri) {
-    setTimeout(() => void maybeShowSetupPrompt(context, rootUri), 2000);
+  // ── Auto-start if workspace has source files ──────────────
+  const root = getRoot();
+  if (root) {
+    startCli(root, context.extensionPath);
   }
 }
 
 export function deactivate() {
-  stopDaemon();
-}
-
-// ============================================================================
-// Helpers
-// ============================================================================
-
-function getExtensionVersion(context: vscode.ExtensionContext): string {
-  try {
-    return (context.extension.packageJSON as { version?: string }).version ?? '0.0.0';
-  } catch {
-    return '0.0.0';
-  }
+  stopCli();
 }
