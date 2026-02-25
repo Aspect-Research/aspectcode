@@ -1,8 +1,8 @@
 {
-  "name": "@aspectcode/emitters",
-  "version": "0.3.1",
+  "name": "@aspectcode/evaluator",
+  "version": "0.3.2",
   "private": true,
-  "description": "Artifact emitters for Aspect Code — KB, instructions, manifest",
+  "description": "Evidence-based evaluation for Aspect Code",
   "license": "MIT",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,18 +15,23 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/asashepard/aspectcode.git",
-    "directory": "packages/emitters"
+    "directory": "packages/evaluator"
   },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
+    "test": "mocha --require ts-node/register test/**/*.test.ts"
   },
   "dependencies": {
-    "@aspectcode/core": "0.3.1"
+    "@aspectcode/core": "0.3.1",
+    "@aspectcode/optimizer": "0.3.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
     "@types/mocha": "^10.0.0",
     "@types/node": "^22.0.0",
     "mocha": "^10.4.0",

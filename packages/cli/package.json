@@ -43,12 +43,14 @@
   "bundledDependencies": [
     "@aspectcode/core",
     "@aspectcode/emitters",
+    "@aspectcode/evaluator",
     "@aspectcode/optimizer"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@aspectcode/core": "0.3.1",
     "@aspectcode/emitters": "0.3.1",
+    "@aspectcode/evaluator": "0.3.2",
     "@aspectcode/optimizer": "0.3.2",
     "chokidar": "^4.0.3",
     "dotenv": "^16.4.0",

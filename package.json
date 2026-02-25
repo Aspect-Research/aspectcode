@@ -16,9 +16,9 @@
     "test:cli:fast": "powershell -ExecutionPolicy Bypass -File ./scripts/test-cli-sandbox.ps1 -SkipBuild",
     "test:cli:repos": "powershell -ExecutionPolicy Bypass -File ./scripts/test-cli-repos.ps1",
     "test:cli:repos:fast": "powershell -ExecutionPolicy Bypass -File ./scripts/test-cli-repos.ps1 -SkipBuild",
-    "test:ci:cli-emitters": "npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/cli && npm test --workspace=packages/cli && npm test --workspace=packages/emitters && npm test --workspace=packages/optimizer",
+    "test:ci:cli-emitters": "npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/evaluator --workspace=packages/cli && npm test --workspace=packages/cli && npm test --workspace=packages/emitters && npm test --workspace=packages/optimizer",
     "test:ci:pr": "npm run test:ci:cli-emitters && npm run test:cli:fast",
-    "test:ci:repos": "npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/cli && npm run test:cli:repos:fast"
+    "test:ci:repos": "npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/evaluator --workspace=packages/cli && npm run test:cli:repos:fast"
   },
   "devDependencies": {
     "@changesets/changelog-github": "0.5.2",

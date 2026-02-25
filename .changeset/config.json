@@ -3,7 +3,7 @@
   "changelog": ["@changesets/changelog-github", { "repo": "asashepard/aspectcode" }],
   "commit": false,
   "fixed": [],
-  "linked": [["@aspectcode/core", "@aspectcode/emitters", "aspectcode"]],
+  "linked": [["@aspectcode/core", "@aspectcode/emitters", "@aspectcode/evaluator", "@aspectcode/optimizer", "aspectcode"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

@@ -27,6 +27,18 @@ export interface AspectCodeConfig {
     temperature?: number;
     maxTokens?: number;
   };
+
+  /** Evaluator settings (probe-based quality assessment). */
+  evaluate?: {
+    /** Enable evaluator. Default: true when an API key is available. */
+    enabled?: boolean;
+    /** Maximum probes per run. Default: 10. */
+    maxProbes?: number;
+    /** Harvest prompts from AI tool history. Default: true. */
+    harvestPrompts?: boolean;
+    /** Specific sources to harvest from. Default: all available. */
+    harvestSources?: string[];
+  };
 }
 
 /**

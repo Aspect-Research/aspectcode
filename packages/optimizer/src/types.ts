@@ -81,6 +81,13 @@ export interface OptimizeOptions {
 
   /** Character budget for KB content in prompts. Default: 60000. */
   kbCharBudget?: number;
+
+  /**
+   * Feedback from the evaluator package (probe test results).
+   * When provided, this replaces or supplements the self-eval loop.
+   * Formatted as a human-readable summary of probe failures and diagnosis.
+   */
+  evaluatorFeedback?: string;
 }
 
 /** Self-evaluation result from one iteration. */

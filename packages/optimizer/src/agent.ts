@@ -1,12 +1,15 @@
 /**
- * Optimization agent — iterative optimize → evaluate → refine loop.
+ * Optimization agent — generates optimized AGENTS.md instructions.
  *
- * The agent:
- * 1. Sends KB + current instructions to the LLM for optimization.
- * 2. Evaluates the candidate with a self-eval prompt.
- * 3. If the score exceeds the threshold, returns the candidate.
- * 4. Otherwise feeds the eval feedback back and tries again.
- * 5. After maxIterations, returns the best candidate seen.
+ * Two modes:
+ * 1. **Single-pass** (default): One LLM call produces the optimized instructions.
+ *    The evaluator package (@aspectcode/evaluator) handles quality assessment
+ *    externally via probe-based testing.
+ * 2. **Legacy iterative**: Retained for backward compatibility. Uses self-eval
+ *    scoring to iterate. Set `maxIterations > 1` to enable.
+ *
+ * The recommended workflow is single-pass + evaluator:
+ *   optimize (1 call) → probe-test → diagnose → apply edits
  */
 
 import type { ChatMessage, OptimizeOptions, OptimizeResult, EvalResult, ComplaintOptions, ComplaintResult } from './types';
@@ -45,6 +48,7 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
     signal,
     iterationDelayMs = 0,
     kbCharBudget,
+    evaluatorFeedback,
   } = options;
 
   const systemPrompt = buildSystemPrompt(kb, kbCharBudget, toolInstructions);
@@ -52,7 +56,8 @@ export async function runOptimizeAgent(options: OptimizeOptions): Promise<Optimi
 
   let bestCandidate = currentInstructions;
   let bestScore = 0;
-  let priorFeedback: string | undefined;
+  // Seed with evaluator feedback when available (probe-based evidence)
+  let priorFeedback: string | undefined = evaluatorFeedback;
 
   for (let i = 0; i < maxIterations; i++) {
     // ── Check cancellation ───────────────────────────────
