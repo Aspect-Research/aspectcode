@@ -31,11 +31,11 @@ describe('config', () => {
   });
 
   it('loads a valid config file with optimize settings', () => {
-    const cfg = { optimize: { provider: 'openai', maxIterations: 5 } };
+    const cfg = { optimize: { provider: 'openai', temperature: 0.5 } };
     fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
     const loaded = loadConfig(tmpDir);
     assert.equal(loaded?.optimize?.provider, 'openai');
-    assert.equal(loaded?.optimize?.maxIterations, 5);
+    assert.equal(loaded?.optimize?.temperature, 0.5);
   });
 
   it('throws on malformed JSON', () => {

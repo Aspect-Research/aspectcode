@@ -1,10 +1,9 @@
 /**
  * Prompt templates for the optimization agent.
  *
- * Three prompts:
+ * Two prompts:
  * 1. System prompt — sets context with KB content.
- * 2. Optimize prompt — asks the LLM to refine instructions.
- * 3. Eval prompt — asks the LLM to score and critique a candidate.
+ * 2. Optimize prompt — asks the LLM to generate optimized instructions.
  */
 
 /** Default maximum KB characters to include before truncation. */
@@ -84,7 +83,6 @@ ${toolInstructions}`;
 export function buildOptimizePrompt(
   currentInstructions: string,
   kbDiff?: string,
-  priorFeedback?: string,
 ): string {
   let prompt = `Optimize the following AGENTS.md instructions. Make them more specific,
 actionable, and self-contained.
@@ -111,78 +109,7 @@ Focus your optimization on areas affected by these changes:
 ${kbDiff}`;
   }
 
-  if (priorFeedback) {
-    prompt += `
-
-## Prior Evaluation Feedback
-A previous iteration received this feedback. Address these points:
-${priorFeedback}`;
-  }
-
   return prompt;
-}
-
-/**
- * Build the evaluation prompt that asks the LLM to score and critique
- * a candidate set of instructions.
- */
-export function buildEvalPrompt(
-  candidateInstructions: string,
-  kb: string,
-  kbCharBudget?: number,
-): string {
-  const trimmedKb = truncateKb(kb, kbCharBudget);
-
-  return `You are evaluating AI coding assistant instructions (AGENTS.md) for quality.
-
-Score the following candidate instructions on a scale of 1–10 based on:
-1. **Specificity** — Are rules grounded in the actual codebase (real file paths, real patterns), not generic?
-2. **Actionability** — Can an AI assistant follow each rule unambiguously?
-3. **Completeness** — Are key architectural patterns and conventions covered?
-4. **Conciseness** — Is every line valuable, with no filler?
-5. **Self-contained** — Are ALL rules fully inline? The AI reading AGENTS.md will NOT have
-   access to any external document. Penalize any reference to "the Map", "the KB",
-   "the knowledge base", "kb.md", "the symbol index", or similar external documents.
-
-Respond in EXACTLY this format (no other text):
-SCORE: <number 1-10>
-FEEDBACK: <one paragraph of overall assessment>
-SUGGESTIONS:
-- <specific improvement 1>
-- <specific improvement 2>
-- <specific improvement 3>
-
-## Knowledge Base (private reference — do not expect in output)
-${trimmedKb}
-
-## Candidate Instructions
-${candidateInstructions}`;
-}
-
-/**
- * Parse the structured evaluation response into an EvalResult.
- */
-export function parseEvalResponse(response: string): {
-  score: number;
-  feedback: string;
-  suggestions: string[];
-} {
-  const scoreMatch = response.match(/SCORE:\s*(\d+)/i);
-  const score = scoreMatch ? Math.min(10, Math.max(1, parseInt(scoreMatch[1], 10))) : 5;
-
-  const feedbackMatch = response.match(/FEEDBACK:\s*(.+?)(?=SUGGESTIONS:|$)/is);
-  const feedback = feedbackMatch ? feedbackMatch[1].trim() : 'No feedback provided.';
-
-  const suggestionsMatch = response.match(/SUGGESTIONS:\s*([\s\S]*)/i);
-  const suggestions: string[] = [];
-  if (suggestionsMatch) {
-    for (const line of suggestionsMatch[1].split('\n')) {
-      const trimmed = line.replace(/^[-*]\s*/, '').trim();
-      if (trimmed) suggestions.push(trimmed);
-    }
-  }
-
-  return { score, feedback, suggestions };
 }
 
 // ── Complaint-driven prompts ─────────────────────────────────

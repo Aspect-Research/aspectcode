@@ -171,13 +171,39 @@ const Dashboard: React.FC = () => {
   return (
     <Box flexDirection="column">
       {/* ── Banner ───────────────────────────────────── */}
-      <Box marginBottom={1}>
+      <Box marginBottom={0}>
         <Text color={COLORS.primary} bold>{getBannerText()}</Text>
       </Box>
 
+      {/* ── Complaint input (right below banner) ─────── */}
+      {INPUT_VISIBLE.has(s.phase) && !s.processingComplaint && (
+        <Box marginTop={0}>
+          <Text color={COLORS.primary}>{'  ❯ '}</Text>
+          <Text color={COLORS.white}>{s.complaintInput}</Text>
+          <Text color={COLORS.primaryDim}>{'▌'}</Text>
+        </Box>
+      )}
+
+      {/* ── Queued complaints indicator ──────────────── */}
+      {s.complaintQueue.length > 0 && (
+        <Text color={COLORS.primaryDim}>
+          {`  ${s.complaintQueue.length} complaint${s.complaintQueue.length === 1 ? '' : 's'} queued`}
+        </Text>
+      )}
+
+      {/* ── Hints ────────────────────────────────────── */}
+      {s.phase === 'watching' && (
+        <Text color={COLORS.gray} dimColor>{'  Type a complaint above, or Ctrl+C to stop'}</Text>
+      )}
+      {s.phase === 'done' && (
+        <Text color={COLORS.gray} dimColor>{'  Type a complaint above to refine AGENTS.md'}</Text>
+      )}
+
       {/* ── Setup notes (compact single line) ────────── */}
       {setup !== '' && (
-        <Text color={COLORS.gray}>{`  ${setup}`}</Text>
+        <Box marginTop={1}>
+          <Text color={COLORS.gray}>{`  ${setup}`}</Text>
+        </Box>
       )}
 
       {/* ── Status line ──────────────────────────────── */}
@@ -242,30 +268,6 @@ const Dashboard: React.FC = () => {
             <Text key={i} color={COLORS.gray}>{`    ${r}`}</Text>
           ))}
         </Box>
-      )}
-
-      {/* ── Complaint input (only when idle/done/watching) ── */}
-      {INPUT_VISIBLE.has(s.phase) && !s.processingComplaint && (
-        <Box marginTop={1}>
-          <Text color={COLORS.primary}>{'  ❯ '}</Text>
-          <Text color={COLORS.white}>{s.complaintInput}</Text>
-          <Text color={COLORS.primaryDim}>{'▌'}</Text>
-        </Box>
-      )}
-
-      {/* ── Queued complaints indicator ──────────────── */}
-      {s.complaintQueue.length > 0 && (
-        <Text color={COLORS.primaryDim}>
-          {`  ${s.complaintQueue.length} complaint${s.complaintQueue.length === 1 ? '' : 's'} queued`}
-        </Text>
-      )}
-
-      {/* ── Hints ────────────────────────────────────── */}
-      {s.phase === 'watching' && (
-        <Text color={COLORS.gray} dimColor>{'  Type a complaint above, or Ctrl+C to stop'}</Text>
-      )}
-      {s.phase === 'done' && (
-        <Text color={COLORS.gray} dimColor>{'  Type a complaint above to refine AGENTS.md'}</Text>
       )}
     </Box>
   );

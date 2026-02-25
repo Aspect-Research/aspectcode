@@ -61,45 +61,31 @@ export interface OptimizeOptions {
   /** Concatenated content from other AI tool instruction files (read-only context). */
   toolInstructions?: string;
 
-  /** Maximum agent iterations (optimize → eval → refine). */
-  maxIterations: number;
-
   /** LLM provider to use. */
   provider: LlmProvider;
 
   /** Optional logger for progress reporting. */
   log?: OptLogger;
 
-  /** Minimum eval score (1–10) to accept a candidate without further iteration. Default: 8. */
-  acceptThreshold?: number;
-
   /** AbortSignal for cooperative cancellation. */
   signal?: AbortSignal;
-
-  /** Delay in ms between iterations to avoid rate limiting. Default: 0. */
-  iterationDelayMs?: number;
 
   /** Character budget for KB content in prompts. Default: 60000. */
   kbCharBudget?: number;
 
   /**
-   * Feedback from the evaluator package (probe test results).
-   * When provided, this replaces or supplements the self-eval loop.
-   * Formatted as a human-readable summary of probe failures and diagnosis.
+   * Progress callback invoked at each meaningful step inside the agent.
+   * Useful for updating a CLI dashboard or progress bar.
    */
-  evaluatorFeedback?: string;
+  onProgress?: (step: OptimizeStep) => void;
 }
 
-/** Self-evaluation result from one iteration. */
-export interface EvalResult {
-  /** Quality score 1–10. */
-  score: number;
-
-  /** Free-text feedback on the candidate. */
-  feedback: string;
-
-  /** Concrete improvement suggestions. */
-  suggestions: string[];
+/** Progress step emitted by the optimization agent via `onProgress`. */
+export interface OptimizeStep {
+  /** Which sub-step is running. */
+  kind: 'generating' | 'done';
+  /** Optional human-readable detail. */
+  detail?: string;
 }
 
 /** Final result of the optimization agent. */
@@ -107,10 +93,7 @@ export interface OptimizeResult {
   /** The optimized instructions content (to be placed between markers). */
   optimizedInstructions: string;
 
-  /** Number of iterations actually executed. */
-  iterations: number;
-
-  /** Per-iteration reasoning / eval feedback. */
+  /** Human-readable reasoning / status messages. */
   reasoning: string[];
 }
 

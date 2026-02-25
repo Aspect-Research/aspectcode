@@ -200,6 +200,11 @@ async function runSingleProbe(
   };
 }
 
+/** Callback invoked before/after each probe for live progress updates. */
+export interface ProbeProgressCallback {
+  (info: { probeIndex: number; total: number; probeId: string; phase: 'starting' | 'done'; passed?: boolean }): void;
+}
+
 /**
  * Run all probes against the current AGENTS.md.
  *
@@ -213,11 +218,15 @@ export async function runProbes(
   fileContents?: ReadonlyMap<string, string>,
   log?: OptLogger,
   signal?: AbortSignal,
+  onProbeProgress?: ProbeProgressCallback,
 ): Promise<ProbeResult[]> {
   const results: ProbeResult[] = [];
 
-  for (const probe of probes) {
+  for (let idx = 0; idx < probes.length; idx++) {
+    const probe = probes[idx];
     if (signal?.aborted) break;
+
+    onProbeProgress?.({ probeIndex: idx, total: probes.length, probeId: probe.id, phase: 'starting' });
 
     const result = await runSingleProbe(
       probe,
@@ -229,6 +238,7 @@ export async function runProbes(
     );
     results.push(result);
 
+    onProbeProgress?.({ probeIndex: idx, total: probes.length, probeId: probe.id, phase: 'done', passed: result.passed });
     log?.info(`  ${result.passed ? '✔' : '✖'} ${probe.id}`);
   }
 

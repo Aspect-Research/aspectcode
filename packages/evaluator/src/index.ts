@@ -45,6 +45,7 @@ export { generateProbes } from './probes';
 
 // ── Probe execution ─────────────────────────────────────────
 export { runProbes } from './runner';
+export type { ProbeProgressCallback } from './runner';
 
 // ── Diagnosis ───────────────────────────────────────────────
 export { diagnose, applyDiagnosisEdits } from './diagnosis';

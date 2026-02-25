@@ -42,8 +42,6 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'no-color',                     type: 'boolean', description: 'Disable colored output', prop: 'noColor' },
   { name: 'provider',         short: 'p', type: 'string',  description: 'LLM provider: openai|anthropic' },
   { name: 'model',            short: 'm', type: 'string',  description: 'LLM model override' },
-  { name: 'max-iterations',   short: 'n', type: 'string',  description: 'Max LLM agent iterations (default: 3)', prop: 'maxIterations' },
-  { name: 'accept-threshold',             type: 'string',  description: 'Min eval score to accept (1–10, default: 8)', prop: 'acceptThreshold' },
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)' },
 ] as const;
 
@@ -62,8 +60,6 @@ export interface CliFlags {
   noColor: boolean;
   provider?: string;
   model?: string;
-  maxIterations?: number;
-  acceptThreshold?: number;
   temperature?: number;
 }
 

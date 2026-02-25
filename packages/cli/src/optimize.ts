@@ -2,7 +2,7 @@
  * Optimize wrapper — tries LLM optimization, falls back to static content.
  *
  * - If an API key is available → run the optimization agent
- * - If evaluator is enabled → run probes, diagnose, and apply edits
+ * - If evaluator is enabled → single-pass optimize then probe & diagnose
  * - If no API key → warn and write static AGENTS.md content
  */
 
@@ -11,13 +11,15 @@ import {
   loadEnvFile,
   runOptimizeAgent,
 } from '@aspectcode/optimizer';
-import type { ProviderOptions } from '@aspectcode/optimizer';
+import type { ProviderOptions, OptimizeStep } from '@aspectcode/optimizer';
 import {
-  evaluate,
-  harvestPrompts,
+  generateProbes,
+  runProbes,
+  diagnose,
   applyDiagnosisEdits,
+  harvestPrompts,
 } from '@aspectcode/evaluator';
-import type { HarvestedPrompt, PromptSource } from '@aspectcode/evaluator';
+import type { HarvestedPrompt, PromptSource, ProbeProgressCallback } from '@aspectcode/evaluator';
 import { generateCanonicalContentForMode } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import type { AspectCodeConfig } from './config';
@@ -34,19 +36,24 @@ export interface OptimizeOutput {
 /**
  * Try to optimize AGENTS.md content via LLM.
  * Falls back to static instruction content when no API key is available.
+ *
+ * @param baseContent  Pre-written static AGENTS.md content (already on disk).
+ *                     Used as the seed for optimization instead of reading from disk.
  */
 export async function tryOptimize(
   ctx: RunContext,
   kbContent: string,
   toolInstructions: Map<string, string>,
   config: AspectCodeConfig | undefined,
+  baseContent: string,
 ): Promise<OptimizeOutput> {
   const { flags, log, root } = ctx;
   const optConfig = config?.optimize;
+  const evalConfig = config?.evaluate;
+  const evaluatorEnabled = evalConfig?.enabled !== false; // Default: true
 
   // ── Resolve settings ──────────────────────────────────────
-  const maxIterations = flags.maxIterations ?? optConfig?.maxIterations ?? 3;
-  const acceptThreshold = flags.acceptThreshold ?? optConfig?.acceptThreshold ?? 8;
+
   const temperature = flags.temperature ?? optConfig?.temperature;
   const model = flags.model ?? optConfig?.model;
   const providerName = flags.provider ?? optConfig?.provider;
@@ -86,23 +93,14 @@ export async function tryOptimize(
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
   store.addSetupNote(`API key: ${provider.name}`);
+  if (evaluatorEnabled) {
+    store.addSetupNote('evaluator on');
+  }
   log.info(`Optimizing with ${fmt.cyan(provider.name)}${model ? ` (${fmt.cyan(model)})` : ''}…`);
   store.setProvider(providerLabel);
 
-  // ── Build current instructions (read existing AGENTS.md or use static) ──
-  let currentInstructions: string;
-  try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const agentsPath = path.join(root, 'AGENTS.md');
-    if (fs.existsSync(agentsPath)) {
-      currentInstructions = fs.readFileSync(agentsPath, 'utf-8');
-    } else {
-      currentInstructions = generateCanonicalContentForMode('safe', true);
-    }
-  } catch {
-    currentInstructions = generateCanonicalContentForMode('safe', true);
-  }
+  // ── Use base content as seed ──────────────────────────────
+  const currentInstructions = baseContent;
 
   // ── Build tool instructions context string ────────────────
   let toolContext = '';
@@ -114,23 +112,27 @@ export async function tryOptimize(
     toolContext = parts.join('\n\n');
   }
 
-  // ── Run optimization agent ────────────────────────────────
-  // Wrap the logger to capture iteration progress for the dashboard
-  const iterationPattern = /^Optimize iteration (\d+)\/(\d+)/;
+  // ── Progress callbacks for live dashboard updates ─────────
+  const onProgress = (step: OptimizeStep): void => {
+    switch (step.kind) {
+      case 'generating':
+        store.setPhase('optimizing', 'generating AGENTS.md…');
+        break;
+      case 'done':
+        store.setPhase('optimizing', 'generation complete');
+        break;
+    }
+  };
+
+  // ── Wrap logger for dashboard ─────────────────────────────
   const optLog = flags.quiet ? undefined : {
-    info(msg: string)  {
-      const m = iterationPattern.exec(msg);
-      if (m) store.setPhase('optimizing', `iteration ${m[1]}/${m[2]}`);
-      log.info(msg);
-    },
+    info(msg: string)  { log.info(msg); },
     warn(msg: string)  { log.warn(msg); },
     error(msg: string) { log.error(msg); },
     debug(msg: string) { log.debug(msg); },
   };
 
   // ── Harvest prompts for evaluator (if enabled) ────────────
-  const evalConfig = config?.evaluate;
-  const evaluatorEnabled = evalConfig?.enabled !== false; // Default: true
   let harvestedPrompts: HarvestedPrompt[] = [];
 
   if (evaluatorEnabled && (evalConfig?.harvestPrompts !== false)) {
@@ -153,24 +155,15 @@ export async function tryOptimize(
     }
   }
 
-  if (evaluatorEnabled) {
-    store.addSetupNote('evaluator on');
-  }
-
   const result = await runOptimizeAgent({
     currentInstructions,
     kb: kbContent,
     toolInstructions: toolContext || undefined,
-    maxIterations,
     provider,
     log: optLog,
-    acceptThreshold,
-    iterationDelayMs: 1_000,
+    onProgress,
   });
 
-  log.info(
-    `Optimized in ${result.iterations} iteration${result.iterations === 1 ? '' : 's'}`,
-  );
   for (const reason of result.reasoning) {
     log.debug(`  ${fmt.dim(reason)}`);
   }
@@ -185,50 +178,90 @@ export async function tryOptimize(
       log.info('Running probe-based evaluation…');
 
       const maxProbes = evalConfig?.maxProbes ?? 10;
-      const evalResult = await evaluate({
-        probeOptions: {
-          kb: kbContent,
-          harvestedPrompts: harvestedPrompts.length > 0 ? harvestedPrompts : undefined,
-          maxProbes,
-        },
-        agentsContent: finalContent,
-        provider,
-        log: optLog,
-        signal: undefined,
+      const probes = generateProbes({
+        kb: kbContent,
+        harvestedPrompts: harvestedPrompts.length > 0 ? harvestedPrompts : undefined,
+        maxProbes,
       });
+
+      // Per-probe progress callback for live dashboard
+      const onProbeProgress: ProbeProgressCallback = (info) => {
+        if (info.phase === 'starting') {
+          store.setEvalStatus({
+            phase: 'probing',
+            probesPassed: undefined,
+            probesTotal: info.total,
+          });
+          store.setPhase('evaluating', `probe ${info.probeIndex + 1}/${info.total}: ${info.probeId}`);
+        } else {
+          // 'done' — accumulate pass count from results so far
+          store.setPhase('evaluating', `probe ${info.probeIndex + 1}/${info.total} ${info.passed ? '✔' : '✖'}`);
+        }
+      };
+
+      const probeResults = await runProbes(
+        finalContent,
+        probes,
+        provider,
+        undefined, // fileContents
+        optLog,
+        undefined, // signal
+        onProbeProgress,
+      );
+
+      const failures = probeResults.filter((r) => !r.passed);
+      const passCount = probeResults.length - failures.length;
 
       store.setEvalStatus({
         phase: 'probing',
-        probesPassed: evalResult.passCount,
-        probesTotal: evalResult.totalProbes,
+        probesPassed: passCount,
+        probesTotal: probeResults.length,
       });
       log.info(
-        `Probes: ${evalResult.passCount}/${evalResult.totalProbes} passed` +
-        (evalResult.failCount > 0 ? `, ${evalResult.failCount} failed` : ''),
+        `Probes: ${passCount}/${probeResults.length} passed` +
+        (failures.length > 0 ? `, ${failures.length} failed` : ''),
       );
 
-      // Apply diagnosis edits if there are failures
-      if (evalResult.diagnosis && evalResult.diagnosis.edits.length > 0) {
+      // Diagnose and apply edits if there are failures
+      if (failures.length > 0) {
         store.setEvalStatus({ phase: 'diagnosing' });
-        store.setPhase('evaluating', 'applying fixes');
-        log.info(`Applying ${evalResult.diagnosis.edits.length} diagnosis-driven edits…`);
+        store.setPhase('evaluating', 'diagnosing failures');
 
-        const fixed = await applyDiagnosisEdits(
+        const diagnosis = await diagnose(
+          failures,
           finalContent,
-          evalResult.diagnosis,
           provider,
           optLog,
         );
-        finalContent = fixed.content;
-        log.info(`Diagnosis edits applied (${fixed.appliedEdits.length} changes)`);
-      }
 
-      store.setEvalStatus({
-        phase: 'done',
-        probesPassed: evalResult.passCount,
-        probesTotal: evalResult.totalProbes,
-        diagnosisEdits: evalResult.diagnosis?.edits.length ?? 0,
-      });
+        if (diagnosis && diagnosis.edits.length > 0) {
+          store.setPhase('evaluating', 'applying fixes');
+          log.info(`Applying ${diagnosis.edits.length} diagnosis-driven edits…`);
+
+          const fixed = await applyDiagnosisEdits(
+            finalContent,
+            diagnosis,
+            provider,
+            optLog,
+          );
+          finalContent = fixed.content;
+          log.info(`Diagnosis edits applied (${fixed.appliedEdits.length} changes)`);
+        }
+
+        store.setEvalStatus({
+          phase: 'done',
+          probesPassed: passCount,
+          probesTotal: probeResults.length,
+          diagnosisEdits: diagnosis?.edits.length ?? 0,
+        });
+      } else {
+        store.setEvalStatus({
+          phase: 'done',
+          probesPassed: passCount,
+          probesTotal: probeResults.length,
+          diagnosisEdits: 0,
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.warn(`Evaluation failed (non-fatal): ${msg}`);

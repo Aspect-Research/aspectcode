@@ -10,7 +10,7 @@ export type {
   ProviderOptions,
   OptimizeOptions,
   OptimizeResult,
-  EvalResult,
+  OptimizeStep,
   OptLogger,
   ProviderName,
   ComplaintOptions,
@@ -27,8 +27,6 @@ export { runOptimizeAgent, runComplaintAgent } from './agent';
 export {
   buildSystemPrompt,
   buildOptimizePrompt,
-  buildEvalPrompt,
-  parseEvalResponse,
   truncateKb,
   buildComplaintPrompt,
   parseComplaintResponse,

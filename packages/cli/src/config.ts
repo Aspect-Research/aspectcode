@@ -22,8 +22,6 @@ export interface AspectCodeConfig {
   optimize?: {
     provider?: string;
     model?: string;
-    maxIterations?: number;
-    acceptThreshold?: number;
     temperature?: number;
     maxTokens?: number;
   };

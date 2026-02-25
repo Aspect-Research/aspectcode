@@ -12,7 +12,7 @@
 
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS, analyzeRepoWithDependencies } from '@aspectcode/core';
-import { createNodeEmitterHost } from '@aspectcode/emitters';
+import { createNodeEmitterHost, generateCanonicalContentForMode } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
@@ -101,26 +101,36 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     log.debug(`Read ${toolInstructions.size} AI tool instruction file(s) as context`);
   }
 
-  // ── 5. Optimize or fallback ───────────────────────────────
-  store.setPhase('optimizing');
-  const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config);
+  // ── 5. Generate base AGENTS.md from static analysis ─────
+  //    Write it to disk immediately so the user sees output early,
+  //    even before the LLM optimization pass finishes.
+  const baseContent = generateCanonicalContentForMode('safe', kbContent.length > 0);
+  if (!flags.dryRun) {
+    await writeAgentsMd(host, root, baseContent, ownership);
+    store.addOutput('AGENTS.md written (base)');
+    log.debug('Base AGENTS.md written from static analysis');
+  }
 
-  // ── 6. Write AGENTS.md ────────────────────────────────────
+  // ── 6. Optimize or fallback ───────────────────────────────
+  store.setPhase('optimizing');
+  const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config, baseContent);
+
+  // ── 7. Write optimized AGENTS.md ──────────────────────────
   store.setPhase('writing');
   if (flags.dryRun) {
     log.info(fmt.bold('Dry run — proposed AGENTS.md:'));
     log.blank();
-    console.log(optimizeResult.content);
+    log.info(optimizeResult.content);
     log.blank();
   } else {
     await writeAgentsMd(host, root, optimizeResult.content, ownership);
     const modeLabel = ownership === 'section' ? ' (section)' : '';
-    const verb = optimizeResult.reasoning.length > 0 ? 'updated' : 'written';
+    const verb = optimizeResult.reasoning.length > 0 ? 'optimized' : 'written';
     store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
     log.success(`AGENTS.md ${verb}${modeLabel}`);
   }
 
-  // ── 7. Optionally write kb.md ─────────────────────────────
+  // ── 8. Optionally write kb.md ─────────────────────────────
   if (flags.kb && !flags.dryRun) {
     await writeKbMd(host, root, kbContent);
     store.addOutput('kb.md written');

@@ -106,12 +106,6 @@ ${fmt.bold('EXAMPLES')}
 
 // ── Number-parsing helpers ───────────────────────────────────
 
-function parseIntFlag(value: unknown, min: number, max: number, fallback: number): number {
-  if (typeof value !== 'string') return fallback;
-  const n = parseInt(value, 10);
-  return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
-}
-
 function parseFloatFlag(value: unknown, min: number, max: number): number | undefined {
   if (typeof value !== 'string') return undefined;
   const n = parseFloat(value);
@@ -141,12 +135,6 @@ async function main(): Promise<void> {
   }
 
   // Parse numeric string flags
-  if (typeof flags.maxIterations === 'string') {
-    flags.maxIterations = parseIntFlag(flags.maxIterations, 1, 20, 3);
-  }
-  if (typeof flags.acceptThreshold === 'string') {
-    flags.acceptThreshold = parseIntFlag(flags.acceptThreshold, 1, 10, 8);
-  }
   if (typeof flags.temperature === 'string') {
     flags.temperature = parseFloatFlag(flags.temperature, 0, 2);
   }
@@ -170,8 +158,10 @@ async function main(): Promise<void> {
       createDashboardSpinner((phase ?? 'idle') as PipelinePhase, msg);
 
     try {
-      // Clear terminal for a clean dashboard — removes ownership prompt artifacts
-      process.stdout.write('\x1bc');
+      // Clear screen content but preserve scrollback (avoids Ink re-render desync
+      // that \x1bc causes — that sends a full terminal reset which confuses Ink's
+      // cursor tracking and causes the banner to be reprinted on every render).
+      process.stdout.write('\x1B[2J\x1B[H');
 
       const { render } = await import('ink');
       const React = await import('react');

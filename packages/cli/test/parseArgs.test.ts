@@ -99,21 +99,6 @@ describe('parseArgs', () => {
     assert.equal(r.model, 'claude-3-opus');
   });
 
-  it('parses --max-iterations', () => {
-    const r = parseArgs([...base, '--max-iterations', '5']);
-    assert.equal(r.maxIterations, '5');
-  });
-
-  it('parses -n short alias for max-iterations', () => {
-    const r = parseArgs([...base, '-n', '10']);
-    assert.equal(r.maxIterations, '10');
-  });
-
-  it('parses --accept-threshold', () => {
-    const r = parseArgs([...base, '--accept-threshold', '9']);
-    assert.equal(r.acceptThreshold, '9');
-  });
-
   it('parses --temperature', () => {
     const r = parseArgs([...base, '--temperature', '0.7']);
     assert.equal(r.temperature, '0.7');
