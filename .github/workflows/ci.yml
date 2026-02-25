@@ -37,6 +37,9 @@ jobs:
       - name: Build optimizer
         run: npm run build --workspace=packages/optimizer
 
+      - name: Build evaluator
+        run: npm run build --workspace=packages/evaluator
+
       - name: Build CLI
         run: npm run build --workspace=packages/cli
 
@@ -49,6 +52,9 @@ jobs:
 
       - name: Test optimizer
         run: npm test --workspace=packages/optimizer
+
+      - name: Test evaluator
+        run: npm test --workspace=packages/evaluator
 
       - name: Test CLI
         run: npm test --workspace=packages/cli

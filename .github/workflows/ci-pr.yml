@@ -25,8 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build core/emitters/optimizer/cli
-        run: npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/cli
+      - name: Build core/emitters/optimizer/evaluator/cli
+        run: npm run build --workspace=packages/core --workspace=packages/emitters --workspace=packages/optimizer --workspace=packages/evaluator --workspace=packages/cli
 
       - name: Run sandbox CLI smoke tests
         shell: pwsh
