@@ -36,6 +36,7 @@ const PHASE_TEXT: Record<PipelinePhase, string> = {
   analyzing:     'Analyzing…',
   'building-kb': 'Building knowledge base…',
   optimizing:    'Optimizing…',
+  evaluating:    'Evaluating…',
   writing:       'Writing…',
   watching:      'Watching',
   done:          'Done',
@@ -43,7 +44,7 @@ const PHASE_TEXT: Record<PipelinePhase, string> = {
 };
 
 const WORKING = new Set<PipelinePhase>([
-  'idle', 'discovering', 'analyzing', 'building-kb', 'optimizing', 'writing',
+  'idle', 'discovering', 'analyzing', 'building-kb', 'optimizing', 'evaluating', 'writing',
 ]);
 
 // ── Stats string ─────────────────────────────────────────────

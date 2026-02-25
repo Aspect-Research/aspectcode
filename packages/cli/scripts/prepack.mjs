@@ -15,7 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliDir    = join(__dirname, '..');
 const pkgsDir   = join(cliDir, '..');
 
-const BUNDLED = ['core', 'emitters', 'optimizer'];
+const BUNDLED = ['core', 'emitters', 'evaluator', 'optimizer'];
 
 for (const name of BUNDLED) {
   const src  = join(pkgsDir, name);

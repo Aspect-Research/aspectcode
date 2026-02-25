@@ -2,6 +2,7 @@
  * Optimize wrapper — tries LLM optimization, falls back to static content.
  *
  * - If an API key is available → run the optimization agent
+ * - If evaluator is enabled → run probes, diagnose, and apply edits
  * - If no API key → warn and write static AGENTS.md content
  */
 
@@ -11,6 +12,12 @@ import {
   runOptimizeAgent,
 } from '@aspectcode/optimizer';
 import type { ProviderOptions } from '@aspectcode/optimizer';
+import {
+  harvestPrompts,
+  evaluate,
+  applyDiagnosisEdits,
+} from '@aspectcode/evaluator';
+import type { HarvestedPrompt, PromptSource } from '@aspectcode/evaluator';
 import { generateCanonicalContentForMode } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import type { AspectCodeConfig } from './config';
@@ -67,6 +74,7 @@ export async function tryOptimize(
     provider = resolveProvider(env, providerOptions);
   } catch {
     // No API key available — fall back to static content
+    store.addSetupNote('no API key — static mode');
     log.warn(
       'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
     );
@@ -76,8 +84,10 @@ export async function tryOptimize(
     };
   }
 
+  const providerLabel = model ? `${provider.name} (${model})` : provider.name;
+  store.addSetupNote(`API key: ${provider.name}`);
   log.info(`Optimizing with ${fmt.cyan(provider.name)}${model ? ` (${fmt.cyan(model)})` : ''}…`);
-  store.setProvider(model ? `${provider.name} (${model})` : provider.name);
+  store.setProvider(providerLabel);
 
   // ── Build current instructions (read existing AGENTS.md or use static) ──
   let currentInstructions: string;
@@ -118,6 +128,35 @@ export async function tryOptimize(
     debug(msg: string) { log.debug(msg); },
   };
 
+  // ── Harvest prompts for evaluator (if enabled) ────────────
+  const evalConfig = config?.evaluate;
+  const evaluatorEnabled = evalConfig?.enabled !== false; // Default: true
+  let harvestedPrompts: HarvestedPrompt[] = [];
+
+  if (evaluatorEnabled && (evalConfig?.harvestPrompts !== false)) {
+    try {
+      store.setEvalStatus({ phase: 'harvesting' });
+      store.setPhase('optimizing', 'harvesting prompts');
+      harvestedPrompts = await harvestPrompts({
+        root,
+        sources: evalConfig?.harvestSources as PromptSource[] | undefined,
+        maxPerSource: 50,
+        log: optLog,
+      });
+      store.setEvalStatus({ phase: 'harvesting', harvestCount: harvestedPrompts.length });
+      if (harvestedPrompts.length > 0) {
+        log.info(`Harvested ${harvestedPrompts.length} prompts from AI tool history`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.debug(`Prompt harvesting failed (non-fatal): ${msg}`);
+    }
+  }
+
+  if (evaluatorEnabled) {
+    store.addSetupNote('evaluator on');
+  }
+
   const result = await runOptimizeAgent({
     currentInstructions,
     kb: kbContent,
@@ -136,9 +175,69 @@ export async function tryOptimize(
     log.debug(`  ${fmt.dim(reason)}`);
   }
 
+  // ── Evaluate with probes (if enabled) ─────────────────────
+  let finalContent = result.optimizedInstructions;
+
+  if (evaluatorEnabled) {
+    try {
+      store.setPhase('evaluating');
+      store.setEvalStatus({ phase: 'probing' });
+      log.info('Running probe-based evaluation…');
+
+      const maxProbes = evalConfig?.maxProbes ?? 10;
+      const evalResult = await evaluate({
+        probeOptions: {
+          kb: kbContent,
+          harvestedPrompts: harvestedPrompts.length > 0 ? harvestedPrompts : undefined,
+          maxProbes,
+        },
+        agentsContent: finalContent,
+        provider,
+        log: optLog,
+        signal: undefined,
+      });
+
+      store.setEvalStatus({
+        phase: 'probing',
+        probesPassed: evalResult.passCount,
+        probesTotal: evalResult.totalProbes,
+      });
+
+      log.info(
+        `Probes: ${evalResult.passCount}/${evalResult.totalProbes} passed` +
+          (evalResult.failCount > 0 ? `, ${evalResult.failCount} failed` : ''),
+      );
+
+      // Apply diagnosis edits if there are failures
+      if (evalResult.diagnosis && evalResult.diagnosis.edits.length > 0) {
+        store.setEvalStatus({ phase: 'diagnosing' });
+        store.setPhase('evaluating', 'applying fixes');
+        log.info(`Applying ${evalResult.diagnosis.edits.length} diagnosis-driven edits…`);
+        const fixed = await applyDiagnosisEdits(
+          finalContent,
+          evalResult.diagnosis,
+          provider,
+          optLog,
+        );
+        finalContent = fixed.content;
+        log.info(`Diagnosis edits applied (${fixed.appliedEdits.length} changes)`);
+      }
+
+      store.setEvalStatus({
+        phase: 'done',
+        probesPassed: evalResult.passCount,
+        probesTotal: evalResult.totalProbes,
+        diagnosisEdits: evalResult.diagnosis?.edits.length ?? 0,
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.warn(`Evaluation failed (non-fatal): ${msg}`);
+    }
+  }
+
   store.setReasoning(result.reasoning);
   return {
-    content: result.optimizedInstructions,
+    content: finalContent,
     reasoning: result.reasoning,
   };
 }

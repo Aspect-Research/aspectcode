@@ -13,10 +13,23 @@ export type PipelinePhase =
   | 'analyzing'
   | 'building-kb'
   | 'optimizing'
+  | 'evaluating'
   | 'writing'
   | 'watching'
   | 'done'
   | 'error';
+
+/** Evaluator sub-phase for transparent progress reporting. */
+export type EvalPhase = 'idle' | 'harvesting' | 'probing' | 'diagnosing' | 'done';
+
+/** Evaluator status shown in the dashboard. */
+export interface EvalStatus {
+  phase: EvalPhase;
+  harvestCount?: number;
+  probesPassed?: number;
+  probesTotal?: number;
+  diagnosisEdits?: number;
+}
 
 export interface DashboardState {
   phase: PipelinePhase;
@@ -33,6 +46,12 @@ export interface DashboardState {
   outputs: string[];
   /** Optimization reasoning lines from the agent (score + feedback per iteration). */
   reasoning: string[];
+  /** Brief setup notifications (config, API key, tool files). */
+  setupNotes: string[];
+  /** Evaluator pipeline progress. */
+  evalStatus: EvalStatus;
+  /** Epoch ms when the current run started (0 when idle). */
+  runStartMs: number;
   /** Current complaint text being typed by the user. */
   complaintInput: string;
   /** Queued complaints awaiting processing. */
@@ -58,6 +77,9 @@ class DashboardStore extends EventEmitter {
     warning: '',
     outputs: [],
     reasoning: [],
+    setupNotes: [],
+    evalStatus: { phase: 'idle' },
+    runStartMs: 0,
     complaintInput: '',
     complaintQueue: [],
     complaintChanges: [],
@@ -101,6 +123,18 @@ class DashboardStore extends EventEmitter {
     this.update({ reasoning });
   }
 
+  addSetupNote(note: string): void {
+    this.update({ setupNotes: [...this.state.setupNotes, note] });
+  }
+
+  setEvalStatus(status: EvalStatus): void {
+    this.update({ evalStatus: status });
+  }
+
+  setRunStartMs(ms: number): void {
+    this.update({ runStartMs: ms });
+  }
+
   // ── Complaint methods ───────────────────────────────────
 
   setComplaintInput(text: string): void {
@@ -141,6 +175,9 @@ class DashboardStore extends EventEmitter {
       warning: '',
       outputs: [],
       reasoning: [],
+      setupNotes: [],
+      evalStatus: { phase: 'idle' },
+      runStartMs: 0,
       elapsed: '',
       provider: '',
       phaseDetail: '',

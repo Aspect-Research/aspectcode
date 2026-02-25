@@ -1,0 +1,43 @@
+{
+  "name": "@aspectcode/evaluator",
+  "version": "0.3.3",
+  "private": true,
+  "description": "Evidence-based evaluation for Aspect Code AGENTS.md optimization",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asashepard/aspectcode.git",
+    "directory": "packages/evaluator"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@aspectcode/optimizer": "0.3.2"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "mocha": "^10.4.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
