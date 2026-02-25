@@ -5,9 +5,9 @@
 // ── Colors ───────────────────────────────────────────────────
 export const COLORS = {
   /** Primary brand color */
-  primary: '#a855f7',       // purple-500
+  primary: '#f9731c',       // orange (brand)
   /** Dimmed brand accent */
-  primaryDim: '#7e22ce',    // purple-700
+  primaryDim: '#c85a12',    // orange (dark)
   /** Success / watching */
   green: '#22c55e',
   /** Warnings */
@@ -30,7 +30,7 @@ const BANNER_LINES = [
 ];
 
 /**
- * Return the banner as a single string, coloured with ANSI purple.
+ * Return the banner as a single string, coloured with ANSI orange.
  * For use in both ink and plain-text contexts.
  */
 export function getBannerText(): string {
