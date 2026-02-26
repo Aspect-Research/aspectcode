@@ -29,13 +29,33 @@ function extractSection(kb: string, heading: string): string {
   return sepIdx > 0 ? kb.slice(start, sepIdx).trim() : kb.slice(start).trim();
 }
 
-/** Parse "High-Risk Architectural Hubs" table rows: | path | in | out | */
+/**
+ * Parse "High-Risk Architectural Hubs" table rows.
+ *
+ * Handles two formats:
+ * - Legacy 3-col: | File | In | Out |
+ * - Emitter 5-col: | Rank | File | Imports | Imported By | Risk |
+ */
 function parseHubs(architecture: string): Array<{ file: string; inDegree: number; outDegree: number }> {
   const hubs: Array<{ file: string; inDegree: number; outDegree: number }> = [];
-  const tableRegex = /\|\s*`?([^`|]+?)`?\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/g;
   const section = extractSubSection(architecture, 'High-Risk Architectural Hubs');
+  if (!section) return hubs;
+
+  // Try 5-col emitter format first: | Rank | `file` | Imports | Imported By | Risk |
+  const fiveCol = /\|\s*\d+\s*\|\s*`([^`]+)`\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/g;
   let match: RegExpExecArray | null;
-  while ((match = tableRegex.exec(section)) !== null) {
+  while ((match = fiveCol.exec(section)) !== null) {
+    hubs.push({
+      file: match[1].trim(),
+      outDegree: parseInt(match[2], 10),  // "Imports"
+      inDegree: parseInt(match[3], 10),   // "Imported By"
+    });
+  }
+  if (hubs.length > 0) return hubs;
+
+  // Fallback: 3-col legacy format | File | In | Out |
+  const threeCol = /\|\s*`?([^`|]+?)`?\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|/g;
+  while ((match = threeCol.exec(section)) !== null) {
     hubs.push({
       file: match[1].trim(),
       inDegree: parseInt(match[2], 10),
@@ -45,13 +65,29 @@ function parseHubs(architecture: string): Array<{ file: string; inDegree: number
   return hubs;
 }
 
-/** Parse "Entry Points" from architecture section. */
+/**
+ * Parse "Entry Points" from architecture section.
+ *
+ * Handles two formats:
+ * - Legacy table:      | File | Kind |
+ * - Emitter bullet:    - 🟢 `path`: reason  (under ### Runtime / Tooling sub-headings)
+ */
 function parseEntryPoints(architecture: string): Array<{ file: string; kind: string }> {
   const entries: Array<{ file: string; kind: string }> = [];
   const section = extractSubSection(architecture, 'Entry Points');
-  const regex = /\|\s*`?([^`|]+?)`?\s*\|\s*([^|]+?)\s*\|/g;
+  if (!section) return entries;
+
+  // Try bullet-list format first: - <emoji> `path`: reason
+  const bulletRegex = /^-\s*(?:[^`]*?)\s*`([^`]+)`\s*:\s*(.+)$/gm;
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(section)) !== null) {
+  while ((match = bulletRegex.exec(section)) !== null) {
+    entries.push({ file: match[1].trim(), kind: match[2].trim() });
+  }
+  if (entries.length > 0) return entries;
+
+  // Fallback: table format | File | Kind |
+  const tableRegex = /\|\s*`?([^`|]+?)`?\s*\|\s*([^|]+?)\s*\|/g;
+  while ((match = tableRegex.exec(section)) !== null) {
     const file = match[1].trim();
     const kind = match[2].trim();
     if (file && !file.includes('---') && kind !== 'Kind') {
@@ -61,25 +97,67 @@ function parseEntryPoints(architecture: string): Array<{ file: string; kind: str
   return entries;
 }
 
-/** Parse naming conventions from the map section. */
+/**
+ * Parse naming conventions from the map section.
+ *
+ * Handles both simple bullet lists and the structured emitter output
+ * (tables for file naming, bullets for function naming / framework patterns).
+ * Extracts a flat list of convention strings for probe generation.
+ */
 function parseConventions(mapSection: string): string[] {
   const section = extractSubSection(mapSection, 'Conventions');
-  return section
-    .split('\n')
-    .filter((line) => line.startsWith('- ') || line.startsWith('* '))
-    .map((line) => line.replace(/^[-*]\s*/, '').trim())
-    .filter(Boolean);
+  if (!section) return [];
+
+  const conventions: string[] = [];
+
+  // Pick up plain bullet items (- text or * text)
+  for (const line of section.split('\n')) {
+    const trimmed = line.trim();
+    if (/^[-*]\s+/.test(trimmed)) {
+      conventions.push(trimmed.replace(/^[-*]\s*/, '').trim());
+    }
+  }
+
+  // Pick up table rows (| Pattern | Example | Count |)
+  const tableRegex = /\|\s*([^|]+?)\s*\|\s*`([^`]+)`\s*\|\s*\d+\s*\|/g;
+  let match: RegExpExecArray | null;
+  while ((match = tableRegex.exec(section)) !== null) {
+    const pattern = match[1].trim();
+    const example = match[2].trim();
+    if (pattern && !pattern.includes('---') && pattern !== 'Pattern') {
+      conventions.push(`${pattern} (e.g. ${example})`);
+    }
+  }
+
+  // Pick up bold directives like **Use:** kebab-case for new files.
+  const boldRegex = /\*\*Use:\*\*\s*(.+)/g;
+  while ((match = boldRegex.exec(section)) !== null) {
+    conventions.push(match[1].trim());
+  }
+
+  return conventions.filter(Boolean);
 }
 
-/** Extract a sub-section within a larger section by heading. */
+/**
+ * Extract a sub-section within a larger section by heading.
+ *
+ * Tolerates emoji prefixes (e.g. "⚠️ High-Risk Architectural Hubs")
+ * by allowing optional non-word chars before the heading text.
+ * Only stops at headings of the **same or higher** level (fewer #'s).
+ */
 function extractSubSection(section: string, heading: string): string {
-  const regex = new RegExp(`#+\\s*${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i');
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Allow optional emoji / symbol chars between the # and the heading text
+  const regex = new RegExp(`(#{1,6})\\s*(?:[^\\w\\s]*\\s*)?${escaped}`, 'i');
   const match = regex.exec(section);
   if (!match) return '';
+  const headingLevel = match[1].length; // number of # chars
   const start = match.index + match[0].length;
-  // Find next heading of same or higher level
-  const nextHeading = section.slice(start).search(/\n#{1,3}\s/);
-  return nextHeading > 0 ? section.slice(start, start + nextHeading).trim() : section.slice(start).trim();
+  // Find next heading of same or higher (shallower) level
+  const rest = section.slice(start);
+  const endPattern = new RegExp(`\\n#{1,${headingLevel}}\\s`);
+  const nextHeading = rest.search(endPattern);
+  return nextHeading > 0 ? rest.slice(0, nextHeading).trim() : rest.trim();
 }
 
 /** Parse file paths mentioned in a diff string. */

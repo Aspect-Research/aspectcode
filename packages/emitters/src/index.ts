@@ -36,6 +36,7 @@ export {
   generateCanonicalContentForMode,
   generateCanonicalContentSafe,
   generateCanonicalContentPermissive,
+  generateKbCustomContent,
 } from './instructions/content';
 
 export { createInstructionsEmitter } from './instructions/instructionsEmitter';

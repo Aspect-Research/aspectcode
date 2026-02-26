@@ -4,21 +4,21 @@
  * 1. Discover files → tree-sitter analysis
  * 2. Build KB in memory (architecture + map + context)
  * 3. Scan & read other AI tool instruction files as context
- * 4. Write static-template AGENTS.md for immediate feedback
- * 5. If API key present → LLM generates AGENTS.md from KB → overwrite
- *    If no API key → keep static AGENTS.md + warn
+ * 4. Build KB-custom content from analysis
+ * 5. If generate=true → LLM generates AGENTS.md (or static fallback)
+ *    If generate=false → write KB-custom content only (skip LLM)
  * 6. If --kb flag → also write kb.md
- * 7. If not --once → watch for changes and repeat
+ * 7. If not --once → watch for changes and repeat (always generate)
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS, analyzeRepoWithDependencies } from '@aspectcode/core';
-import { createNodeEmitterHost, generateCanonicalContentForMode } from '@aspectcode/emitters';
-import type { RunContext } from './cli';
+import { createNodeEmitterHost, generateCanonicalContentForMode, generateKbCustomContent } from '@aspectcode/emitters';
+import type { RunContext, RunMode } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
-import { loadConfig, saveConfig } from './config';
+import { loadConfig } from './config';
 import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
 import { buildKbContent } from './kbBuilder';
@@ -72,8 +72,7 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
 
   // ── First-run detection ───────────────────────────────────
   const agentsPath = path.join(root, 'AGENTS.md');
-  const configPath = path.join(root, 'aspectcode.json');
-  if (!fs.existsSync(agentsPath) && !fs.existsSync(configPath)) {
+  if (!fs.existsSync(agentsPath)) {
     store.setFirstRun(true);
   }
 
@@ -112,51 +111,75 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     log.debug(`Read ${toolInstructions.size} AI tool instruction file(s) as context`);
   }
 
-  // ── 5. Write static-template AGENTS.md for immediate feedback ─
-  //    Written to disk right away so the user sees output early,
-  //    even before the LLM generation finishes.
-  const baseContent = generateCanonicalContentForMode('safe', kbContent.length > 0);
-  if (!flags.dryRun) {
-    await writeAgentsMd(host, root, baseContent, ownership);
-    store.addOutput('AGENTS.md written (base)');
-    log.debug('Base AGENTS.md written from static analysis');
-  }
+  // ── 5. Build base content from KB ──────────────────────────
+  const baseContent = kbContent.length > 0
+    ? generateKbCustomContent(kbContent, 'safe')
+    : generateCanonicalContentForMode('safe', false);
 
-  // ── 6. LLM generation or static fallback ───────────────
-  store.setPhase('optimizing');
-  const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config, baseContent);
-
-  // ── 7. Write LLM-generated AGENTS.md ───────────────────
-  store.setPhase('writing');
-  if (flags.dryRun) {
-    log.info(fmt.bold('Dry run — proposed AGENTS.md:'));
-    log.blank();
-    log.info(optimizeResult.content);
-    log.blank();
-  } else {
-    // Compute diff before overwriting (for watch-mode change summary)
-    let previousContent: string | undefined;
-    try {
-      if (fs.existsSync(agentsPath)) {
-        previousContent = fs.readFileSync(agentsPath, 'utf-8');
-      }
-    } catch { /* ignore read errors */ }
-
-    await writeAgentsMd(host, root, optimizeResult.content, ownership);
-    const modeLabel = ownership === 'section' ? ' (section)' : '';
-    const verb = optimizeResult.reasoning.length > 0 ? 'generated' : 'written';
-    store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
-    log.success(`AGENTS.md ${verb}${modeLabel}`);
-
-    // Diff summary (skip on first write when previous was just the base template)
-    if (previousContent !== undefined && previousContent !== baseContent) {
-      const diff = diffSummary(previousContent, optimizeResult.content);
-      store.setDiffSummary(diff);
+  // ── 6. Generate or skip ────────────────────────────────────
+  //    When ctx.generate is true: write base template immediately for
+  //    early feedback, then run LLM (or static fallback), then overwrite.
+  //    When ctx.generate is false: write KB-custom content only.
+  if (ctx.generate) {
+    // Write base immediately so user sees output before LLM finishes
+    if (!flags.dryRun) {
+      await writeAgentsMd(host, root, baseContent, ownership);
+      store.addOutput('AGENTS.md written (base)');
+      log.debug('Base AGENTS.md written from static analysis');
     }
 
-    // Content summary for the dashboard
-    const summary = summarizeContent(optimizeResult.content);
-    store.setSummary(summary);
+    store.setPhase('optimizing');
+    const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config, baseContent);
+
+    // ── Write LLM-generated AGENTS.md ─────────────────────
+    store.setPhase('writing');
+    if (flags.dryRun) {
+      log.info(fmt.bold('Dry run — proposed AGENTS.md:'));
+      log.blank();
+      log.info(optimizeResult.content);
+      log.blank();
+    } else {
+      // Compute diff before overwriting (for watch-mode change summary)
+      let previousContent: string | undefined;
+      try {
+        if (fs.existsSync(agentsPath)) {
+          previousContent = fs.readFileSync(agentsPath, 'utf-8');
+        }
+      } catch { /* ignore read errors */ }
+
+      await writeAgentsMd(host, root, optimizeResult.content, ownership);
+      const modeLabel = ownership === 'section' ? ' (section)' : '';
+      const verb = optimizeResult.reasoning.length > 0 ? 'generated' : 'written';
+      store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
+      log.success(`AGENTS.md ${verb}${modeLabel}`);
+
+      // Diff summary (skip on first write when previous was just the base template)
+      if (previousContent !== undefined && previousContent !== baseContent) {
+        const diff = diffSummary(previousContent, optimizeResult.content);
+        store.setDiffSummary(diff);
+      }
+
+      // Content summary for the dashboard
+      const summary = summarizeContent(optimizeResult.content);
+      store.setSummary(summary);
+    }
+  } else {
+    // Skip LLM — write KB-custom content only
+    store.setPhase('writing');
+    if (flags.dryRun) {
+      log.info(fmt.bold('Dry run — proposed AGENTS.md (KB-custom):'));
+      log.blank();
+      log.info(baseContent);
+      log.blank();
+    } else {
+      await writeAgentsMd(host, root, baseContent, ownership);
+      store.addOutput('AGENTS.md written (KB-custom)');
+      log.success('AGENTS.md written from static analysis');
+
+      const summary = summarizeContent(baseContent);
+      store.setSummary(summary);
+    }
+    store.addSetupNote('generation skipped');
   }
 
   // ── 8. Optionally write kb.md ─────────────────────────────
@@ -176,35 +199,56 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
 // ── Pipeline entry point ─────────────────────────────────────
 
 /**
- * Resolve AGENTS.md ownership mode.
+ * Resolve AGENTS.md ownership mode and whether to generate on this run.
  *
  * Called from main() BEFORE the ink dashboard is mounted, because
  * the interactive prompt uses raw stdin which conflicts with ink's useInput.
+ *
+ * When AGENTS.md already has section markers → section + generate (auto).
+ * Otherwise (no file, or file without markers) → 3-option prompt:
+ *   1. Full control — generate now
+ *   2. Full control — skip generation (use KB-custom only)
+ *   3. Section control (preserve your content)
  */
-export async function resolveOwnership(root: string): Promise<OwnershipMode> {
+export async function resolveRunMode(root: string): Promise<RunMode> {
   const config = loadConfig(root);
-  if (config?.ownership) return config.ownership;
+
+  // Config-driven ownership skips prompt but still generates
+  if (config?.ownership) {
+    return { ownership: config.ownership, generate: true };
+  }
 
   try {
-    const fs = await import('fs');
     const agentsPath = path.join(root, 'AGENTS.md');
     if (fs.existsSync(agentsPath)) {
       const existing = fs.readFileSync(agentsPath, 'utf-8');
-      if (hasMarkers(existing)) return 'section';
-
-      const idx = await selectPrompt(
-        'AGENTS.md already exists. How should AspectCode manage it?',
-        ['Replace entire file (full ownership)', 'Own a section (preserve your content)'],
-        0,
-      );
-      const ownership: OwnershipMode = idx === 1 ? 'section' : 'full';
-      saveConfig(root, { ownership });
-      return ownership;
+      // Auto-detect section markers → continue in section mode
+      if (hasMarkers(existing)) {
+        return { ownership: 'section', generate: true };
+      }
+      // Existing file without markers → full control, skip generation
+      return { ownership: 'full', generate: false };
     }
   } catch {
-    // Non-interactive or read error — default to full
+    // Read error — fall through to prompt
   }
-  return 'full';
+
+  // No AGENTS.md → show 2-option prompt (default: full + generate)
+  try {
+    const idx = await selectPrompt(
+      'How should AspectCode manage AGENTS.md?',
+      [
+        'Full control (replace entire file)',
+        'Section control (preserve your content)',
+      ],
+      0,
+    );
+    const ownership = idx === 1 ? 'section' : 'full' as const;
+    return { ownership, generate: true };
+  } catch {
+    // Non-interactive → default to full + generate
+    return { ownership: 'full', generate: true };
+  }
 }
 
 export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
@@ -215,6 +259,9 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
 
   // ── Initial run ──────────────────────────────────────────
   const result = await runOnce(ctx, ownership);
+
+  // After first run, always generate on subsequent watch-triggered runs
+  ctx.generate = true;
   if (result.code !== ExitCode.OK) return result.code;
 
   // Keep track of latest KB for complaint processing

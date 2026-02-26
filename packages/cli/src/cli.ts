@@ -76,6 +76,14 @@ export type ExitCodeValue = (typeof ExitCode)[keyof typeof ExitCode];
 
 // ── Runtime context ──────────────────────────────────────────
 
+/** Result of the first-run mode resolution prompt. */
+export interface RunMode {
+  /** How AspectCode manages AGENTS.md content. */
+  ownership: 'full' | 'section';
+  /** Whether to run LLM generation on the first pipeline run. */
+  generate: boolean;
+}
+
 /**
  * Shared context built once in main() and passed to the pipeline.
  */
@@ -90,6 +98,8 @@ export interface RunContext {
   spin: SpinnerFactory;
   /** Pre-resolved AGENTS.md ownership mode. */
   ownership: 'full' | 'section';
+  /** Whether to run LLM generation (false = KB-custom only). */
+  generate: boolean;
 }
 
 // ── Flag-def helpers ─────────────────────────────────────────

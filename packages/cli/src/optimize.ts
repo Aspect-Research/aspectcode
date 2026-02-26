@@ -20,7 +20,7 @@ import {
   harvestPrompts,
 } from '@aspectcode/evaluator';
 import type { HarvestedPrompt, PromptSource, ProbeProgressCallback } from '@aspectcode/evaluator';
-import { generateCanonicalContentForMode } from '@aspectcode/emitters';
+import { generateCanonicalContentForMode, generateKbCustomContent } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import type { AspectCodeConfig } from './config';
 import { fmt } from './logger';
@@ -79,19 +79,19 @@ export async function tryOptimize(
   try {
     provider = resolveProvider(env, providerOptions);
   } catch {
-    // No API key available — fall back to static content
+    // No API key available — generate from KB content if available
     store.addSetupNote('no API key — static mode');
     log.warn(
       'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
     );
-    return {
-      content: generateCanonicalContentForMode('safe', kbContent.length > 0),
-      reasoning: [],
-    };
+    const content = kbContent.length > 0
+      ? generateKbCustomContent(kbContent, 'safe')
+      : generateCanonicalContentForMode('safe', false);
+    return { content, reasoning: [] };
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
-  store.addSetupNote(`API key: ${provider.name}`);
+  store.addSetupNote('API key found');
   if (evaluatorEnabled) {
     store.addSetupNote('evaluator on');
   }

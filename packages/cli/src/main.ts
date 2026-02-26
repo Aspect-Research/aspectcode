@@ -11,7 +11,7 @@ import { ExitCode, FLAG_DEFS, flagPropName } from './cli';
 import type { SpinnerFactory } from './cli';
 import { createLogger, createSpinner, disableColor, fmt } from './logger';
 import { getVersion } from './version';
-import { runPipeline, resolveOwnership } from './pipeline';
+import { runPipeline, resolveRunMode } from './pipeline';
 import { createDashboardLogger, createDashboardSpinner } from './ui/inkLogger';
 import { store } from './ui/store';
 import type { PipelinePhase } from './ui/store';
@@ -144,9 +144,9 @@ async function main(): Promise<void> {
 
   const root = path.resolve(flags.root ?? process.cwd());
 
-  // Resolve ownership BEFORE mounting the ink dashboard.
+  // Resolve ownership + generate mode BEFORE mounting the ink dashboard.
   // selectPrompt uses raw stdin which conflicts with ink's useInput.
-  const ownership = await resolveOwnership(root);
+  const { ownership, generate } = await resolveRunMode(root);
 
   const useDashboard = !flags.quiet && !flags.noColor && process.stdout.isTTY === true;
 
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    process.exitCode = await runPipeline({ root, flags, log, spin, ownership });
+    process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate });
   } finally {
     if (unmount) unmount();
   }
