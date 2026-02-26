@@ -3,9 +3,10 @@ import type { InstructionsMode } from '../emitter';
 // ─────────────────────────────────────────────────────────────────────────────
 // Canonical instruction content - all exports derive from this
 //
-// Two tiers:
+// Three tiers:
 //   1. Rules-only (no KB references) — default when kb.md is not generated
 //   2. KB-aware (references kb.md) — used when generateKb is enabled
+//   3. KB-custom (embeds KB facts) — used when KB exists but no LLM available
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -26,6 +27,265 @@ export function generateCanonicalContentForMode(
       : generateCanonicalContentPermissive();
   }
   return kbAvailable ? generateCanonicalContentSafeKB() : generateCanonicalContentSafe();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// KB-custom content — embeds extracted KB facts directly into instructions
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate a project-customized AGENTS.md using actual KB content.
+ *
+ * Extracts key architectural facts (hubs, entry points, conventions, etc.)
+ * from the KB string and embeds them directly into the instructions file.
+ * This produces a useful, project-specific result even without an LLM.
+ *
+ * Falls back to the generic KB-aware template if no meaningful sections
+ * can be extracted.
+ */
+export function generateKbCustomContent(
+  kbContent: string,
+  mode: InstructionsMode = 'safe',
+): string {
+  const hubs = extractKbSection(kbContent, 'High-Risk Architectural Hubs');
+  const entryPoints = extractKbSection(kbContent, 'Entry Points');
+  const layout = extractKbSection(kbContent, 'Directory Layout');
+  const conventions = extractKbSection(kbContent, 'Conventions');
+  const integrations = extractKbSection(kbContent, 'External Integrations');
+  const circularDeps = extractKbSection(kbContent, 'Circular Dependencies');
+
+  const hasContent = hubs || entryPoints || layout || conventions || integrations;
+  if (!hasContent) {
+    return generateCanonicalContentForMode(mode, true);
+  }
+
+  if (mode === 'permissive') {
+    return buildPermissiveKbCustom({ hubs, entryPoints, layout, conventions, integrations, circularDeps });
+  }
+  return buildSafeKbCustom({ hubs, entryPoints, layout, conventions, integrations, circularDeps });
+}
+
+interface KbSections {
+  hubs: string | undefined;
+  entryPoints: string | undefined;
+  layout: string | undefined;
+  conventions: string | undefined;
+  integrations: string | undefined;
+  circularDeps: string | undefined;
+}
+
+/**
+ * Extract a `## Heading` section from KB content.
+ * Handles optional emoji prefixes (e.g. `## ⚠️ High-Risk Architectural Hubs`).
+ * Returns the section body (without the heading or italic description line), or undefined.
+ */
+function extractKbSection(kb: string, heading: string): string | undefined {
+  // Match "## " + optional non-word characters (emoji) + heading text
+  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(
+    `^##\\s+(?:[^\\w\\s]+\\s+)?${escaped}\\s*$`,
+    'mi',
+  );
+  const match = pattern.exec(kb);
+  if (!match) return undefined;
+
+  const start = match.index + match[0].length;
+  const rest = kb.slice(start);
+
+  // Stop at next ## heading, --- separator, or # top-level heading
+  const endMatch = /^(?:#{1,2}\s|---\s*$)/m.exec(rest);
+  const section = endMatch ? rest.slice(0, endMatch.index) : rest;
+
+  // Remove leading italic description lines (e.g. _Files with many dependents..._)
+  const cleaned = section
+    .replace(/^\s*_[^_]+_\s*\n?/gm, '')
+    .trim();
+
+  return cleaned || undefined;
+}
+
+function buildSafeKbCustom(s: KbSections): string {
+  const parts: string[] = [];
+
+  parts.push(`## Aspect Code — Project-Specific Guidelines
+
+**Aspect Code** analyzed your codebase and generated the project-specific guidelines below.
+The full Knowledge Base is in \`kb.md\` at the workspace root for detailed reference.`);
+
+  // ── Project Architecture ────────────────────────────────
+  const archParts: string[] = [];
+
+  if (s.hubs) {
+    archParts.push(`### High-Risk Hubs
+
+These files have many dependents — changes here ripple widely. Edit with care.
+
+${s.hubs}`);
+  }
+
+  if (s.entryPoints) {
+    archParts.push(`### Entry Points
+
+${s.entryPoints}`);
+  }
+
+  if (s.layout) {
+    archParts.push(`### Directory Layout
+
+${s.layout}`);
+  }
+
+  if (s.circularDeps) {
+    archParts.push(`### Circular Dependencies
+
+${s.circularDeps}`);
+  }
+
+  if (archParts.length > 0) {
+    parts.push(`## Project Architecture\n\n${archParts.join('\n\n')}`);
+  }
+
+  // ── Conventions & Integrations ─────────────────────────
+  if (s.conventions) {
+    parts.push(`## Coding Conventions
+
+${s.conventions}`);
+  }
+
+  if (s.integrations) {
+    parts.push(`## External Integrations
+
+${s.integrations}`);
+  }
+
+  // ── Golden Rules ────────────────────────────────────────
+  parts.push(`## Golden Rules
+
+1. **Read before you write.** Open and read the relevant files before multi-file edits.
+2. **Check high-risk hubs first.** Review the hubs listed above before editing widely-imported files.
+3. **Think step-by-step.** Break complex tasks into smaller steps; reason through each before coding.
+4. **Prefer minimal, local changes.** Small patches are safer than large refactors, especially in hub files.
+5. **Never truncate code.** Don't use placeholders like \`// ...rest\` or \`# existing code...\`. Provide complete implementations.
+6. **Don't touch tests, migrations, or third-party code** unless the user explicitly asks you to.
+7. **Never remove referenced logic.** Check all callers before deleting a function, class, or symbol.
+8. **Understand blast radius.** Trace relationships and dependents before refactoring.
+9. **Follow conventions above.** Match the project's existing naming patterns and import styles.
+10. **When unsure, go small.** Propose a minimal, reversible change instead of a sweeping refactor.`);
+
+  // ── When Changing Code ──────────────────────────────────
+  parts.push(`## When Changing Code
+
+- **Read the COMPLETE file** before modifying it. Preserve all existing exports/functions.
+- **Add, don't reorganize.** Unless the task says "refactor", avoid moving code around.
+- **Check high-risk hubs** listed above before editing widely-imported files.
+- **Avoid renaming** widely-used symbols without updating all callers.
+- **No new dependency cycles.** Before adding an import, verify it won't create a circular dependency.
+- **Match conventions** listed above (naming, imports, frameworks).
+- **Prefer small, localized changes** in the most relevant module.
+- Consult \`kb.md\` for the full symbol index, module clusters, and data models.`);
+
+  // ── When Things Go Wrong ────────────────────────────────
+  parts.push(`## When Things Go Wrong
+
+If you encounter repeated errors or unexpected behavior:
+
+1. **Use git** to see what changed: \`git diff\`, \`git status\`
+2. **Restore lost code** with \`git checkout -- <file>\` if needed
+3. **Re-read the complete file** before making more changes
+4. **Trace data flows** to understand execution paths
+5. **Run actual tests** to verify behavior before assuming something works`);
+
+  return parts.join('\n\n').trim();
+}
+
+function buildPermissiveKbCustom(s: KbSections): string {
+  const parts: string[] = [];
+
+  parts.push(`## Aspect Code — Project-Specific Guidelines
+
+**Aspect Code** analyzed your codebase and generated the project-specific guidelines below.
+The full Knowledge Base is in \`kb.md\` at the workspace root.
+
+Use these guidelines as orientation — not as constraints.`);
+
+  // ── Project Architecture ────────────────────────────────
+  const archParts: string[] = [];
+
+  if (s.hubs) {
+    archParts.push(`### High-Risk Hubs
+
+${s.hubs}`);
+  }
+
+  if (s.entryPoints) {
+    archParts.push(`### Entry Points
+
+${s.entryPoints}`);
+  }
+
+  if (s.layout) {
+    archParts.push(`### Directory Layout
+
+${s.layout}`);
+  }
+
+  if (archParts.length > 0) {
+    parts.push(`## Project Architecture\n\n${archParts.join('\n\n')}`);
+  }
+
+  if (s.conventions) {
+    parts.push(`## Coding Conventions
+
+${s.conventions}`);
+  }
+
+  if (s.integrations) {
+    parts.push(`## External Integrations
+
+${s.integrations}`);
+  }
+
+  // ── Operating Rules ─────────────────────────────────────
+  parts.push(`### Operating Rules (Pragmatic, Not Rigid)
+
+- Read relevant code before large edits; use the architecture above for orientation
+- Treat the hubs and entry points above as the "structural spine" of the project
+- If your change conflicts with existing structure, either:
+  - update the code in a way that keeps the existing intent valid, or
+  - explicitly state the mismatch and proceed with a coherent new structure
+
+### You May (Explicitly Allowed)
+
+- Refactor for clarity: extract functions, split files, consolidate duplicates
+- Reorganize modules/folders when it improves cohesion and discoverability
+- Touch multiple files when the change is conceptually one improvement
+- Change public/internal APIs when it simplifies the design (with follow-through updates)
+- Edit high-risk hubs when needed — do it deliberately, with dependency awareness
+- Rename symbols for consistency (types, functions, modules) and update references
+
+### You Should
+
+- Explain the new structure in terms of the existing architecture
+- Keep changes "conceptually tight": one goal, end-to-end, fully wired
+- Update call sites and imports immediately when you move/rename things
+- Prefer simplification over novelty; remove unnecessary layers when justified
+- Validate that referenced symbols still exist and are still reachable from call sites
+
+### Avoid
+
+- Deleting or renaming referenced symbols without updating all usages
+- Unnecessary scope creep (adding features unrelated to the request)
+- Blind rewrites that ignore the project's dependency structure and entry points
+- "Rebuild everything" refactors when a targeted restructure achieves the goal
+- Cosmetic churn that obscures meaningful changes`);
+
+  parts.push(`## Suggested Workflow
+
+1. Read the architecture above and relevant code for orientation.
+2. Implement the change end-to-end.
+3. Run tests / build.`);
+
+  return parts.join('\n\n').trim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

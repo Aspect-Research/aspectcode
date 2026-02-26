@@ -14,7 +14,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS, analyzeRepoWithDependencies } from '@aspectcode/core';
-import { createNodeEmitterHost, generateCanonicalContentForMode } from '@aspectcode/emitters';
+import { createNodeEmitterHost, generateCanonicalContentForMode, generateKbCustomContent } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
@@ -111,10 +111,14 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     log.debug(`Read ${toolInstructions.size} AI tool instruction file(s) as context`);
   }
 
-  // ── 5. Write static-template AGENTS.md for immediate feedback ─
+  // ── 5. Write KB-customized AGENTS.md for immediate feedback ────
   //    Written to disk right away so the user sees output early,
   //    even before the LLM generation finishes.
-  const baseContent = generateCanonicalContentForMode('safe', kbContent.length > 0);
+  //    When KB content is available, embeds project-specific facts
+  //    (hubs, entry points, conventions) directly into the template.
+  const baseContent = kbContent.length > 0
+    ? generateKbCustomContent(kbContent, 'safe')
+    : generateCanonicalContentForMode('safe', false);
   if (!flags.dryRun) {
     await writeAgentsMd(host, root, baseContent, ownership);
     store.addOutput('AGENTS.md written (base)');
