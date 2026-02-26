@@ -1,5 +1,12 @@
 # @aspectcode/evaluator
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [[`f86ecf9`](https://github.com/asashepard/aspectcode/commit/f86ecf9e020b50b723df3d00f323653fc6165c8d)]:
+  - @aspectcode/optimizer@0.4.0
+
 ## 0.3.4
 
 ### Patch Changes

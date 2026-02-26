@@ -1,5 +1,11 @@
 # @aspectcode/optimizer
 
+## 0.4.0
+
+### Minor Changes
+
+- [#20](https://github.com/asashepard/aspectcode/pull/20) [`f86ecf9`](https://github.com/asashepard/aspectcode/commit/f86ecf9e020b50b723df3d00f323653fc6165c8d) Thanks [@asashepard](https://github.com/asashepard)! - Dashboard UX improvements: summary card showing sections/rules/file coverage after generation, token usage display, first-run onboarding message, diff summary on regeneration, and `--compact` flag to hide banner and reasoning. Reasoning display collapsed to a single short line. Added `chatWithUsage` to LLM providers for token counting.
+
 ## 0.3.4
 
 ### Patch Changes
