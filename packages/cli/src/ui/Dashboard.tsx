@@ -180,6 +180,7 @@ const Dashboard: React.FC = () => {
   const evalDone = s.evalStatus.phase === 'done';
   const evalActive = s.evalStatus.phase !== 'idle';
   const allPassed = s.evalStatus.probesPassed === s.evalStatus.probesTotal;
+  const hasProbes = (s.evalStatus.probesTotal ?? 0) > 0;
   const isDone = s.phase === 'done' || s.phase === 'watching';
 
   // Collapse reasoning to a single short line; hide the trivial "generation complete" message
@@ -262,8 +263,8 @@ const Dashboard: React.FC = () => {
         )}
       </Box>
 
-      {/* ── Evaluator progress ───────────────────────── */}
-      {evalActive && evalLabel && (
+      {/* ── Evaluator progress (hidden when 0 probes at completion) ── */}
+      {evalActive && evalLabel && !(evalDone && !hasProbes) && (
         <Text color={evalDone && allPassed ? COLORS.green : evalDone ? COLORS.yellow : COLORS.primaryDim}>
           {`  ◆ ${evalLabel}`}
         </Text>

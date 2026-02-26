@@ -59,6 +59,63 @@ User, Session, Token
 src/core/db.ts, src/core/auth.ts, src/core/session.ts
 `;
 
+/** KB in the format the real emitters produce (emoji headings, 5-col table, bullet entry points). */
+const EMITTER_KB = `# Architecture
+
+## ⚠️ High-Risk Architectural Hubs
+
+> **These files are architectural load-bearing walls.**
+
+| Rank | File | Imports | Imported By | Risk |
+|------|------|---------|-------------|------|
+| 1 | \`backend/app/core/config.py\` | 2 | 9 | 🔴 High |
+| 2 | \`backend/app/models.py\` | 4 | 7 | 🟡 Medium |
+
+## Entry Points
+
+_Where code execution begins._
+
+### Runtime Entry Points
+
+- 🟢 \`backend/app/main.py\`: FastAPI application entry (uvicorn)
+- 🟡 \`backend/app/api/routes/private.py\`: API route handler
+
+### Runnable Scripts / Tooling
+
+- 🟢 \`scripts/migrate.py\`: Database migration CLI
+
+---
+
+# Map
+
+## Data Models
+
+User, Role, Permission
+
+## Conventions
+
+_Naming patterns and styles._
+
+### File Naming
+
+| Pattern | Example | Count |
+|---------|---------|-------|
+| snake_case | \`user_service.py\` | 23 |
+| kebab-case | \`api-routes.ts\` | 5 |
+
+**Use:** snake_case for new files.
+
+### Function Naming
+
+- \`get_*\` → \`get_user\` (accessor pattern)
+- \`create_*\` → \`create_session\` (factory pattern)
+
+---
+
+# Context
+`;
+
+
 const SAMPLE_DIFF = `--- a/src/core/db.ts
 +++ b/src/core/db.ts
 @@ -10,6 +10,7 @@
@@ -190,6 +247,26 @@ describe('generateProbes', () => {
   it('returns empty array when KB is empty', () => {
     const probes = generateProbes({ kb: '' });
     assert.equal(probes.length, 0);
+  });
+
+  // Tests for real emitter KB format
+  it('parses hubs from emitter 5-column table with emoji heading', () => {
+    const probes = generateProbes({ kb: EMITTER_KB });
+    const hubProbes = probes.filter((p) => p.category === 'hub-safety');
+    assert.ok(hubProbes.length >= 1, 'should generate hub probes from emitter format');
+    assert.ok(hubProbes[0].contextFiles.includes('backend/app/core/config.py'));
+  });
+
+  it('parses entry points from emitter bullet-list format', () => {
+    const probes = generateProbes({ kb: EMITTER_KB });
+    const entryProbes = probes.filter((p) => p.category === 'entry-point');
+    assert.ok(entryProbes.length >= 1, 'should generate entry point probes from bullet format');
+  });
+
+  it('parses conventions from emitter structured format', () => {
+    const probes = generateProbes({ kb: EMITTER_KB });
+    const namingProbes = probes.filter((p) => p.category === 'naming');
+    assert.ok(namingProbes.length >= 1, 'should generate naming probes from emitter format');
   });
 });
 
