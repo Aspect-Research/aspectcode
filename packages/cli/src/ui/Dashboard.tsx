@@ -182,6 +182,12 @@ const Dashboard: React.FC = () => {
   const allPassed = s.evalStatus.probesPassed === s.evalStatus.probesTotal;
   const isDone = s.phase === 'done' || s.phase === 'watching';
 
+  // Collapse reasoning to a single short line; hide the trivial "generation complete" message
+  const TRIVIAL_RE = /single.pass generation|generation complete/i;
+  const meaningful = s.reasoning.filter((r) => !TRIVIAL_RE.test(r));
+  const raw = meaningful.join(' · ');
+  const reasoningLine = raw.length > 80 ? raw.slice(0, 77) + '…' : raw;
+
   return (
     <Box flexDirection="column">
       {/* ── Banner (hidden in compact mode) ──────────── */}
@@ -321,14 +327,9 @@ const Dashboard: React.FC = () => {
         </Box>
       )}
 
-      {/* ── Reasoning (hidden in compact mode) ───────── */}
-      {!compact && s.reasoning.length > 0 && isDone && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color={COLORS.primaryDim}>{'  Generation details:'}</Text>
-          {s.reasoning.map((r, i) => (
-            <Text key={i} color={COLORS.gray}>{`    ${r}`}</Text>
-          ))}
-        </Box>
+      {/* ── Reasoning — single line, hidden in compact or when trivial ── */}
+      {!compact && reasoningLine !== '' && isDone && (
+        <Text color={COLORS.gray}>{`  ℹ ${reasoningLine}`}</Text>
       )}
     </Box>
   );
