@@ -4,7 +4,7 @@
  * Layout (full mode):
  *   Banner                         (hidden in compact mode)
  *   First-run message              (only on first run, early phases)
- *   Complaint input + hints        (watching/done only)
+ *   Input bar                      (watching/done only)
  *   Setup notes                    (compact single line)
  *   Status line                    (spinner/icon + phase + stats)
  *   Eval progress                  (harvest → probes → diagnosis)
@@ -12,7 +12,7 @@
  *   Summary card                   (after writing — sections, rules, paths)
  *   Diff summary                   (watch-mode: +N lines, -M lines)
  *   [Detail]                       (change trigger, warning, reasoning)
- *   Complaint changes              (after complaint processing)
+ *   Applied changes                (after refinement)
  *
  * Layout (compact mode):
  *   Same but no banner, no reasoning, setup only if warning.
@@ -207,28 +207,20 @@ const Dashboard: React.FC = () => {
         </Box>
       )}
 
-      {/* ── Complaint input (right below banner) ─────── */}
+      {/* ── Input (right below banner) ───────────────── */}
       {INPUT_VISIBLE.has(s.phase) && !s.processingComplaint && (
         <Box marginTop={0}>
-          <Text color={COLORS.primary}>{'  ❯ '}</Text>
+          <Text color={COLORS.primary}>{'  > '}</Text>
           <Text color={COLORS.white}>{s.complaintInput}</Text>
-          <Text color={COLORS.primaryDim}>{'▌'}</Text>
+          <Text color={COLORS.primaryDim}>{'|'}</Text>
         </Box>
       )}
 
-      {/* ── Queued complaints indicator ──────────────── */}
+      {/* ── Queued indicator ────────────────────────── */}
       {s.complaintQueue.length > 0 && (
         <Text color={COLORS.primaryDim}>
-          {`  ${s.complaintQueue.length} complaint${s.complaintQueue.length === 1 ? '' : 's'} queued`}
+          {`  ${s.complaintQueue.length} pending`}
         </Text>
-      )}
-
-      {/* ── Hints ────────────────────────────────────── */}
-      {s.phase === 'watching' && (
-        <Text color={COLORS.gray} dimColor>{'  Type a complaint above, or Ctrl+C to stop'}</Text>
-      )}
-      {s.phase === 'done' && (
-        <Text color={COLORS.gray} dimColor>{'  Type a complaint above to refine AGENTS.md'}</Text>
       )}
 
       {/* ── Setup notes (compact: show only if warning) ─ */}
@@ -241,13 +233,13 @@ const Dashboard: React.FC = () => {
       {/* ── Status line ──────────────────────────────── */}
       <Box>
         {s.processingComplaint && (
-          <Text color={COLORS.primary}>{`  ${spinner} Processing complaint…`}</Text>
+          <Text color={COLORS.primary}>{`  ${spinner} Refining…`}</Text>
         )}
         {!s.processingComplaint && working && (
           <Text color={COLORS.primary}>{`  ${spinner} ${PHASE_TEXT[s.phase]}${detail}`}</Text>
         )}
         {!s.processingComplaint && s.phase === 'watching' && (
-          <Text color={COLORS.green}>{'  ● Watching'}</Text>
+          <Text color={COLORS.green}>{'  * Watching'}</Text>
         )}
         {!s.processingComplaint && s.phase === 'done' && s.outputs.length > 0 && (
           <Text color={COLORS.green}>{`  ✔ ${s.outputs.join(', ')}`}</Text>
@@ -266,14 +258,14 @@ const Dashboard: React.FC = () => {
       {/* ── Evaluator progress (hidden when 0 probes at completion) ── */}
       {evalActive && evalLabel && !(evalDone && !hasProbes) && (
         <Text color={evalDone && allPassed ? COLORS.green : evalDone ? COLORS.yellow : COLORS.primaryDim}>
-          {`  ◆ ${evalLabel}`}
+          {`  ${evalLabel}`}
         </Text>
       )}
 
       {/* ── Token usage ──────────────────────────────── */}
       {s.tokenUsage && isDone && (
         <Text color={COLORS.gray}>
-          {`  ⚡ ${fmtTokens(s.tokenUsage.inputTokens)} in · ${fmtTokens(s.tokenUsage.outputTokens)} out`}
+          {`  ${fmtTokens(s.tokenUsage.inputTokens)} in · ${fmtTokens(s.tokenUsage.outputTokens)} out`}
         </Text>
       )}
 
@@ -314,14 +306,14 @@ const Dashboard: React.FC = () => {
       {/* ── Warning ──────────────────────────────────── */}
       {s.warning !== '' && (
         <Box marginTop={0}>
-          <Text color={COLORS.yellow}>{`  ⚠ ${s.warning}`}</Text>
+          <Text color={COLORS.yellow}>{`  ! ${s.warning}`}</Text>
         </Box>
       )}
 
-      {/* ── Complaint changes ────────────────────────── */}
+      {/* ── Applied changes ─────────────────────────── */}
       {s.complaintChanges.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={COLORS.primary}>{'  Complaint changes applied:'}</Text>
+          <Text color={COLORS.primary}>{'  Changes applied:'}</Text>
           {s.complaintChanges.map((c, i) => (
             <Text key={i} color={COLORS.primaryDim}>{`    → ${c}`}</Text>
           ))}

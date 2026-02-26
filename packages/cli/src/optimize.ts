@@ -91,7 +91,7 @@ export async function tryOptimize(
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
-  store.addSetupNote(`API key: ${provider.name}`);
+  store.addSetupNote('API key found');
   if (evaluatorEnabled) {
     store.addSetupNote('evaluator on');
   }

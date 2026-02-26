@@ -18,7 +18,7 @@ import { createNodeEmitterHost, generateCanonicalContentForMode } from '@aspectc
 import type { RunContext } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
-import { loadConfig, saveConfig } from './config';
+import { loadConfig } from './config';
 import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
 import { buildKbContent } from './kbBuilder';
@@ -72,8 +72,7 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
 
   // ── First-run detection ───────────────────────────────────
   const agentsPath = path.join(root, 'AGENTS.md');
-  const configPath = path.join(root, 'aspectcode.json');
-  if (!fs.existsSync(agentsPath) && !fs.existsSync(configPath)) {
+  if (!fs.existsSync(agentsPath)) {
     store.setFirstRun(true);
   }
 
@@ -198,7 +197,6 @@ export async function resolveOwnership(root: string): Promise<OwnershipMode> {
         0,
       );
       const ownership: OwnershipMode = idx === 1 ? 'section' : 'full';
-      saveConfig(root, { ownership });
       return ownership;
     }
   } catch {
