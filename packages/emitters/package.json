@@ -1,6 +1,6 @@
 {
   "name": "@aspectcode/emitters",
-  "version": "0.3.4",
+  "version": "0.4.1",
   "private": true,
   "description": "Artifact emitters for Aspect Code — KB, instructions, manifest",
   "license": "MIT",
