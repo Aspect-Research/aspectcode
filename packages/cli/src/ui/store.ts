@@ -31,6 +31,20 @@ export interface EvalStatus {
   diagnosisEdits?: number;
 }
 
+/** Summary of generated AGENTS.md content. */
+export interface ContentSummary {
+  sections: number;
+  rules: number;
+  filePaths: string[];
+}
+
+/** Summary of line-level changes between two versions. */
+export interface DiffSummary {
+  added: number;
+  removed: number;
+  changed: boolean;
+}
+
 export interface DashboardState {
   phase: PipelinePhase;
   /** Human-readable label for the current sub-step (e.g. "iteration 2/3"). */
@@ -60,6 +74,16 @@ export interface DashboardState {
   complaintChanges: string[];
   /** True while the complaint processor is running. */
   processingComplaint: boolean;
+  /** Token usage from the LLM generation call. */
+  tokenUsage?: { inputTokens: number; outputTokens: number };
+  /** Summary of generated AGENTS.md content. */
+  summary?: ContentSummary;
+  /** True on the first run (no AGENTS.md or config existed). */
+  isFirstRun: boolean;
+  /** Diff summary when AGENTS.md is regenerated (watch mode). */
+  diffSummary?: DiffSummary;
+  /** Compact dashboard mode (no banner, tighter layout). */
+  compact: boolean;
 }
 
 /**
@@ -84,6 +108,11 @@ class DashboardStore extends EventEmitter {
     complaintQueue: [],
     complaintChanges: [],
     processingComplaint: false,
+    tokenUsage: undefined,
+    summary: undefined,
+    isFirstRun: false,
+    diffSummary: undefined,
+    compact: false,
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -137,6 +166,26 @@ class DashboardStore extends EventEmitter {
     this.update({ runStartMs: ms });
   }
 
+  setTokenUsage(usage: { inputTokens: number; outputTokens: number }): void {
+    this.update({ tokenUsage: usage });
+  }
+
+  setSummary(summary: ContentSummary): void {
+    this.update({ summary });
+  }
+
+  setFirstRun(isFirstRun: boolean): void {
+    this.update({ isFirstRun });
+  }
+
+  setDiffSummary(diffSummary: DiffSummary | undefined): void {
+    this.update({ diffSummary });
+  }
+
+  setCompact(compact: boolean): void {
+    this.update({ compact });
+  }
+
   // ── Complaint methods ───────────────────────────────────
 
   setComplaintInput(text: string): void {
@@ -183,7 +232,10 @@ class DashboardStore extends EventEmitter {
       elapsed: '',
       provider: '',
       phaseDetail: '',
-      // Note: complaintQueue, complaintInput, complaintChanges are preserved
+      tokenUsage: undefined,
+      summary: undefined,
+      diffSummary: undefined,
+      // Note: complaintQueue, complaintInput, complaintChanges, compact, isFirstRun are preserved
     });
   }
 }

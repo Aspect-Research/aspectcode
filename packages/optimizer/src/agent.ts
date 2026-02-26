@@ -8,7 +8,7 @@
  *   generate (1 call) → probe-test → diagnose → apply edits
  */
 
-import type { ChatMessage, OptimizeOptions, OptimizeResult, ComplaintOptions, ComplaintResult } from './types';
+import type { ChatMessage, ChatUsage, OptimizeOptions, OptimizeResult, ComplaintOptions, ComplaintResult } from './types';
 import {
   buildSystemPrompt,
   buildGeneratePrompt,
@@ -60,8 +60,15 @@ export async function runGenerateAgent(options: OptimizeOptions): Promise<Optimi
   ];
 
   let candidate: string;
+  let usage: ChatUsage | undefined;
   try {
-    candidate = await provider.chat(generateMessages);
+    if (provider.chatWithUsage) {
+      const result = await provider.chatWithUsage(generateMessages);
+      candidate = result.content;
+      usage = result.usage;
+    } else {
+      candidate = await provider.chat(generateMessages);
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log?.error(`LLM call failed: ${msg}`);
@@ -77,6 +84,7 @@ export async function runGenerateAgent(options: OptimizeOptions): Promise<Optimi
   return {
     optimizedInstructions: candidate,
     reasoning: ['Single-pass generation from static analysis complete'],
+    usage,
   };
 }
 

@@ -13,6 +13,18 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Token usage from a single LLM call. */
+export interface ChatUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+/** Result from an LLM call that includes optional token usage. */
+export interface ChatResult {
+  content: string;
+  usage?: ChatUsage;
+}
+
 /**
  * Provider-agnostic LLM interface.
  *
@@ -25,6 +37,12 @@ export interface LlmProvider {
 
   /** Send a chat completion request and return the assistant reply. */
   chat(messages: ChatMessage[]): Promise<string>;
+
+  /**
+   * Send a chat completion request and return the reply with token usage.
+   * Optional — providers that don't implement this fall back to `chat()`.
+   */
+  chatWithUsage?(messages: ChatMessage[]): Promise<ChatResult>;
 }
 
 /** Options passed to provider factory functions. */
@@ -98,6 +116,9 @@ export interface OptimizeResult {
 
   /** Human-readable reasoning / status messages. */
   reasoning: string[];
+
+  /** Aggregate token usage across all LLM calls in this run. */
+  usage?: ChatUsage;
 }
 
 // ── Environment / config ────────────────────────────────────

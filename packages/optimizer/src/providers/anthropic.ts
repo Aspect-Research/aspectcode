@@ -9,7 +9,7 @@
  * - Proper system prompt handling (Anthropic uses a separate `system` field)
  */
 
-import type { ChatMessage, LlmProvider, ProviderOptions } from '../types';
+import type { ChatMessage, ChatResult, LlmProvider, ProviderOptions } from '../types';
 import { withRetry } from './retry';
 
 const DEFAULT_MODEL = 'claude-3-5-haiku-20241022';
@@ -45,6 +45,11 @@ export function createAnthropicProvider(apiKey: string, options?: ProviderOption
     name: 'anthropic',
 
     async chat(messages: ChatMessage[]): Promise<string> {
+      const result = await this.chatWithUsage!(messages);
+      return result.content;
+    },
+
+    async chatWithUsage(messages: ChatMessage[]): Promise<ChatResult> {
       return withRetry(async () => {
         const client = await getClient();
 
@@ -104,7 +109,12 @@ export function createAnthropicProvider(apiKey: string, options?: ProviderOption
           );
         }
 
-        return content;
+        return {
+          content,
+          usage: response.usage
+            ? { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
+            : undefined,
+        };
       });
     },
   };

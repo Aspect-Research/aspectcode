@@ -7,6 +7,8 @@
 export type {
   LlmProvider,
   ChatMessage,
+  ChatUsage,
+  ChatResult,
   ProviderOptions,
   OptimizeOptions,
   OptimizeResult,

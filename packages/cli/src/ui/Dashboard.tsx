@@ -1,13 +1,21 @@
 /**
  * Dashboard — condensed ink-based CLI dashboard.
  *
- * Layout:
- *   Banner
- *   Setup notes   (config, API key, tool files — compact single line)
- *   Status line   (spinner/icon + phase + stats)
- *   Eval progress (harvest → probes → diagnosis — shown during/after evaluation)
- *   [Detail]      (change trigger, outputs, warning, reasoning)
- *   Complaint input (only during idle/done/watching)
+ * Layout (full mode):
+ *   Banner                         (hidden in compact mode)
+ *   First-run message              (only on first run, early phases)
+ *   Complaint input + hints        (watching/done only)
+ *   Setup notes                    (compact single line)
+ *   Status line                    (spinner/icon + phase + stats)
+ *   Eval progress                  (harvest → probes → diagnosis)
+ *   Token usage                    (after LLM generation)
+ *   Summary card                   (after writing — sections, rules, paths)
+ *   Diff summary                   (watch-mode: +N lines, -M lines)
+ *   [Detail]                       (change trigger, warning, reasoning)
+ *   Complaint changes              (after complaint processing)
+ *
+ * Layout (compact mode):
+ *   Same but no banner, no reasoning, setup only if warning.
  */
 
 import React, { useState, useEffect } from 'react';
@@ -57,7 +65,7 @@ const PHASE_TEXT: Record<PipelinePhase, string> = {
   discovering:   'Discovering files…',
   analyzing:     'Analyzing…',
   'building-kb': 'Building knowledge base…',
-  optimizing:    'Optimizing…',
+  optimizing:    'Generating…',
   evaluating:    'Evaluating…',
   writing:       'Writing…',
   watching:      'Watching',
@@ -69,7 +77,7 @@ const WORKING = new Set<PipelinePhase>([
   'idle', 'discovering', 'analyzing', 'building-kb', 'optimizing', 'evaluating', 'writing',
 ]);
 
-// ── Stats string ─────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────
 
 function statsText(s: DashboardState, liveElapsed: string): string {
   const parts: string[] = [];
@@ -81,14 +89,10 @@ function statsText(s: DashboardState, liveElapsed: string): string {
   return parts.length > 0 ? parts.join(' · ') : '';
 }
 
-// ── Setup notes line ─────────────────────────────────────────
-
 function setupLine(notes: string[]): string {
   if (notes.length === 0) return '';
   return notes.join(' · ');
 }
-
-// ── Eval status text ─────────────────────────────────────────
 
 function evalText(phase: EvalPhase, s: DashboardState['evalStatus']): string | null {
   switch (phase) {
@@ -115,10 +119,18 @@ function evalText(phase: EvalPhase, s: DashboardState['evalStatus']): string | n
   }
 }
 
+/** Format a token count with k suffix for readability. */
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
 // ── Component ────────────────────────────────────────────────
 
 /** Phases where the complaint input and hints are shown. */
 const INPUT_VISIBLE = new Set<PipelinePhase>(['watching', 'done']);
+
+/** Phases where the first-run message should be visible. */
+const FIRST_RUN_VISIBLE = new Set<PipelinePhase>(['idle', 'discovering', 'analyzing']);
 
 const Dashboard: React.FC = () => {
   const [s, setS] = useState<DashboardState>({ ...store.state });
@@ -157,6 +169,7 @@ const Dashboard: React.FC = () => {
     }
   });
 
+  const compact = s.compact;
   const working = WORKING.has(s.phase);
   const spinner = useSpinner(working || s.processingComplaint);
   const liveElapsed = useElapsedTimer(s.runStartMs, s.elapsed, working);
@@ -167,13 +180,25 @@ const Dashboard: React.FC = () => {
   const evalDone = s.evalStatus.phase === 'done';
   const evalActive = s.evalStatus.phase !== 'idle';
   const allPassed = s.evalStatus.probesPassed === s.evalStatus.probesTotal;
+  const isDone = s.phase === 'done' || s.phase === 'watching';
 
   return (
     <Box flexDirection="column">
-      {/* ── Banner ───────────────────────────────────── */}
-      <Box marginBottom={0}>
-        <Text color={COLORS.primary} bold>{getBannerText()}</Text>
-      </Box>
+      {/* ── Banner (hidden in compact mode) ──────────── */}
+      {!compact && (
+        <Box marginBottom={0}>
+          <Text color={COLORS.primary} bold>{getBannerText()}</Text>
+        </Box>
+      )}
+
+      {/* ── First-run welcome message ────────────────── */}
+      {s.isFirstRun && FIRST_RUN_VISIBLE.has(s.phase) && (
+        <Box marginBottom={0}>
+          <Text color={COLORS.gray}>
+            {'  Analyzing your codebase to generate AGENTS.md — the coding\n  guidelines AI assistants follow in this project.'}
+          </Text>
+        </Box>
+      )}
 
       {/* ── Complaint input (right below banner) ─────── */}
       {INPUT_VISIBLE.has(s.phase) && !s.processingComplaint && (
@@ -199,8 +224,8 @@ const Dashboard: React.FC = () => {
         <Text color={COLORS.gray} dimColor>{'  Type a complaint above to refine AGENTS.md'}</Text>
       )}
 
-      {/* ── Setup notes (compact single line) ────────── */}
-      {setup !== '' && (
+      {/* ── Setup notes (compact: show only if warning) ─ */}
+      {setup !== '' && !(compact && !s.warning) && (
         <Box marginTop={1}>
           <Text color={COLORS.gray}>{`  ${setup}`}</Text>
         </Box>
@@ -238,6 +263,42 @@ const Dashboard: React.FC = () => {
         </Text>
       )}
 
+      {/* ── Token usage ──────────────────────────────── */}
+      {s.tokenUsage && isDone && (
+        <Text color={COLORS.gray}>
+          {`  ⚡ ${fmtTokens(s.tokenUsage.inputTokens)} in · ${fmtTokens(s.tokenUsage.outputTokens)} out`}
+        </Text>
+      )}
+
+      {/* ── Content summary ──────────────────────────── */}
+      {s.summary && isDone && (
+        <Box flexDirection="column">
+          <Text color={COLORS.gray}>
+            {`  ├ ${s.summary.sections} sections · ${s.summary.rules} rules` +
+              (s.summary.filePaths.length > 0 ? ` · ${s.summary.filePaths.length} file-specific guidelines` : '')}
+          </Text>
+          {s.summary.filePaths.length > 0 && (
+            <Text color={COLORS.gray}>
+              {`  └ covers: ${s.summary.filePaths.slice(0, 3).join(', ')}` +
+                (s.summary.filePaths.length > 3 ? `, +${s.summary.filePaths.length - 3} more` : '')}
+            </Text>
+          )}
+        </Box>
+      )}
+
+      {/* ── Diff summary (watch-mode regeneration) ───── */}
+      {s.diffSummary && s.diffSummary.changed && isDone && (
+        <Text color={COLORS.gray}>
+          {`  ↳ AGENTS.md: ` +
+            (s.diffSummary.added > 0 ? `+${s.diffSummary.added} lines` : '') +
+            (s.diffSummary.added > 0 && s.diffSummary.removed > 0 ? ', ' : '') +
+            (s.diffSummary.removed > 0 ? `-${s.diffSummary.removed} lines` : '')}
+        </Text>
+      )}
+      {s.diffSummary && !s.diffSummary.changed && isDone && (
+        <Text color={COLORS.gray}>{'  ↳ AGENTS.md: no changes'}</Text>
+      )}
+
       {/* ── Change trigger ───────────────────────────── */}
       {s.lastChange !== '' && working && (
         <Text color={COLORS.gray}>{`  ↳ ${s.lastChange}`}</Text>
@@ -260,10 +321,10 @@ const Dashboard: React.FC = () => {
         </Box>
       )}
 
-      {/* ── Optimization reasoning ───────────────────── */}
-      {s.reasoning.length > 0 && (s.phase === 'done' || s.phase === 'watching') && (
+      {/* ── Reasoning (hidden in compact mode) ───────── */}
+      {!compact && s.reasoning.length > 0 && isDone && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={COLORS.primaryDim}>{'  Optimization details:'}</Text>
+          <Text color={COLORS.primaryDim}>{'  Generation details:'}</Text>
           {s.reasoning.map((r, i) => (
             <Text key={i} color={COLORS.gray}>{`    ${r}`}</Text>
           ))}

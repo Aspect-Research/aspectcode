@@ -18,9 +18,15 @@ describe('parseArgs', () => {
     assert.equal(r.dryRun, false);
     assert.equal(r.once, false);
     assert.equal(r.noColor, false);
+    assert.equal(r.compact, false);
     assert.equal(r.root, undefined);
     assert.equal(r.provider, undefined);
     assert.equal(r.model, undefined);
+  });
+
+  it('parses --compact flag', () => {
+    const r = parseArgs([...base, '--compact']);
+    assert.equal(r.compact, true);
   });
 
   it('parses --help flag', () => {

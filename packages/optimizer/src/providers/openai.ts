@@ -8,7 +8,7 @@
  * - Truncation detection (warns when finish_reason is 'length')
  */
 
-import type { ChatMessage, LlmProvider, ProviderOptions } from '../types';
+import type { ChatMessage, ChatResult, LlmProvider, ProviderOptions } from '../types';
 import { withRetry } from './retry';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -41,6 +41,11 @@ export function createOpenAiProvider(apiKey: string, options?: ProviderOptions):
     name: 'openai',
 
     async chat(messages: ChatMessage[]): Promise<string> {
+      const result = await this.chatWithUsage!(messages);
+      return result.content;
+    },
+
+    async chatWithUsage(messages: ChatMessage[]): Promise<ChatResult> {
       return withRetry(async () => {
         const client = await getClient();
 
@@ -68,7 +73,12 @@ export function createOpenAiProvider(apiKey: string, options?: ProviderOptions):
           );
         }
 
-        return content;
+        return {
+          content,
+          usage: response.usage
+            ? { inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens }
+            : undefined,
+        };
       });
     },
   };

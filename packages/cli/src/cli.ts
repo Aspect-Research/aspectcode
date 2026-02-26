@@ -43,6 +43,7 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'provider',         short: 'p', type: 'string',  description: 'LLM provider: openai|anthropic' },
   { name: 'model',            short: 'm', type: 'string',  description: 'LLM model override' },
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)' },
+  { name: 'compact',                       type: 'boolean', description: 'Compact dashboard (no banner)' },
 ] as const;
 
 // ── Parsed structures ────────────────────────────────────────
@@ -61,6 +62,7 @@ export interface CliFlags {
   provider?: string;
   model?: string;
   temperature?: number;
+  compact: boolean;
 }
 
 /** Exit codes. */

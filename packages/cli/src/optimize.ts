@@ -11,7 +11,7 @@ import {
   loadEnvFile,
   runGenerateAgent,
 } from '@aspectcode/optimizer';
-import type { ProviderOptions, OptimizeStep } from '@aspectcode/optimizer';
+import type { ProviderOptions, OptimizeStep, ChatUsage } from '@aspectcode/optimizer';
 import {
   generateProbes,
   runProbes,
@@ -31,6 +31,8 @@ export interface OptimizeOutput {
   content: string;
   /** Per-iteration reasoning (empty when no API key / static fallback). */
   reasoning: string[];
+  /** Token usage from the generation LLM call (undefined when static fallback). */
+  tokenUsage?: ChatUsage;
 }
 
 /**
@@ -165,6 +167,11 @@ export async function tryOptimize(
     log.debug(`  ${fmt.dim(reason)}`);
   }
 
+  // Surface token usage from generation call
+  if (result.usage) {
+    store.setTokenUsage(result.usage);
+  }
+
   // ── Evaluate with probes (if enabled) ─────────────────────
   let finalContent = result.optimizedInstructions;
 
@@ -269,5 +276,6 @@ export async function tryOptimize(
   return {
     content: finalContent,
     reasoning: result.reasoning,
+    tokenUsage: result.usage,
   };
 }

@@ -11,6 +11,7 @@
  * 7. If not --once → watch for changes and repeat
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS, analyzeRepoWithDependencies } from '@aspectcode/core';
 import { createNodeEmitterHost, generateCanonicalContentForMode } from '@aspectcode/emitters';
@@ -28,6 +29,8 @@ import { tryOptimize } from './optimize';
 import { processComplaints } from './complaintProcessor';
 import { selectPrompt } from './ui/prompts';
 import { store } from './ui/store';
+import { summarizeContent } from './summary';
+import { diffSummary } from './diffSummary';
 
 // ── Watch constants ──────────────────────────────────────────
 
@@ -66,6 +69,13 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
   store.resetRun();
   store.setRunStartMs(startMs);
   store.addSetupNote(config ? 'config loaded' : 'no config');
+
+  // ── First-run detection ───────────────────────────────────
+  const agentsPath = path.join(root, 'AGENTS.md');
+  const configPath = path.join(root, 'aspectcode.json');
+  if (!fs.existsSync(agentsPath) && !fs.existsSync(configPath)) {
+    store.setFirstRun(true);
+  }
 
   // ── 1. Discover & read files ──────────────────────────────
   store.setPhase('discovering');
@@ -124,11 +134,29 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     log.info(optimizeResult.content);
     log.blank();
   } else {
+    // Compute diff before overwriting (for watch-mode change summary)
+    let previousContent: string | undefined;
+    try {
+      if (fs.existsSync(agentsPath)) {
+        previousContent = fs.readFileSync(agentsPath, 'utf-8');
+      }
+    } catch { /* ignore read errors */ }
+
     await writeAgentsMd(host, root, optimizeResult.content, ownership);
     const modeLabel = ownership === 'section' ? ' (section)' : '';
     const verb = optimizeResult.reasoning.length > 0 ? 'generated' : 'written';
     store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
     log.success(`AGENTS.md ${verb}${modeLabel}`);
+
+    // Diff summary (skip on first write when previous was just the base template)
+    if (previousContent !== undefined && previousContent !== baseContent) {
+      const diff = diffSummary(previousContent, optimizeResult.content);
+      store.setDiffSummary(diff);
+    }
+
+    // Content summary for the dashboard
+    const summary = summarizeContent(optimizeResult.content);
+    store.setSummary(summary);
   }
 
   // ── 8. Optionally write kb.md ─────────────────────────────

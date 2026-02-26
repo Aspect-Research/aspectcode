@@ -13,6 +13,7 @@ import { createLogger, createSpinner, disableColor, fmt } from './logger';
 import { getVersion } from './version';
 import { runPipeline, resolveOwnership } from './pipeline';
 import { createDashboardLogger, createDashboardSpinner } from './ui/inkLogger';
+import { store } from './ui/store';
 import type { PipelinePhase } from './ui/store';
 
 // ── Build lookup tables from FLAG_DEFS ───────────────────────
@@ -36,6 +37,7 @@ export function parseArgs(argv: string[]): CliFlags {
     dryRun: false,
     once: false,
     noColor: false,
+    compact: false,
   };
 
   const args = argv.slice(2); // skip node + script
@@ -83,13 +85,13 @@ function printHelp(): void {
   }
 
   console.log(`
-${fmt.bold('aspectcode')} — optimize AGENTS.md for your codebase
+${fmt.bold('aspectcode')} — generate AGENTS.md for your codebase
 
 ${fmt.bold('USAGE')}
   aspectcode [options]
 
   Analyzes your codebase, builds a knowledge base, reads existing AI tool
-  instruction files for context, optimizes AGENTS.md via LLM (when API key
+  instruction files for context, generates AGENTS.md via LLM (when API key
   is available), and watches for changes.
 
 ${fmt.bold('OPTIONS')}
@@ -101,6 +103,7 @@ ${fmt.bold('EXAMPLES')}
   aspectcode --once --kb          ${fmt.dim('# also write kb.md')}
   aspectcode --once --dry-run     ${fmt.dim('# preview without writing')}
   aspectcode --provider openai    ${fmt.dim('# force specific LLM provider')}
+  aspectcode --compact            ${fmt.dim('# minimal dashboard layout')}
 `.trimStart());
 }
 
@@ -152,6 +155,11 @@ async function main(): Promise<void> {
   let unmount: (() => void) | undefined;
 
   if (useDashboard) {
+    // Set compact mode before mounting dashboard
+    if (flags.compact) {
+      store.setCompact(true);
+    }
+
     // ink-based dashboard mode
     log = createDashboardLogger();
     spin = (msg: string, phase?: string) =>
