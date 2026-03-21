@@ -70,7 +70,3 @@ export type { MapEmitterInput } from './mapEmitter';
 export { buildContextContent } from './contextEmitter';
 export type { ContextEmitterInput } from './contextEmitter';
 
-// ── KB orchestrator ──────────────────────────────────────────
-
-export { createKBEmitter, KB_FILENAME } from './kbEmitter';
-export type { KBEmitterOptions } from './kbEmitter';

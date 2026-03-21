@@ -1,4 +1,4 @@
-import type { InstructionsMode } from '../emitter';
+type InstructionsMode = 'safe' | 'permissive' | 'off';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Canonical instruction content - all exports derive from this
