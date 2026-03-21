@@ -26,11 +26,11 @@ import { readToolInstructions } from './toolIngestion';
 import { writeAgentsMd, writeKbMd, hasMarkers } from './writer';
 import type { OwnershipMode } from './writer';
 import { tryOptimize } from './optimize';
-import { processComplaints } from './complaintProcessor';
 import { selectPrompt } from './ui/prompts';
 import { store } from './ui/store';
 import { summarizeContent } from './summary';
 import { diffSummary } from './diffSummary';
+import { updateRuntimeState } from './runtimeState';
 
 // ── Watch constants ──────────────────────────────────────────
 
@@ -42,12 +42,14 @@ const IGNORED_SEGMENTS = [
   '/.pytest_cache/', '/.mypy_cache/', '/.tox/', '/htmlcov/',
 ];
 
-function isIgnoredPath(filePath: string): boolean {
+/** Check whether a path should be excluded from watch events. */
+export function isIgnoredPath(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, '/').toLowerCase();
   return IGNORED_SEGMENTS.some((seg) => normalized.includes(seg));
 }
 
-function isSupportedSourceFile(filePath: string): boolean {
+/** Check whether a file extension is one we analyze. */
+export function isSupportedSourceFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return SUPPORTED_EXTENSIONS.includes(ext);
 }
@@ -56,7 +58,7 @@ function isSupportedSourceFile(filePath: string): boolean {
 
 interface RunOnceResult {
   code: ExitCodeValue;
-  /** KB content from this run (used by complaint processor). */
+  /** KB content from this run. */
   kbContent: string;
 }
 
@@ -117,9 +119,8 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     : generateCanonicalContentForMode('safe', false);
 
   // ── 6. Generate or skip ────────────────────────────────────
-  //    When ctx.generate is true: write base template immediately for
-  //    early feedback, then run LLM (or static fallback), then overwrite.
-  //    When ctx.generate is false: write KB-custom content only.
+  let finalContent = baseContent;
+
   if (ctx.generate) {
     // Write base immediately so user sees output before LLM finishes
     if (!flags.dryRun) {
@@ -130,13 +131,14 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
 
     store.setPhase('optimizing');
     const optimizeResult = await tryOptimize(ctx, kbContent, toolInstructions, config, baseContent);
+    finalContent = optimizeResult.content;
 
     // ── Write LLM-generated AGENTS.md ─────────────────────
     store.setPhase('writing');
     if (flags.dryRun) {
       log.info(fmt.bold('Dry run — proposed AGENTS.md:'));
       log.blank();
-      log.info(optimizeResult.content);
+      log.info(finalContent);
       log.blank();
     } else {
       // Compute diff before overwriting (for watch-mode change summary)
@@ -147,7 +149,7 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
         }
       } catch { /* ignore read errors */ }
 
-      await writeAgentsMd(host, root, optimizeResult.content, ownership);
+      await writeAgentsMd(host, root, finalContent, ownership);
       const modeLabel = ownership === 'section' ? ' (section)' : '';
       const verb = optimizeResult.reasoning.length > 0 ? 'generated' : 'written';
       store.addOutput(`AGENTS.md ${verb}${modeLabel}`);
@@ -155,12 +157,12 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
 
       // Diff summary (skip on first write when previous was just the base template)
       if (previousContent !== undefined && previousContent !== baseContent) {
-        const diff = diffSummary(previousContent, optimizeResult.content);
+        const diff = diffSummary(previousContent, finalContent);
         store.setDiffSummary(diff);
       }
 
       // Content summary for the dashboard
-      const summary = summarizeContent(optimizeResult.content);
+      const summary = summarizeContent(finalContent);
       store.setSummary(summary);
     }
   } else {
@@ -182,12 +184,20 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
     store.addSetupNote('generation skipped');
   }
 
-  // ── 8. Optionally write kb.md ─────────────────────────────
+  // ── 7. Optionally write kb.md ─────────────────────────────
   if (flags.kb && !flags.dryRun) {
     await writeKbMd(host, root, kbContent);
     store.addOutput('kb.md written');
     log.success('kb.md written');
   }
+
+  // ── 8. Persist runtime state for other modules ────────────
+  updateRuntimeState({
+    model,
+    kbContent,
+    agentsContent: finalContent,
+    fileContents: workspace.relativeFiles,
+  });
 
   const elapsedMs = Date.now() - startMs;
   store.setElapsed(`${(elapsedMs / 1000).toFixed(1)}s`);
@@ -203,12 +213,6 @@ async function runOnce(ctx: RunContext, ownership: OwnershipMode): Promise<RunOn
  *
  * Called from main() BEFORE the ink dashboard is mounted, because
  * the interactive prompt uses raw stdin which conflicts with ink's useInput.
- *
- * When AGENTS.md already has section markers → section + generate (auto).
- * Otherwise (no file, or file without markers) → 3-option prompt:
- *   1. Full control — generate now
- *   2. Full control — skip generation (use KB-custom only)
- *   3. Section control (preserve your content)
  */
 export async function resolveRunMode(root: string): Promise<RunMode> {
   const config = loadConfig(root);
@@ -251,7 +255,29 @@ export async function resolveRunMode(root: string): Promise<RunMode> {
   }
 }
 
-export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
+// ── File change event ────────────────────────────────────────
+
+/** Describes a detected file-system change. */
+export interface FileChangeEvent {
+  type: 'add' | 'change' | 'unlink';
+  /** Workspace-relative posix path. */
+  path: string;
+}
+
+/**
+ * Callback invoked when file changes are detected in watch mode.
+ * Returns the action to take: 'full-pipeline' re-runs the entire
+ * pipeline; future v2 will add 'evaluate' for lightweight checks.
+ */
+export type FileChangeHandler = (events: FileChangeEvent[]) => 'full-pipeline';
+
+/** Default handler — always re-runs the full pipeline. */
+const defaultChangeHandler: FileChangeHandler = () => 'full-pipeline';
+
+export async function runPipeline(
+  ctx: RunContext,
+  onFileChange: FileChangeHandler = defaultChangeHandler,
+): Promise<ExitCodeValue> {
   const { root, flags, log, ownership } = ctx;
 
   log.info(`${fmt.bold('aspectcode')} — ${fmt.cyan(root)}`);
@@ -264,14 +290,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   ctx.generate = true;
   if (result.code !== ExitCode.OK) return result.code;
 
-  // Keep track of latest KB for complaint processing
-  let latestKb = result.kbContent;
-
-  // ── --once: process any queued complaints, then exit ──────
+  // ── --once: exit immediately ───────────────────────────────
   if (flags.once) {
-    if (store.state.complaintQueue.length > 0) {
-      await processComplaints(ctx, ownership, latestKb);
-    }
     return ExitCode.OK;
   }
 
@@ -297,18 +317,25 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let running = false;
   let pending = false;
   let stopped = false;
+  let pendingEvents: FileChangeEvent[] = [];
 
-  const triggerRun = async (reason: string): Promise<void> => {
+  const triggerRun = async (events: FileChangeEvent[]): Promise<void> => {
     if (stopped) return;
     if (running) { pending = true; return; }
 
+    const action = onFileChange(events);
+
     running = true;
     try {
+      const reason = events.map((e) => `${e.type}: ${e.path}`).join(', ');
       log.blank();
       log.info(`${fmt.bold('change detected:')} ${reason}`);
       store.setLastChange(reason);
-      const runResult = await runOnce(ctx, ownership);
-      if (runResult.kbContent) latestKb = runResult.kbContent;
+
+      if (action === 'full-pipeline') {
+        await runOnce(ctx, ownership);
+      }
+
       store.setPhase('watching');
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -317,19 +344,24 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       running = false;
       if (pending && !stopped) {
         pending = false;
-        void triggerRun('queued changes');
+        const queued = pendingEvents.splice(0);
+        void triggerRun(queued.length > 0 ? queued : [{ type: 'change', path: '(queued)' }]);
       }
     }
   };
 
-  const onFsEvent = (eventType: string, eventPath: string) => {
+  const onFsEvent = (eventType: 'add' | 'change' | 'unlink', eventPath: string) => {
     const abs = path.resolve(root, eventPath);
     if (!isSupportedSourceFile(abs) || isIgnoredPath(abs)) return;
+
+    const posixPath = eventPath.replace(/\\/g, '/');
+    pendingEvents.push({ type: eventType, path: posixPath });
 
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      void triggerRun(`${eventType}: ${eventPath.replace(/\\/g, '/')}`);
+      const events = pendingEvents.splice(0);
+      void triggerRun(events);
     }, DEBOUNCE_MS);
   };
 
@@ -341,26 +373,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   await new Promise<void>((resolve) => watcher.once('ready', resolve));
   log.info(fmt.dim('Watcher ready.'));
 
-  // ── Complaint polling — check for queued complaints periodically ──
-  const COMPLAINT_POLL_MS = 500;
-  const complaintPoll = setInterval(async () => {
-    if (stopped || running || store.state.complaintQueue.length === 0) return;
-    running = true;
-    try {
-      await processComplaints(ctx, ownership, latestKb);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.error(`Complaint processing failed: ${msg}`);
-    } finally {
-      running = false;
-    }
-  }, COMPLAINT_POLL_MS);
-
   return await new Promise<ExitCodeValue>((resolve) => {
     const shutdown = async (signal: string) => {
       if (stopped) return;
       stopped = true;
-      clearInterval(complaintPoll);
       if (timer) { clearTimeout(timer); timer = undefined; }
       log.blank();
       log.info(fmt.dim(`Stopping (${signal})…`));

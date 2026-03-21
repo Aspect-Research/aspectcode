@@ -12,9 +12,7 @@ export type {
   OptimizeResult,
   OptimizeStep,
   OptLogger,
-  ComplaintOptions,
-  ComplaintResult,
 } from './types';
 
 export { resolveProvider, loadEnvFile } from './providers/index';
-export { runGenerateAgent, runComplaintAgent } from './agent';
+export { runGenerateAgent } from './agent';

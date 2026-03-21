@@ -66,14 +66,6 @@ export interface DashboardState {
   evalStatus: EvalStatus;
   /** Epoch ms when the current run started (0 when idle). */
   runStartMs: number;
-  /** Current complaint text being typed by the user. */
-  complaintInput: string;
-  /** Queued complaints awaiting processing. */
-  complaintQueue: string[];
-  /** Human-readable change descriptions from the last complaint processing. */
-  complaintChanges: string[];
-  /** True while the complaint processor is running. */
-  processingComplaint: boolean;
   /** Token usage from the LLM generation call. */
   tokenUsage?: { inputTokens: number; outputTokens: number };
   /** Summary of generated AGENTS.md content. */
@@ -104,10 +96,6 @@ class DashboardStore extends EventEmitter {
     setupNotes: [],
     evalStatus: { phase: 'idle' },
     runStartMs: 0,
-    complaintInput: '',
-    complaintQueue: [],
-    complaintChanges: [],
-    processingComplaint: false,
     tokenUsage: undefined,
     summary: undefined,
     isFirstRun: false,
@@ -186,40 +174,6 @@ class DashboardStore extends EventEmitter {
     this.update({ compact });
   }
 
-  // ── Complaint methods ───────────────────────────────────
-
-  setComplaintInput(text: string): void {
-    this.update({ complaintInput: text });
-  }
-
-  queueComplaint(complaint: string): void {
-    this.update({
-      complaintQueue: [...this.state.complaintQueue, complaint],
-      complaintInput: '',
-    });
-  }
-
-  /** Remove and return the next queued complaint (or undefined). */
-  shiftComplaint(): string | undefined {
-    const [next, ...rest] = this.state.complaintQueue;
-    if (next !== undefined) {
-      this.update({ complaintQueue: rest });
-    }
-    return next;
-  }
-
-  setProcessingComplaint(processing: boolean): void {
-    this.update({ processingComplaint: processing });
-  }
-
-  setComplaintChanges(changes: string[]): void {
-    this.update({ complaintChanges: changes });
-  }
-
-  clearComplaintChanges(): void {
-    this.update({ complaintChanges: [] });
-  }
-
   /** Reset per-run state for a fresh pipeline run. */
   resetRun(): void {
     this.update({
@@ -235,7 +189,6 @@ class DashboardStore extends EventEmitter {
       tokenUsage: undefined,
       summary: undefined,
       diffSummary: undefined,
-      // Note: complaintQueue, complaintInput, complaintChanges, compact, isFirstRun are preserved
     });
   }
 }
