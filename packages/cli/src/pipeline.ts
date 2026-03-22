@@ -291,7 +291,12 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   log.blank();
   store.setPhase('watching');
 
-  const chokidarModule = await import('chokidar');
+  // Resolve chokidar from this package's node_modules (not the workspace root
+  // which may have an older version hoisted from mocha).
+  const { createRequire } = await import('module');
+  const localRequire = createRequire(__filename);
+  const chokidarPath = localRequire.resolve('chokidar');
+  const chokidarModule = await import(chokidarPath);
   const chokidar = chokidarModule.default ?? chokidarModule;
 
   const watcher = chokidar.watch('.', {
