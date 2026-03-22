@@ -291,14 +291,12 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   log.blank();
   store.setPhase('watching');
 
-  // Resolve chokidar from this package's node_modules (not the workspace root
-  // which may have an older version hoisted from mocha).
-  const { createRequire } = await import('module');
-  const { pathToFileURL } = await import('url');
-  const localRequire = createRequire(__filename);
-  const chokidarPath = localRequire.resolve('chokidar');
-  const chokidarModule = await import(pathToFileURL(chokidarPath).href);
-  const chokidar = chokidarModule.default ?? chokidarModule;
+  // Resolve chokidar from this package's node_modules, not the workspace root
+  // which may hoist an older version from mocha. Use require() directly since
+  // tsc compiles dynamic import() to require() in CJS output anyway.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const chokidar = require(require.resolve('chokidar', { paths: [__dirname] })) as
+    { watch: (paths: string, opts: Record<string, unknown>) => import('chokidar').FSWatcher };
 
   const watcher = chokidar.watch('.', {
     cwd: root,
