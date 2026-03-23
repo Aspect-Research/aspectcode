@@ -18,7 +18,7 @@ import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
 import { buildKbContent } from './kbBuilder';
 import { readToolInstructions } from './toolIngestion';
-import { writeAgentsMd, writeKbMd, hasMarkers } from './writer';
+import { writeAgentsMd, hasMarkers } from './writer';
 import type { OwnershipMode } from './writer';
 import { tryOptimize } from './optimize';
 import { selectPrompt } from './ui/prompts';
@@ -191,16 +191,9 @@ async function runOnce(
       store.addOutput('AGENTS.md written (KB-custom)');
       store.setSummary(summarizeContent(baseContent));
     }
-    store.addSetupNote('guidelines based on code analysis');
   }
 
-  // ── 7. Optionally write kb.md ─────────────────────────────
-  if (flags.kb && !flags.dryRun) {
-    await writeKbMd(host, root, kbContent);
-    store.addOutput('kb.md written');
-  }
-
-  // ── 8. Persist runtime state ──────────────────────────────
+  // ── 7. Persist runtime state ───────────────────────────────
   updateRuntimeState({
     model,
     kbContent,
@@ -328,6 +321,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const doProbeAndRefine = async (): Promise<void> => {
     if (stopped || pipelineRunning) return;
     pipelineRunning = true;
+    if (evalTimer) { clearTimeout(evalTimer); evalTimer = undefined; }
+    pendingEvalEvents.length = 0;
     store.setRecommendProbe(false);
     try {
       await runOnce(ctx, ownership, true, prefs);
@@ -394,6 +389,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   // ── File change handler ────────────────────────────────────
 
   const onFsEvent = (eventType: 'add' | 'change' | 'unlink', eventPath: string) => {
+    if (pipelineRunning) return;
     const abs = path.resolve(root, eventPath);
     if (!isSupportedSourceFile(abs) || isIgnoredPath(abs)) return;
 

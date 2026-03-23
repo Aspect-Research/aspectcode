@@ -68,7 +68,7 @@ function useChangeFlash(msg: string): string {
     const id = setTimeout(() => {
       setVisible('');
       store.setLastChangeFlash('');
-    }, 2000);
+    }, 4000);
     return () => clearTimeout(id);
   }, [msg]);
   return visible;
@@ -231,7 +231,6 @@ const Dashboard: React.FC = () => {
   const changeFlash = useChangeFlash(s.lastChangeFlash);
   const current = s.currentAssessment;
   const queueLen = s.pendingAssessments.length;
-  const aStats = s.assessmentStats;
 
   return (
     <Box flexDirection="column">
@@ -275,7 +274,7 @@ const Dashboard: React.FC = () => {
         {s.phase === 'error' && (
           <Text color={COLORS.yellow}>{'  ● Error'}</Text>
         )}
-        {stats !== '' && !working && isDone && !current && (
+        {stats !== '' && !working && isDone && (
           <Text color={COLORS.gray}>{`  ${stats}`}</Text>
         )}
       </Box>
@@ -374,34 +373,40 @@ const Dashboard: React.FC = () => {
         </Box>
       )}
 
-      {/* ── Change flash (auto-clears) ──────────────── */}
-      {changeFlash !== '' && !current && (
-        <Text color={COLORS.primary}>{`  ● ${changeFlash}`}</Text>
-      )}
-
       {/* ── Learned message (auto-clears) ─────────── */}
       {learnedMsg !== '' && (
         <Text color={COLORS.primary}>{`  ● ${learnedMsg}`}</Text>
       )}
 
-      {/* ── Recommend probe-and-refine ────────────── */}
-      {s.recommendProbe && s.phase === 'watching' && !current && (
-        <Text color={COLORS.primary}>
-          {`  ↻ ${aStats.changes} changes since last run — press [r] to probe & refine AGENTS.md`}
-        </Text>
-      )}
-
       {/* ══ v2: Persistent status line ════════════════ */}
       {isDone && s.phase === 'watching' && (
-        <Box marginTop={1}>
-          <Text color={COLORS.white}>
-            {`  ${aStats.changes} changes` +
-              (s.addCount > 0 ? ` (${s.addCount} new)` : '') +
-              (aStats.warnings > 0 ? ` · ${aStats.warnings} needs review` : '') +
-              (s.preferenceCount > 0 ? ` · ${s.preferenceCount} preferences saved` : '') +
-              `  `}
-          </Text>
-          <Text color={COLORS.primaryDim}>{'[r] probe & refine'}</Text>
+        <Box flexDirection="column" marginTop={1}>
+          {/* Change flash or recommend nudge (fixed slot, doesn't shift status line) */}
+          {changeFlash !== '' && !current ? (
+            <Text color={COLORS.primary}>{`  ● ${changeFlash}`}</Text>
+          ) : s.recommendProbe && !current ? (
+            <Text color={COLORS.primary}>
+              {`  ↻ ${s.addCount + s.changeCount} file changes since last run`}
+            </Text>
+          ) : (
+            <Text>{' '}</Text>
+          )}
+          <Box>
+            <Text color={COLORS.white}>
+              {(() => {
+                const pending = queueLen + (current ? 1 : 0);
+                const fileParts: string[] = [];
+                if (s.addCount > 0) fileParts.push(`${s.addCount} new`);
+                if (s.changeCount > 0) fileParts.push(`${s.changeCount} modified`);
+                const fileLabel = fileParts.length > 0 ? fileParts.join(' · ') : '0 changes';
+                return `  ${fileLabel}` +
+                  (pending > 0 ? ` · ${pending} pending` : '') +
+                  (s.preferenceCount > 0 ? ` · ${s.preferenceCount} preferences saved` : '') +
+                  `  `;
+              })()}
+            </Text>
+            <Text color={COLORS.primaryDim}>{'[r] probe & refine'}</Text>
+          </Box>
         </Box>
       )}
     </Box>

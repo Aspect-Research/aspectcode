@@ -101,10 +101,6 @@ export async function tryOptimize(
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
-  store.addSetupNote('LLM connected');
-  if (evaluatorEnabled) {
-    store.addSetupNote('probe-and-refine enabled');
-  }
   log.info(`Generating with ${fmt.cyan(provider.name)}${model ? ` (${fmt.cyan(model)})` : ''}…`);
   store.setProvider(providerLabel);
 

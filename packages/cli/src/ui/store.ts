@@ -100,7 +100,7 @@ export interface DashboardState {
   elapsed: string;
   /** Warning text (e.g. no API key). */
   warning: string;
-  /** Files written this run (e.g. ["AGENTS.md updated", "kb.md written"]). */
+  /** Files written this run (e.g. ["AGENTS.md updated"]). */
   outputs: string[];
   /** Optimization reasoning lines from the agent (score + feedback per iteration). */
   reasoning: string[];
