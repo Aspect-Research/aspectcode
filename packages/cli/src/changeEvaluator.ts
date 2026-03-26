@@ -10,7 +10,7 @@
 import * as path from 'path';
 import type { AnalysisModel } from '@aspectcode/core';
 import type { PreferencesStore } from './preferences';
-import { checkPreference } from './preferences';
+import { findMatchingPreference, bumpPreferenceHit } from './preferences';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -27,6 +27,7 @@ export interface ChangeAssessment {
   message: string;
   details?: string;
   suggestion?: string;
+  dependencyContext?: string;
   dismissable: boolean;
 }
 
@@ -77,7 +78,7 @@ export function evaluateChange(
 
   // Deleted files don't need convention/naming checks
   if (event.type !== 'unlink') {
-    assessments.push(...checkHubSafety(event.path, ctx));
+    assessments.push(...checkCoChange(event.path, ctx));
 
     if (event.type === 'add') {
       assessments.push(...checkDirectoryConvention(event.path, ctx));
@@ -86,6 +87,9 @@ export function evaluateChange(
 
     if (event.type === 'change') {
       assessments.push(...checkImportPattern(event.path, ctx));
+      assessments.push(...checkExportContract(event.path, ctx));
+      assessments.push(...checkCircularDependency(event.path, ctx));
+      assessments.push(...checkTestCoverageGap(event.path, ctx));
     }
   }
 
@@ -93,53 +97,59 @@ export function evaluateChange(
   return applyPreferences(assessments, ctx.preferences);
 }
 
-// ── Check 1: Hub safety ──────────────────────────────────────
+// ── Check 1: Co-change detection ─────────────────────────────
 
-function checkHubSafety(file: string, ctx: ChangeContext): ChangeAssessment[] {
-  const hub = ctx.model.metrics.hubs.find((h) => h.file === file);
-  if (!hub) return [];
-
-  // Find all files that depend on this hub (import from it)
-  const dependents = new Set<string>();
+function checkCoChange(file: string, ctx: ChangeContext): ChangeAssessment[] {
+  // Find all files that depend on this file (import from it), weighted by strength
+  const dependents: { file: string; strength: number }[] = [];
   for (const edge of ctx.model.graph.edges) {
     if (edge.type === 'import' || edge.type === 'call') {
       if (edge.target === file && edge.source !== file) {
-        dependents.add(edge.source);
+        dependents.push({ file: edge.source, strength: edge.strength });
       }
       if (edge.bidirectional && edge.source === file && edge.target !== file) {
-        dependents.add(edge.target);
+        dependents.push({ file: edge.target, strength: edge.strength });
       }
     }
   }
 
-  if (dependents.size === 0) return [];
+  // Need at least 2 dependents to be meaningful
+  if (dependents.length < 2) return [];
+
+  const strongDependents = dependents.filter((d) => d.strength >= 0.5);
+  if (strongDependents.length === 0) return [];
 
   // Check which dependents have been changed recently
   const recentPaths = new Set(ctx.recentChanges.map((c) => c.path));
-  const updatedDependents = [...dependents].filter((d) => recentPaths.has(d));
-  const missingDependents = [...dependents].filter((d) => !recentPaths.has(d));
+  const updatedStrong = strongDependents.filter((d) => recentPaths.has(d.file));
+  const missingStrong = strongDependents.filter((d) => !recentPaths.has(d.file));
 
-  if (missingDependents.length === 0) {
+  const depCtx = `${strongDependents.length} strong dependents, ${updatedStrong.length} updated` +
+    (missingStrong.length > 0 ? `, ${missingStrong.length} missing: [${missingStrong.map((d) => d.file).join(', ')}]` : '');
+
+  if (missingStrong.length === 0) {
     return [{
       file,
       type: 'ok',
-      rule: 'hub-safety',
-      message: `All ${dependents.size} dependents updated`,
+      rule: 'co-change',
+      message: `All ${dependents.length} dependents updated`,
+      dependencyContext: depCtx,
       dismissable: false,
     }];
   }
 
-  const shown = missingDependents.slice(0, 3);
-  const moreCount = missingDependents.length - shown.length;
+  const shown = missingStrong.slice(0, 3).map((d) => d.file);
+  const moreCount = missingStrong.length - shown.length;
   const fileList = shown.join(', ') + (moreCount > 0 ? `, +${moreCount} more` : '');
 
   return [{
     file,
     type: 'warning',
-    rule: 'hub-safety',
-    message: `High-risk hub — ${dependents.size} dependents, ${updatedDependents.length} updated`,
+    rule: 'co-change',
+    message: `${dependents.length} dependents, ${updatedStrong.length} of ${strongDependents.length} strong dependents updated`,
     details: `Not yet updated: ${fileList}`,
-    suggestion: `You modified ${file} which has ${dependents.size} dependents. Please verify and update: ${missingDependents.join(', ')}`,
+    suggestion: `You modified ${file} which has ${strongDependents.length} strong dependents. Please verify and update: ${missingStrong.map((d) => d.file).join(', ')}`,
+    dependencyContext: depCtx,
     dismissable: true,
   }];
 }
@@ -357,6 +367,179 @@ function resolveRelativeImport(fromFile: string, specifier: string): string | nu
   return resolved;
 }
 
+// ── Check 5: Export contract breakage ─────────────────────────
+
+export function extractExportNames(content: string, _language: string): string[] {
+  const exports = new Set<string>();
+
+  // export function/class/const/let/var/type/interface/enum Name
+  const namedRe = /export\s+(?:function|class|const|let|var|type|interface|enum)\s+(\w+)/g;
+  let m: RegExpExecArray | null;
+  while ((m = namedRe.exec(content)) !== null) exports.add(m[1]);
+
+  // export { A, B, C }
+  const braceRe = /export\s*\{([^}]+)\}/g;
+  while ((m = braceRe.exec(content)) !== null) {
+    for (const part of m[1].split(',')) {
+      const name = part.trim().split(/\s+as\s+/)[0].trim();
+      if (name) exports.add(name);
+    }
+  }
+
+  // export default function/class Name
+  const defaultRe = /export\s+default\s+(?:function|class)\s+(\w+)/g;
+  while ((m = defaultRe.exec(content)) !== null) exports.add(m[1]);
+
+  return [...exports];
+}
+
+function checkExportContract(file: string, ctx: ChangeContext): ChangeAssessment[] {
+  if (!ctx.fileContents) return [];
+  const content = ctx.fileContents.get(file);
+  if (!content) return [];
+
+  const modelFile = ctx.model.files.find((f) => f.relativePath === file);
+  if (!modelFile) return [];
+
+  const previousExports = new Set(modelFile.exports);
+  if (previousExports.size === 0) return [];
+
+  const currentExports = new Set(extractExportNames(content, modelFile.language));
+  const removedExports = [...previousExports].filter((e) => !currentExports.has(e));
+  if (removedExports.length === 0) return [];
+
+  // Find consumers of removed exports
+  const affectedConsumers = new Set<string>();
+  for (const removed of removedExports) {
+    for (const edge of ctx.model.graph.edges) {
+      if (edge.target === file && edge.symbols?.includes(removed)) {
+        affectedConsumers.add(edge.source);
+      }
+    }
+  }
+
+  if (affectedConsumers.size === 0) return [];
+
+  const consumers = [...affectedConsumers];
+  const shown = consumers.slice(0, 3);
+  const moreCount = consumers.length - shown.length;
+  const consumerList = shown.join(', ') + (moreCount > 0 ? `, +${moreCount} more` : '');
+  const depCtx = `Removed exports: [${removedExports.join(', ')}], ${consumers.length} affected consumers: [${consumers.join(', ')}]`;
+
+  return [{
+    file,
+    type: 'warning',
+    rule: 'export-contract',
+    message: `Removed export${removedExports.length > 1 ? 's' : ''} ${removedExports.join(', ')} — ${consumers.length} consumer${consumers.length > 1 ? 's' : ''} may break`,
+    details: `Affected: ${consumerList}`,
+    suggestion: `Verify these files still compile: ${consumers.join(', ')}`,
+    dependencyContext: depCtx,
+    dismissable: true,
+  }];
+}
+
+// ── Check 6: Circular dependency introduction ────────────────
+
+export function hasPathInGraph(
+  from: string,
+  to: string,
+  edges: { source: string; target: string }[],
+  maxDepth = 20,
+): string[] | null {
+  const visited = new Set<string>();
+  const queue: { node: string; path: string[] }[] = [{ node: from, path: [from] }];
+
+  while (queue.length > 0) {
+    const { node, path: currentPath } = queue.shift()!;
+    if (currentPath.length > maxDepth) continue;
+    if (node === to) return currentPath;
+
+    for (const edge of edges) {
+      if (edge.source === node && !visited.has(edge.target)) {
+        visited.add(edge.target);
+        queue.push({ node: edge.target, path: [...currentPath, edge.target] });
+      }
+    }
+  }
+
+  return null;
+}
+
+function checkCircularDependency(file: string, ctx: ChangeContext): ChangeAssessment[] {
+  if (!ctx.fileContents) return [];
+  const content = ctx.fileContents.get(file);
+  if (!content) return [];
+
+  const modelFile = ctx.model.files.find((f) => f.relativePath === file);
+  const previousImports = new Set(modelFile?.imports ?? []);
+
+  const currentImports = extractImports(content);
+  const newImports = currentImports.filter((imp) => !previousImports.has(imp));
+
+  const assessments: ChangeAssessment[] = [];
+
+  for (const imp of newImports) {
+    const resolved = resolveRelativeImport(file, imp);
+    if (!resolved) continue;
+
+    // Check if target already has a path back to this file (would create a cycle)
+    const cyclePath = hasPathInGraph(resolved, file, ctx.model.graph.edges);
+    if (cyclePath) {
+      const fullCycle = [file, ...cyclePath];
+      const depCtx = `Cycle: ${fullCycle.join(' → ')}`;
+      assessments.push({
+        file,
+        type: 'warning',
+        rule: 'circular-dependency',
+        message: `New import creates circular dependency`,
+        details: `Cycle: ${fullCycle.join(' → ')}`,
+        suggestion: `Consider restructuring to break the cycle between ${file} and ${resolved}`,
+        dependencyContext: depCtx,
+        dismissable: true,
+      });
+    }
+  }
+
+  return assessments;
+}
+
+// ── Check 7: Test coverage gap ───────────────────────────────
+
+function checkTestCoverageGap(file: string, ctx: ChangeContext): ChangeAssessment[] {
+  const basename = path.basename(file).toLowerCase();
+  if (isTestFile(basename)) return [];
+
+  const dir = path.dirname(file);
+  const nameNoExt = path.basename(file).replace(/\.[^.]+$/, '');
+  const ext = path.extname(file);
+
+  // Generate candidate test paths
+  const candidates = [
+    path.posix.join(dir, `${nameNoExt}.test${ext}`),
+    path.posix.join(dir, `${nameNoExt}.spec${ext}`),
+    path.posix.join(dir, 'test', `${nameNoExt}.test${ext}`),
+    path.posix.join(dir, '__tests__', `${nameNoExt}.test${ext}`),
+  ];
+
+  const modelPaths = new Set(ctx.model.files.map((f) => f.relativePath));
+  const matchedTestFile = candidates.find((c) => modelPaths.has(c));
+  if (!matchedTestFile) return []; // no test file exists — skip silently
+
+  const recentPaths = new Set(ctx.recentChanges.map((c) => c.path));
+  if (recentPaths.has(matchedTestFile)) return []; // test was updated recently
+
+  return [{
+    file,
+    type: 'warning',
+    rule: 'test-coverage-gap',
+    message: `Test file exists but wasn't updated`,
+    details: `${matchedTestFile} may need updates`,
+    suggestion: `Consider updating ${matchedTestFile} to cover the changes in ${file}`,
+    dependencyContext: `Source: ${file}, test: ${matchedTestFile}`,
+    dismissable: true,
+  }];
+}
+
 // ── Preference override ──────────────────────────────────────
 
 function applyPreferences(
@@ -365,10 +548,16 @@ function applyPreferences(
 ): ChangeAssessment[] {
   return assessments.filter((a) => {
     const dir = path.dirname(a.file) + '/';
-    const disposition = checkPreference(preferences, a.rule, a.file, dir);
+    const pref = findMatchingPreference(preferences, a.rule, a.file, dir);
 
-    if (disposition === 'allow') return false; // suppress
-    if (disposition === 'deny') {
+    if (!pref) return true;
+
+    if (pref.disposition === 'allow') {
+      bumpPreferenceHit(preferences, pref.id);
+      return false; // suppress
+    }
+    if (pref.disposition === 'deny') {
+      bumpPreferenceHit(preferences, pref.id);
       a.type = 'violation'; // upgrade to violation
     }
     return true;

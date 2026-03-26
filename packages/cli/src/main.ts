@@ -37,6 +37,7 @@ export function parseArgs(argv: string[]): CliFlags {
     once: false,
     noColor: false,
     compact: false,
+    cursor: false,
   };
 
   const args = argv.slice(2); // skip node + script
