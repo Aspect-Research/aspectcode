@@ -14,7 +14,7 @@ import * as crypto from 'crypto';
 
 export interface LearnedPreference {
   id: string;
-  /** Which check produced this (e.g. 'hub-safety', 'naming-convention'). */
+  /** Which check produced this (e.g. 'co-change', 'naming-convention'). */
   rule: string;
   /** What was dismissed/confirmed (human-readable). */
   pattern: string;
@@ -32,6 +32,12 @@ export interface LearnedPreference {
   details?: string;
   /** The assessment's suggestion (for deny dispositions). */
   suggestion?: string;
+  /** Times this preference suppressed/upgraded an assessment. */
+  hitCount?: number;
+  /** ISO-8601 timestamp of last hit. */
+  lastHitAt?: string;
+  /** Why the assessment fired (graph context). */
+  dependencyContext?: string;
 }
 
 export interface PreferencesStore {
@@ -59,6 +65,10 @@ export function loadPreferences(root: string): PreferencesStore {
     const raw = fs.readFileSync(p, 'utf-8');
     const parsed = JSON.parse(raw) as PreferencesStore;
     if (parsed.version === 1 && Array.isArray(parsed.preferences)) {
+      // Migrate hub-safety → co-change
+      for (const pref of parsed.preferences) {
+        if (pref.rule === 'hub-safety') pref.rule = 'co-change';
+      }
       return parsed;
     }
     return { version: 1, preferences: [] };
@@ -106,31 +116,47 @@ export function addPreference(
  *
  * Matching priority: file-specific > directory-specific > rule-only.
  */
-export function checkPreference(
+/**
+ * Find the matching preference object for a rule + file + directory combination.
+ * Returns the full preference if matched, null if no preference applies.
+ */
+export function findMatchingPreference(
   store: PreferencesStore,
   rule: string,
   file: string,
   directory: string,
-): 'allow' | 'deny' | null {
+): LearnedPreference | null {
   // File-specific match (most specific)
   const fileMatch = store.preferences.find(
     (p) => p.rule === rule && p.file === file,
   );
-  if (fileMatch) return fileMatch.disposition;
+  if (fileMatch) return fileMatch;
 
   // Directory match
   const dirMatch = store.preferences.find(
     (p) => p.rule === rule && p.directory && directory.startsWith(p.directory),
   );
-  if (dirMatch) return dirMatch.disposition;
+  if (dirMatch) return dirMatch;
 
   // Rule-only match (broadest — no file or directory)
   const ruleMatch = store.preferences.find(
     (p) => p.rule === rule && !p.file && !p.directory,
   );
-  if (ruleMatch) return ruleMatch.disposition;
+  if (ruleMatch) return ruleMatch;
 
   return null;
+}
+
+/**
+ * Increment hitCount and set lastHitAt on a preference (mutates in-place).
+ */
+export function bumpPreferenceHit(store: PreferencesStore, prefId: string): PreferencesStore {
+  const pref = store.preferences.find((p) => p.id === prefId);
+  if (pref) {
+    pref.hitCount = (pref.hitCount ?? 0) + 1;
+    pref.lastHitAt = new Date().toISOString();
+  }
+  return store;
 }
 
 // ── Formatting ──────────────────────────────────────────────
