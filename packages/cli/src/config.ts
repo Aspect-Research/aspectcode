@@ -26,6 +26,9 @@ export interface AspectCodeConfig {
     maxTokens?: number;
   };
 
+  /** Primary AI platform: 'claude' or 'cursor'. Auto-detects when absent. */
+  platform?: string;
+
   /** Evaluator settings (probe-and-refine tuning). */
   evaluate?: {
     /** Enable probe and refine. Default: true when an API key is available. */
