@@ -78,7 +78,7 @@ interface RawEdit {
   content: string;
 }
 
-function parseDiagnoseResponse(raw: string): RawEdit[] {
+export function parseDiagnoseResponse(raw: string): RawEdit[] {
   // Strip thinking tags
   let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 

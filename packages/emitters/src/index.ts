@@ -20,3 +20,8 @@ export {
   generateKbCustomContent,
   generateKbSeedContent,
 } from './instructions/content';
+
+// ── Formats ─────────────────────────────────────────────────
+
+export type { AiToolId } from './instructions/formats';
+export { AI_TOOL_DETECTION_PATHS } from './instructions/formats';

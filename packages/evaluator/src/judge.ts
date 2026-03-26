@@ -61,7 +61,7 @@ function buildJudgeUserPrompt(
 
 // ── JSON parsing ────────────────────────────────────────────
 
-interface JudgeResponse {
+export interface JudgeResponse {
   behavior_reviews: Array<{
     behavior: string;
     assessment: string;
@@ -76,7 +76,7 @@ interface JudgeResponse {
   overall_notes: string;
 }
 
-function parseJudgeResponse(raw: string): JudgeResponse | null {
+export function parseJudgeResponse(raw: string): JudgeResponse | null {
   // Strip thinking tags if present
   let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 

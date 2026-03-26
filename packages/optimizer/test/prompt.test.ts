@@ -21,6 +21,13 @@ describe('truncateKb', () => {
     assert.ok(result.length < kb.length);
     assert.ok(result.includes('[... KB truncated'));
   });
+
+  it('result length does not exceed budget', () => {
+    const kb = 'x'.repeat(100_000);
+    const result = truncateKb(kb);
+    // The budget is internal, but the result should be much shorter than input
+    assert.ok(result.length < 80_000);
+  });
 });
 
 describe('buildSystemPrompt', () => {

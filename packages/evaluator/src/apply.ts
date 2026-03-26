@@ -123,13 +123,13 @@ const BOILERPLATE_PATTERNS = [
   /^\s*```/,
 ];
 
-function isBoilerplate(content: string): boolean {
+export function isBoilerplate(content: string): boolean {
   return BOILERPLATE_PATTERNS.some((p) => p.test(content));
 }
 
 // ── Section parser ──────────────────────────────────────────
 
-interface ParsedSection {
+export interface ParsedSection {
   title: string;
   level: number;        // heading level (1-3)
   lines: string[];      // bullet lines (including sub-headings within)
@@ -140,7 +140,7 @@ interface ParsedSection {
  * Parse AGENTS.md into sections by heading.
  * Each section captures all content until the next heading of same or higher level.
  */
-function parseSections(md: string): ParsedSection[] {
+export function parseSections(md: string): ParsedSection[] {
   const sections: ParsedSection[] = [];
   const headingRegex = /^(#{1,3})\s+(.+)$/gm;
   const matches: Array<{ level: number; title: string; index: number }> = [];
@@ -172,7 +172,7 @@ function parseSections(md: string): ParsedSection[] {
 }
 
 /** Canonicalize a section name to its canonical form. */
-function canonicalize(sectionName: string): CanonicalSection | undefined {
+export function canonicalize(sectionName: string): CanonicalSection | undefined {
   const lower = sectionName.toLowerCase().trim();
 
   // Direct match
@@ -307,7 +307,7 @@ function reconstructDocument(sections: ParsedSection[], originalMd: string): str
  * Trim bullets from lowest-priority sections to fit within the character budget.
  * Within a priority tier, longest bullets are shed first.
  */
-function trimToBudget(
+export function trimToBudget(
   sections: ParsedSection[],
   budget: number,
 ): { content: string; trimmed: number } {

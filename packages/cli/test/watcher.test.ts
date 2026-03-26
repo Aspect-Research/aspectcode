@@ -73,6 +73,10 @@ function resetAllState(): void {
     lastChangeFlash: '',
     addCount: 0,
     changeCount: 0,
+    correctionCount: 0,
+    dreamPrompt: false,
+    dreaming: false,
+    managedFiles: [],
   });
   store.resetRun();
   store.setPhase('watching');
@@ -313,9 +317,9 @@ describe('watcher → evaluate → store (full chain)', () => {
     assert.ok((store as any).state.assessmentStats.changes > 0);
   }).timeout(10000);
 
-  // ── Assessment: hub-safety warning ─────────────────────────
+  // ── Assessment: co-change warning ──────────────────────────
 
-  it('hub-safety warning fires when a hub file is modified', async () => {
+  it('co-change warning fires when a file with strong dependents is modified', async () => {
     const files = [
       { rel: 'src/types.ts', content: 'export interface Foo {}\n' },
       { rel: 'src/app.ts', content: 'import { Foo } from "./types";\n', imports: ['./types'] },
@@ -336,14 +340,15 @@ describe('watcher → evaluate → store (full chain)', () => {
     await waitForStoreChanges(1);
 
     const stats = (store as any).state.assessmentStats;
-    assert.ok(stats.warnings > 0, `Expected hub-safety warning, stats: ${JSON.stringify(stats)}`);
+    assert.ok(stats.warnings > 0, `Expected co-change warning, stats: ${JSON.stringify(stats)}`);
 
     const current = (store as any).state.currentAssessment;
     const pending = (store as any).state.pendingAssessments;
     const all = current ? [current, ...pending] : pending;
-    const hubWarning = all.find((a: any) => a.rule === 'hub-safety');
-    assert.ok(hubWarning, `Expected hub-safety assessment in: ${JSON.stringify(all)}`);
-    assert.ok(hubWarning.message.includes('dependents'));
+    const coChangeWarning = all.find((a: any) => a.rule === 'co-change');
+    assert.ok(coChangeWarning, `Expected co-change assessment in: ${JSON.stringify(all)}`);
+    assert.ok(coChangeWarning.message.includes('dependents'));
+    assert.ok(coChangeWarning.dependencyContext, 'Expected dependencyContext');
   }).timeout(10000);
 
   // ── Assessment: naming convention warning ──────────────────
@@ -445,6 +450,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     const files = [
       { rel: 'src/types.ts', content: 'export interface Foo {}\n' },
       { rel: 'src/app.ts', content: 'import { Foo } from "./types";\n', imports: ['./types'] },
+      { rel: 'src/bar.ts', content: 'import { Foo } from "./types";\n', imports: ['./types'] },
     ];
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-pref-'));
     for (const f of files) {
@@ -465,10 +471,11 @@ describe('watcher → evaluate → store (full chain)', () => {
         nodes: files.map((f) => ({ id: f.rel })),
         edges: [
           { source: 'src/app.ts', target: 'src/types.ts', type: 'import', strength: 1, symbols: ['Foo'], lines: [1], bidirectional: false },
+          { source: 'src/bar.ts', target: 'src/types.ts', type: 'import', strength: 0.8, symbols: ['Foo'], lines: [1], bidirectional: false },
         ],
       },
       metrics: {
-        hubs: [{ file: 'src/types.ts', inDegree: 1, outDegree: 0 }],
+        hubs: [{ file: 'src/types.ts', inDegree: 2, outDegree: 0 }],
         orphans: [],
       },
     } as unknown as AnalysisModel;
@@ -481,7 +488,7 @@ describe('watcher → evaluate → store (full chain)', () => {
       { model, agentsContent: '# stub', preferences: prefs, recentChanges: [], fileContents: new Map() },
     );
     assert.ok(assessments1.length > 0, 'Should produce warning before dismiss');
-    const warning = assessments1.find((a) => a.rule === 'hub-safety');
+    const warning = assessments1.find((a) => a.rule === 'co-change');
     assert.ok(warning);
 
     // Simulate [n] dismiss — saves 'allow' preference
@@ -499,8 +506,8 @@ describe('watcher → evaluate → store (full chain)', () => {
       { type: 'change', path: 'src/types.ts' },
       { model, agentsContent: '# stub', preferences: prefs, recentChanges: [], fileContents: new Map() },
     );
-    const hub2 = assessments2.find((a) => a.rule === 'hub-safety');
-    assert.ok(!hub2, `Should be suppressed, got: ${JSON.stringify(assessments2)}`);
+    const coChange2 = assessments2.find((a) => a.rule === 'co-change');
+    assert.ok(!coChange2, `Should be suppressed, got: ${JSON.stringify(assessments2)}`);
 
     // Verify preferences file exists
     const prefPath = path.join(tmpDir, '.aspectcode', 'preferences.json');
@@ -580,7 +587,7 @@ describe('formatPreferencesForPrompt', () => {
   it('returns empty string when only allow preferences', () => {
     let store: PreferencesStore = { version: 1, preferences: [] };
     store = addPreference(store, {
-      rule: 'hub-safety',
+      rule: 'co-change',
       pattern: 'Hub file modified',
       disposition: 'allow',
       directory: 'src/',
@@ -657,4 +664,39 @@ describe('store recommend and flash state', () => {
     assert.equal((store as any).state.addCount, 0);
     assert.equal((store as any).state.changeCount, 0);
   });
+
+  it('setCorrectionCount updates state', () => {
+    assert.equal((store as any).state.correctionCount, 0);
+    store.setCorrectionCount(7);
+    assert.equal((store as any).state.correctionCount, 7);
+  });
+
+  it('setDreamPrompt updates state', () => {
+    assert.equal((store as any).state.dreamPrompt, false);
+    store.setDreamPrompt(true);
+    assert.equal((store as any).state.dreamPrompt, true);
+    store.setDreamPrompt(false);
+    assert.equal((store as any).state.dreamPrompt, false);
+  });
+
+  it('setDreaming updates state', () => {
+    assert.equal((store as any).state.dreaming, false);
+    store.setDreaming(true);
+    assert.equal((store as any).state.dreaming, true);
+  });
+
+  it('resetRun clears dream state', () => {
+    store.setDreamPrompt(true);
+    store.setDreaming(true);
+    store.resetRun();
+    assert.equal((store as any).state.dreamPrompt, false);
+    assert.equal((store as any).state.dreaming, false);
+  });
+
+  it('resetRun preserves correctionCount', () => {
+    store.setCorrectionCount(3);
+    store.resetRun();
+    assert.equal((store as any).state.correctionCount, 3);
+  });
 });
+

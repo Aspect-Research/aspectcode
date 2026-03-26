@@ -107,7 +107,7 @@ const FALLBACK_PROBES: Array<{ task: string; rationale: string }> = [
 
 // ── Deduplication ───────────────────────────────────────────
 
-function normalizeProbeText(text: string): string {
+export function normalizeProbeText(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
@@ -115,7 +115,7 @@ function normalizeProbeText(text: string): string {
     .trim();
 }
 
-function isDuplicate(task: string, existing: string[]): boolean {
+export function isDuplicate(task: string, existing: string[]): boolean {
   const normalized = normalizeProbeText(task);
   return existing.some((t) => {
     const n = normalizeProbeText(t);
@@ -131,7 +131,7 @@ interface RawProbe {
   rationale?: string;
 }
 
-function parseProbeResponse(raw: string): RawProbe[] {
+export function parseProbeResponse(raw: string): RawProbe[] {
   // Strip thinking tags
   let cleaned = raw.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 

@@ -16,4 +16,5 @@ export type {
 } from './types';
 
 export { resolveProvider, loadEnvFile } from './providers/index';
+export { withRetry } from './providers/retry';
 export { runGenerateAgent } from './agent';
