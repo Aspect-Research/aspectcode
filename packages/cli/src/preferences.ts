@@ -10,6 +10,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { loadCredentials, WEB_APP_URL } from './auth';
+import { store } from './ui/store';
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -110,21 +111,28 @@ async function fetchPreferencesFromRemote(root: string): Promise<LearnedPreferen
   }
 }
 
-function syncPreferencesToRemote(root: string, store: PreferencesStore): void {
+function syncPreferencesToRemote(root: string, prefsStore: PreferencesStore): void {
   const creds = loadCredentials();
   if (!creds) return;
 
   const project = projectName(root);
 
   // Fire and forget — don't block the pipeline
+  store.setSyncStatus('syncing');
   fetch(`${WEB_APP_URL}/api/cli/preferences`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${creds.token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ project, preferences: store.preferences }),
-  }).catch(() => {});
+    body: JSON.stringify({ project, preferences: prefsStore.preferences }),
+  })
+    .then((res) => {
+      store.setSyncStatus(res.ok ? 'synced' : 'offline');
+    })
+    .catch(() => {
+      store.setSyncStatus('offline');
+    });
 }
 
 // ── Public load / save (local + remote) ─────────────────────
@@ -134,6 +142,9 @@ export async function loadPreferences(root: string): Promise<PreferencesStore> {
 
   // Try to fetch remote preferences and merge (remote wins on conflict)
   const remote = await fetchPreferencesFromRemote(root);
+  if (remote && remote.length > 0) {
+    store.setSyncStatus('synced');
+  }
   if (!remote || remote.length === 0) return local;
 
   // Merge: build a map keyed by id, remote overwrites local
@@ -141,20 +152,20 @@ export async function loadPreferences(root: string): Promise<PreferencesStore> {
   for (const p of local.preferences) merged.set(p.id, p);
   for (const p of remote) merged.set(p.id, p);
 
-  const store: PreferencesStore = {
+  const result: PreferencesStore = {
     version: 1,
     preferences: Array.from(merged.values()),
   };
 
   // Update local file with merged result
-  savePreferencesLocal(root, store);
+  savePreferencesLocal(root, result);
 
-  return store;
+  return result;
 }
 
-export function savePreferences(root: string, store: PreferencesStore): void {
-  savePreferencesLocal(root, store);
-  syncPreferencesToRemote(root, store);
+export function savePreferences(root: string, prefsStore: PreferencesStore): void {
+  savePreferencesLocal(root, prefsStore);
+  syncPreferencesToRemote(root, prefsStore);
 }
 
 // ── Mutations ────────────────────────────────────────────────

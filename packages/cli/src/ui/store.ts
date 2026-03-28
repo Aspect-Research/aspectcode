@@ -111,6 +111,8 @@ export interface DashboardState {
   rootPath: string;
   /** Active AI platform ('claude' | 'cursor' | ''). */
   activePlatform: string;
+  /** Logged-in user email, empty if not logged in. */
+  userEmail: string;
   phase: PipelinePhase;
   /** Human-readable label for the current sub-step (e.g. "iteration 2/3"). */
   phaseDetail: string;
@@ -178,6 +180,10 @@ export interface DashboardState {
   dreaming: boolean;
   /** Managed files for the memory map. */
   managedFiles: ManagedFile[];
+  /** Cloud sync status for display. */
+  syncStatus: 'idle' | 'syncing' | 'synced' | 'offline';
+  /** Epoch ms of last successful sync. */
+  lastSyncAt: number;
 }
 
 /**
@@ -187,6 +193,7 @@ class DashboardStore extends EventEmitter {
   state: DashboardState = {
     rootPath: '',
     activePlatform: '',
+    userEmail: '',
     phase: 'idle',
     phaseDetail: '',
     fileCount: 0,
@@ -219,6 +226,8 @@ class DashboardStore extends EventEmitter {
     dreamPrompt: false,
     dreaming: false,
     managedFiles: [],
+    syncStatus: 'idle',
+    lastSyncAt: 0,
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -232,6 +241,10 @@ class DashboardStore extends EventEmitter {
 
   setPlatform(platform: string): void {
     this.update({ activePlatform: platform });
+  }
+
+  setUserEmail(email: string): void {
+    this.update({ userEmail: email });
   }
 
   setPhase(phase: PipelinePhase, detail = ''): void {
@@ -391,6 +404,13 @@ class DashboardStore extends EventEmitter {
 
   setManagedFiles(files: ManagedFile[]): void {
     this.update({ managedFiles: files });
+  }
+
+  setSyncStatus(syncStatus: DashboardState['syncStatus']): void {
+    this.update({
+      syncStatus,
+      ...(syncStatus === 'synced' ? { lastSyncAt: Date.now() } : {}),
+    });
   }
 
   /** Update a single managed file's annotation or timestamp. */

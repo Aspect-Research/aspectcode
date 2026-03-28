@@ -192,6 +192,10 @@ const Dashboard: React.FC = () => {
     const current = store.state.currentAssessment;
 
     if (input === 'r') { handler({ type: 'probe-and-refine' }); return; }
+    if (input === 'l' && !store.state.userEmail) {
+      handler({ type: 'login' });
+      return;
+    }
     if (input === 'd') {
       if (store.state.correctionCount === 0) {
         store.setLearnedMessage('no corrections to dream on yet');
@@ -246,7 +250,15 @@ const Dashboard: React.FC = () => {
 
       {/* ── Working status (during pipeline) ──────── */}
       {working && s.phase !== 'evaluating' && (
-        <Text color={COLORS.primary}>{`${spinner} ${PHASE_TEXT[s.phase]}${detail}`}</Text>
+        <Text color={COLORS.primary}>
+          {`${spinner} ${PHASE_TEXT[s.phase]}${detail}`}
+          {s.phase === 'analyzing' && s.fileCount > 0 && (
+            <Text color={COLORS.gray}>{` — ${s.fileCount.toLocaleString()} files, ${s.edgeCount.toLocaleString()} edges`}</Text>
+          )}
+          {s.phase === 'optimizing' && s.provider && (
+            <Text color={COLORS.gray}>{` — ${s.provider}`}</Text>
+          )}
+        </Text>
       )}
 
       {/* ── First-run hint ────────────────────────── */}
@@ -257,7 +269,7 @@ const Dashboard: React.FC = () => {
       {/* ── Memory map (always visible once populated) ── */}
       {s.managedFiles.length > 0 && (
         <Box marginTop={0}>
-          <MemoryMap files={s.managedFiles} dreaming={s.dreaming} />
+          <MemoryMap files={s.managedFiles} dreaming={s.dreaming} userEmail={s.userEmail} />
         </Box>
       )}
 
@@ -293,7 +305,18 @@ const Dashboard: React.FC = () => {
 
       {/* ── Watching indicator ─────────────────────── */}
       {isWatching && (
-        <Text color={COLORS.gray}>{`${pulse} watching`}</Text>
+        <Text color={COLORS.gray}>
+          {`${pulse} watching`}
+          {s.tokenUsage && (
+            <Text color={COLORS.gray}>{` — ${s.tokenUsage.inputTokens.toLocaleString()} in / ${s.tokenUsage.outputTokens.toLocaleString()} out tokens`}</Text>
+          )}
+          {s.userEmail && s.syncStatus === 'synced' && s.lastSyncAt > 0 && (
+            <Text color={COLORS.gray}>{` — ☁ synced`}</Text>
+          )}
+          {s.userEmail && s.syncStatus === 'offline' && (
+            <Text color={COLORS.yellow}>{` — ☁ offline`}</Text>
+          )}
+        </Text>
       )}
 
       {/* ── Dream cycle in progress ───────────────── */}
@@ -335,7 +358,12 @@ const Dashboard: React.FC = () => {
 
       {/* ── Dream prompt ──────────────────────────── */}
       {s.dreamPrompt && !s.dreaming && isWatching && (
-        <Text color={COLORS.yellow}>{`✦ ${s.correctionCount} corrections — press d to refine`}</Text>
+        <Box flexDirection="column">
+          <Text color={COLORS.yellow}>{`✦ ${s.correctionCount} corrections — press d to refine`}</Text>
+          {s.assessmentStats.confirmed > 0 || s.assessmentStats.dismissed > 0 ? (
+            <Text color={COLORS.gray}>{`  confirmed: ${s.assessmentStats.confirmed} · dismissed: ${s.assessmentStats.dismissed}`}</Text>
+          ) : null}
+        </Box>
       )}
 
       {/* ── Status bar ────────────────────────────── */}
@@ -345,8 +373,11 @@ const Dashboard: React.FC = () => {
             const stats = s.assessmentStats;
             const parts: string[] = [];
             parts.push(`${stats.changes} changes`);
+            if (stats.ok > 0) parts.push(`${stats.ok} ok`);
             if (stats.warnings > 0) parts.push(`${stats.warnings} warnings`);
+            if (stats.violations > 0) parts.push(`${stats.violations} violations`);
             if (s.correctionCount > 0) parts.push(`${s.correctionCount} corrections`);
+            if (s.preferenceCount > 0) parts.push(`${s.preferenceCount} learned`);
             return parts.join(' · ');
           })()}
         </Text>
