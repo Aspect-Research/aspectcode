@@ -1,30 +1,23 @@
 /**
  * aspectcode CLI — config types (optional overrides only).
  *
- * The CLI auto-detects everything. Config is never auto-created.
- * `aspectcode.json` is only read if it exists — provides optional overrides.
+ * Project-level settings live in `aspectcode.json` (committed to repo).
+ * User-level settings (provider, model, temperature) live in the cloud.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { loadCredentials, WEB_APP_URL } from './auth';
 
 export const CONFIG_FILE_NAME = 'aspectcode.json';
 
-/** Shape of optional `aspectcode.json` overrides. */
+/** Project-level config — shared across the team, committed to repo. */
 export interface AspectCodeConfig {
   /** Extra directories to exclude from analysis. */
   exclude?: string[];
 
   /** AGENTS.md ownership: 'full' overwrites the file, 'section' uses markers. */
   ownership?: 'full' | 'section';
-
-  /** Optimization settings. */
-  optimize?: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  };
 
   /** Primary AI platform: 'claude' or 'cursor'. Auto-detects when absent. */
   platform?: string;
@@ -42,6 +35,14 @@ export interface AspectCodeConfig {
     /** Character budget for the AGENTS.md artifact. Default: 8000. */
     charBudget?: number;
   };
+}
+
+/** User-level settings — personal, synced from cloud. */
+export interface UserSettings {
+  provider?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 /**
@@ -76,4 +77,40 @@ export function saveConfig(root: string, update: Partial<AspectCodeConfig>): voi
   }
   const merged = { ...existing, ...update };
   fs.writeFileSync(configPath, JSON.stringify(merged, null, 2) + '\n');
+}
+
+/**
+ * Fetch user-level settings from the cloud. Returns empty object if offline/not logged in.
+ */
+export async function loadUserSettings(): Promise<UserSettings> {
+  const creds = loadCredentials();
+  if (!creds) return {};
+
+  try {
+    const res = await fetch(`${WEB_APP_URL}/api/cli/settings`, {
+      headers: { Authorization: `Bearer ${creds.token}` },
+    });
+    if (!res.ok) return {};
+    const data = (await res.json()) as { settings?: UserSettings };
+    return data.settings ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Save user-level settings to the cloud. Fire-and-forget.
+ */
+export function saveUserSettings(settings: UserSettings): void {
+  const creds = loadCredentials();
+  if (!creds) return;
+
+  fetch(`${WEB_APP_URL}/api/cli/settings`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${creds.token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(settings),
+  }).catch(() => {});
 }

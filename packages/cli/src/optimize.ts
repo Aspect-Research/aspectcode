@@ -27,7 +27,7 @@ import type {
 } from '@aspectcode/evaluator';
 import { generateCanonicalContentForMode, generateKbCustomContent, generateKbSeedContent } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
-import type { AspectCodeConfig } from './config';
+import type { AspectCodeConfig, UserSettings } from './config';
 import { fmt } from './logger';
 import { store } from './ui/store';
 import type { PreferencesStore } from './preferences';
@@ -56,18 +56,18 @@ export async function tryOptimize(
   _baseContent: string,
   probeAndRefine = false,
   preferences?: PreferencesStore,
+  userSettings?: UserSettings,
 ): Promise<OptimizeOutput> {
   const { flags, log, root } = ctx;
-  const optConfig = config?.optimize;
   const evalConfig = config?.evaluate;
   const evaluatorEnabled = probeAndRefine && evalConfig?.enabled !== false;
 
-  // ── Resolve settings ──────────────────────────────────────
+  // ── Resolve settings (CLI flags > cloud user settings > defaults) ──
 
-  const temperature = flags.temperature ?? optConfig?.temperature;
-  const model = flags.model ?? optConfig?.model;
-  const providerName = flags.provider ?? optConfig?.provider;
-  const maxTokens = optConfig?.maxTokens;
+  const temperature = flags.temperature ?? userSettings?.temperature;
+  const model = flags.model ?? userSettings?.model;
+  const providerName = flags.provider ?? userSettings?.provider;
+  const maxTokens = userSettings?.maxTokens;
 
   // ── Load .env and try to resolve a provider ───────────────
   let env: Record<string, string>;

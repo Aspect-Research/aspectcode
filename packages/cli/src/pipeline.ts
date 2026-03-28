@@ -13,7 +13,8 @@ import { createNodeEmitterHost, generateCanonicalContentForMode, generateKbCusto
 import type { RunContext, RunMode } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
-import { loadConfig } from './config';
+import { loadConfig, loadUserSettings } from './config';
+import type { UserSettings } from './config';
 import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
 import { buildKbContent } from './kbBuilder';
@@ -268,6 +269,7 @@ async function runOnce(
   probeAndRefine = false,
   preferences?: PreferencesStore,
   activePlatform?: string,
+  userSettings?: UserSettings,
 ): Promise<RunOnceResult> {
   const { root, flags, log } = ctx;
   const config = loadConfig(root);
@@ -328,7 +330,7 @@ async function runOnce(
 
     store.setPhase('optimizing');
     const optimizeResult = await tryOptimize(
-      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences,
+      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings,
     );
     finalContent = optimizeResult.content;
 
@@ -510,8 +512,11 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const creds = loadCredentials();
   store.setUserEmail(creds?.email ?? '');
 
+  // ── Load user settings from cloud ─────────────────────────
+  const userSettings = await loadUserSettings();
+
   // ── Initial run (with probe and refine) ────────────────────
-  const result = await runOnce(ctx, ownership, true, undefined, activePlatform);
+  const result = await runOnce(ctx, ownership, true, undefined, activePlatform, userSettings);
   ctx.generate = true;
   if (result.code !== ExitCode.OK) return result.code;
 
@@ -608,7 +613,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     pendingEvalEvents.length = 0;
     store.setRecommendProbe(false);
     try {
-      await runOnce(ctx, ownership, true, prefs, activePlatform);
+      await runOnce(ctx, ownership, true, prefs, activePlatform, userSettings);
       prefs = await loadPreferences(root);
       store.setPreferenceCount(prefs.preferences.length);
       store.setPhase('watching');
