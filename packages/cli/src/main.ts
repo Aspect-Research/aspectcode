@@ -156,9 +156,21 @@ async function main(): Promise<void> {
 
   // Require login for the pipeline
   if (!loadCredentials()) {
-    console.log(`${fmt.bold('Login required.')} Run: ${fmt.bold('aspectcode login')}`);
-    process.exitCode = ExitCode.ERROR;
-    return;
+    console.log(`${fmt.bold('Login required.')} Press any key to open browser login...`);
+    await new Promise<void>((resolve) => {
+      process.stdin.setRawMode?.(true);
+      process.stdin.resume();
+      process.stdin.once('data', () => {
+        process.stdin.setRawMode?.(false);
+        process.stdin.pause();
+        resolve();
+      });
+    });
+    await loginCommand([]);
+    if (!loadCredentials()) {
+      process.exitCode = ExitCode.ERROR;
+      return;
+    }
   }
 
   if (flags.noColor) {
