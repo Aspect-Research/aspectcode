@@ -236,7 +236,7 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         <Text color={cursor === SETTINGS.length ? COLORS.primary : COLORS.gray}>
           {cursor === SETTINGS.length ? '\u25B6 ' : '  '}
         </Text>
-        <Text color={COLORS.green} bold>{'Save & exit'}</Text>
+        <Text color={COLORS.primary} bold>{'Save & exit'}</Text>
       </Text>
       <Text>
         <Text color={cursor === SETTINGS.length + 1 ? COLORS.primary : COLORS.gray}>
