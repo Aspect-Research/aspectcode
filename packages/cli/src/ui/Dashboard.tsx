@@ -311,10 +311,10 @@ const Dashboard: React.FC = () => {
             <Text color={COLORS.gray}>{` — ${s.tokenUsage.inputTokens.toLocaleString()} in / ${s.tokenUsage.outputTokens.toLocaleString()} out tokens`}</Text>
           )}
           {s.userEmail && s.syncStatus === 'synced' && s.lastSyncAt > 0 && (
-            <Text color={COLORS.gray}>{` — ☁ synced`}</Text>
+            <Text color={COLORS.gray}>{` — ☁  synced`}</Text>
           )}
           {s.userEmail && s.syncStatus === 'offline' && (
-            <Text color={COLORS.yellow}>{` — ☁ offline`}</Text>
+            <Text color={COLORS.yellow}>{` — ☁  offline`}</Text>
           )}
         </Text>
       )}
