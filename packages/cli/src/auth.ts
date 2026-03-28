@@ -155,6 +155,7 @@ export async function loginCommand(args: string[] = []): Promise<void> {
     token: string;
     receivedState: string;
   }>((resolve, reject) => {
+    const sockets = new Set<import('net').Socket>();
     const server = http.createServer((req, res) => {
       const url = new URL(req.url ?? '/', `http://localhost`);
 
@@ -162,25 +163,34 @@ export async function loginCommand(args: string[] = []): Promise<void> {
         const token = url.searchParams.get('token');
         const receivedState = url.searchParams.get('state');
 
-        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Connection': 'close',
+        });
         res.end(
           '<!DOCTYPE html><html><head><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#0a0a0a;color:#fafafa}.container{text-align:center;max-width:400px;padding:2rem}h1{font-size:1.5rem;margin-bottom:.5rem}p{color:#a1a1aa}</style></head><body><div class="container"><h1>Login Successful</h1><p>You can close this tab and return to your terminal.</p></div></body></html>',
+          () => {
+            // Force-destroy all connections so server.close() completes immediately
+            for (const s of sockets) s.destroy();
+            server.close();
+
+            if (token && receivedState) {
+              resolve({ token, receivedState });
+            } else {
+              reject(new Error('Missing token or state in callback'));
+            }
+          },
         );
-
-        server.close();
-
-        if (token && receivedState) {
-          resolve({
-            token,
-            receivedState,
-          });
-        } else {
-          reject(new Error('Missing token or state in callback'));
-        }
       } else {
         res.writeHead(404);
         res.end();
       }
+    });
+
+    // Track connections so we can force-close them
+    server.on('connection', (socket) => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
     });
 
     // Listen on random port
@@ -197,11 +207,10 @@ export async function loginCommand(args: string[] = []): Promise<void> {
 
     // Timeout after 2 minutes
     const timeout = setTimeout(() => {
+      for (const s of sockets) s.destroy();
       server.close();
       reject(new Error('Login timed out. Please try again.'));
     }, 120_000);
-
-    // Ensure timeout doesn't keep the process alive after resolve/reject
     timeout.unref();
   });
 
