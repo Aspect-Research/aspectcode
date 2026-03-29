@@ -16,7 +16,7 @@ import {
   runProbes,
   judgeProbe,
   diagnose,
-  applyEdits,
+  applyEditsWithLlm,
   DEFAULT_PROBE_REFINE_CONFIG,
 } from '@aspectcode/evaluator';
 import type {
@@ -34,11 +34,17 @@ import type { PreferencesStore } from './preferences';
 import { formatPreferencesForPrompt } from './preferences';
 import * as path from 'path';
 
+import type { ScopedRule } from './scopedRules';
+
 /** Result of the optimization attempt. */
 export interface OptimizeOutput {
   content: string;
   reasoning: string[];
   tokenUsage?: ChatUsage;
+  /** LLM-consolidated scoped rules (empty if no LLM available). */
+  scopedRules: ScopedRule[];
+  /** Slugs of scoped rules to delete. */
+  deleteSlugs: string[];
 }
 
 /**
@@ -57,6 +63,7 @@ export async function tryOptimize(
   probeAndRefine = false,
   preferences?: PreferencesStore,
   userSettings?: UserSettings,
+  staticRules?: ScopedRule[],
 ): Promise<OptimizeOutput> {
   const { flags, log, root } = ctx;
   const evalConfig = config?.evaluate;
@@ -104,7 +111,7 @@ export async function tryOptimize(
     const content = kbContent.length > 0
       ? generateKbCustomContent(kbContent, 'safe')
       : generateCanonicalContentForMode('safe', false);
-    return { content, reasoning: [] };
+    return { content, reasoning: [], scopedRules: staticRules ?? [], deleteSlugs: [] };
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
@@ -145,6 +152,9 @@ export async function tryOptimize(
   store.setPhase('optimizing', 'generation complete');
 
   // ── Probe-and-refine loop ──────────────────────────────────
+
+  const scopedRuleCreates: ScopedRule[] = [];
+  const scopedRuleDeletes: string[] = [];
 
   if (evaluatorEnabled) {
     const allAppliedEdits: AgentsEdit[] = [];
@@ -278,6 +288,13 @@ export async function tryOptimize(
         const judgedResults: JudgedProbeResult[] = [];
         let weakCount = 0;
         let strongCount = 0;
+        const probeResults: Array<{ task: string; status: 'strong' | 'weak' | 'pending' }> = [];
+
+        // Pre-populate pending entries for all probes
+        for (const sim of simResults) {
+          const brief = sim.task.length > 60 ? sim.task.slice(0, 57) + '...' : sim.task;
+          probeResults.push({ task: brief, status: 'pending' });
+        }
 
         for (let i = 0; i < simResults.length; i++) {
           if (isCancelled()) break;
@@ -300,7 +317,7 @@ export async function tryOptimize(
           if (hasWeak) weakCount++;
           else strongCount++;
 
-          const briefTask = sim.task.length > 50 ? sim.task.slice(0, 47) + '...' : sim.task;
+          probeResults[i] = { task: probeResults[i].task, status: hasWeak ? 'weak' : 'strong' };
           setEval({
             phase: 'judging',
             iteration,
@@ -309,7 +326,8 @@ export async function tryOptimize(
             judgedCount: i + 1,
             weakCount,
             strongCount,
-            currentProbeTask: briefTask,
+            currentProbeTask: probeResults[i].task,
+            probeResults: [...probeResults],
           });
 
           log.info(`  ${hasWeak ? '✖' : '✔'} ${sim.probeId} (${hasWeak ? 'weak' : 'strong'})`);
@@ -328,12 +346,23 @@ export async function tryOptimize(
         });
         store.setPhase('evaluating');
 
+        // Build scoped rules context for diagnosis
+        const rulesCtx = staticRules?.map((r) =>
+          `### ${r.slug} (${r.source})\nGlobs: ${r.globs.join(', ')}\n${r.content}`
+        ).join('\n---\n') || '';
+
+        const staticData = staticRules?.length
+          ? `${staticRules.length} candidate rules from static analysis (hubs, conventions, circular deps). The LLM decides which are worth keeping as scoped rules vs folding into AGENTS.md.`
+          : '';
+
         const diagnosisEdits = await diagnose({
           judgedResults,
           agentsContent: finalContent,
           provider,
           log: optLog,
           signal,
+          scopedRulesContext: rulesCtx,
+          staticAnalysisData: staticData,
         });
 
         if (isCancelled()) break;
@@ -356,23 +385,67 @@ export async function tryOptimize(
           }
         }
 
-        const cappedEdits = dedupedEdits.slice(0, loopConfig.maxEditsPerIteration);
-        log.info(`Applying ${cappedEdits.length} edits (${allEdits.length} total, ${dedupedEdits.length} unique)`);
+        // Separate AGENTS.md edits from scoped rule edits
+        const agentsMdEdits = dedupedEdits.filter((e) => !e.section.startsWith('scoped:'));
+        const scopedEdits = dedupedEdits.filter((e) => e.section.startsWith('scoped:'));
 
-        // ── Step 5: Apply edits deterministically ────────
+        // Collect scoped rule operations for later
+        for (const edit of scopedEdits) {
+          if (edit.section.startsWith('scoped:DELETE:')) {
+            const slug = edit.section.replace('scoped:DELETE:', '');
+            scopedRuleDeletes.push(slug);
+          } else if (edit.section.startsWith('scoped:CREATE:')) {
+            const slug = edit.section.replace('scoped:CREATE:', '');
+            if (edit.content && edit.globs?.length) {
+              scopedRuleCreates.push({
+                slug,
+                description: edit.description || `Rule for ${slug}`,
+                globs: edit.globs,
+                content: edit.content,
+                source: 'probe' as const,
+              });
+            }
+          } else {
+            // scoped:slug — update existing rule
+            const slug = edit.section.replace('scoped:', '');
+            if (edit.content) {
+              scopedRuleCreates.push({
+                slug,
+                description: edit.description || `Updated rule for ${slug}`,
+                globs: edit.globs || [`**`],
+                content: edit.content,
+                source: 'probe' as const,
+              });
+            }
+          }
+        }
+
+        const cappedEdits = agentsMdEdits.slice(0, loopConfig.maxEditsPerIteration);
+        const totalEditCount = cappedEdits.length + scopedEdits.length;
+        log.info(`Applying ${cappedEdits.length} AGENTS.md edits, ${scopedEdits.length} scoped rule edits (${allEdits.length} total)`);
+
+        // ── Step 5: Apply AGENTS.md edits deterministically ────────
+        const pendingEditSummaries = [
+          ...cappedEdits.map((e) => `${e.action} ${e.section}: "${e.content.length > 60 ? e.content.slice(0, 57) + '...' : e.content}"`),
+          ...scopedEdits.map((e) => `${e.section}`),
+        ];
         setEval({
           phase: 'applying',
           iteration,
           maxIterations: loopConfig.maxIterations,
-          proposedEditCount: cappedEdits.length,
+          proposedEditCount: totalEditCount,
+          editSummaries: pendingEditSummaries,
         });
         store.setPhase('evaluating');
 
         const guidanceBefore = finalContent;
-        const applyResult = applyEdits(finalContent, cappedEdits, loopConfig.charBudget);
+        const applyResult = await applyEditsWithLlm(
+          finalContent, cappedEdits, loopConfig.charBudget, provider, signal,
+        );
         finalContent = applyResult.content;
-        totalEditsApplied += applyResult.applied;
+        totalEditsApplied += applyResult.applied + scopedEdits.length;
         allAppliedEdits.push(...cappedEdits.slice(0, applyResult.applied));
+        allAppliedEdits.push(...scopedEdits);
 
         if (applyResult.trimmed > 0) {
           log.info(`Trimmed ${applyResult.trimmed} bullets to fit ${loopConfig.charBudget}-char budget`);
@@ -458,5 +531,33 @@ export async function tryOptimize(
   }
 
   store.setReasoning([]);
-  return { content: finalContent, reasoning: [] };
+
+  // ── Build final scoped rules from evaluator decisions ──────
+  // The diagnosis step decided what scoped rules to create/delete.
+  // Start with static rules, apply evaluator modifications.
+  let finalRules: ScopedRule[] = staticRules ?? [];
+
+  if (evaluatorEnabled) {
+    // Remove rules the evaluator marked for deletion
+    if (scopedRuleDeletes.length > 0) {
+      const deleteSet = new Set(scopedRuleDeletes);
+      finalRules = finalRules.filter((r) => !deleteSet.has(r.slug));
+      log.info(`Evaluator pruned ${scopedRuleDeletes.length} scoped rule${scopedRuleDeletes.length === 1 ? '' : 's'}`);
+    }
+
+    // Add/update rules the evaluator created
+    if (scopedRuleCreates.length > 0) {
+      const createBySlug = new Map(scopedRuleCreates.map((r) => [r.slug, r]));
+      // Update existing rules or add new ones
+      finalRules = finalRules.map((r) => createBySlug.get(r.slug) ?? r);
+      // Add truly new rules (not updates)
+      const existingSlugs = new Set(finalRules.map((r) => r.slug));
+      for (const r of scopedRuleCreates) {
+        if (!existingSlugs.has(r.slug)) finalRules.push(r);
+      }
+      log.info(`Evaluator created/updated ${scopedRuleCreates.length} scoped rule${scopedRuleCreates.length === 1 ? '' : 's'}`);
+    }
+  }
+
+  return { content: finalContent, reasoning: [], scopedRules: finalRules, deleteSlugs: scopedRuleDeletes };
 }

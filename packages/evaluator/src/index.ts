@@ -40,5 +40,5 @@ export { judgeProbe } from './judge';
 // ── Aggregate diagnosis ─────────────────────────────────────
 export { diagnose } from './diagnosis';
 
-// ── Deterministic edit application ──────────────────────────
-export { applyEdits, AGENTS_MD_CHAR_BUDGET } from './apply';
+// ── Edit application ───────────────────────────────────────
+export { applyEdits, applyEditsWithLlm, AGENTS_MD_CHAR_BUDGET } from './apply';

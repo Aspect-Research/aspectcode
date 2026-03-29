@@ -107,14 +107,24 @@ describe('extractConventionRules', () => {
   it('generates rule when directory convention differs from repo', () => {
     const model = makeModel({
       files: [
-        // Repo-wide: kebab-case
+        // Repo-wide: kebab-case (8+ files)
         { relativePath: 'src/lib/my-utils.ts' },
         { relativePath: 'src/lib/my-helpers.ts' },
         { relativePath: 'src/lib/data-loader.ts' },
-        // This directory: PascalCase (different)
+        { relativePath: 'src/lib/config-parser.ts' },
+        { relativePath: 'src/lib/error-handler.ts' },
+        { relativePath: 'src/lib/route-builder.ts' },
+        { relativePath: 'src/lib/type-checker.ts' },
+        { relativePath: 'src/lib/cache-manager.ts' },
+        // This directory: PascalCase (8+ files, different)
         { relativePath: 'src/components/UserCard.tsx' },
         { relativePath: 'src/components/NavBar.tsx' },
         { relativePath: 'src/components/SidePanel.tsx' },
+        { relativePath: 'src/components/AppLayout.tsx' },
+        { relativePath: 'src/components/DataTable.tsx' },
+        { relativePath: 'src/components/SearchBar.tsx' },
+        { relativePath: 'src/components/ModalView.tsx' },
+        { relativePath: 'src/components/FormInput.tsx' },
       ],
     });
 
@@ -126,7 +136,7 @@ describe('extractConventionRules', () => {
     assert.equal(compRule!.source, 'convention');
   });
 
-  it('skips directories with fewer than 3 files', () => {
+  it('skips directories with fewer than 2 files', () => {
     const model = makeModel({
       files: [
         { relativePath: 'src/a.ts' },
@@ -142,9 +152,13 @@ describe('extractConventionRules', () => {
         { relativePath: 'src/my-app.ts' },
         { relativePath: 'src/my-utils.ts' },
         { relativePath: 'src/my-config.ts' },
+        { relativePath: 'src/my-router.ts' },
+        { relativePath: 'src/my-handler.ts' },
         { relativePath: 'lib/other-file.ts' },
         { relativePath: 'lib/another-file.ts' },
         { relativePath: 'lib/third-file.ts' },
+        { relativePath: 'lib/fourth-file.ts' },
+        { relativePath: 'lib/fifth-file.ts' },
       ],
     });
     // Both dirs are kebab-case, same as repo dominant → no rules
@@ -154,13 +168,23 @@ describe('extractConventionRules', () => {
   it('detects test co-location', () => {
     const model = makeModel({
       files: [
-        // Repo dominant: kebab-case
+        // Repo dominant: kebab-case (8+)
         { relativePath: 'src/lib/my-utils.ts' },
         { relativePath: 'src/lib/my-helpers.ts' },
         { relativePath: 'src/lib/data-loader.ts' },
-        // PascalCase with co-located tests
+        { relativePath: 'src/lib/config-parser.ts' },
+        { relativePath: 'src/lib/error-handler.ts' },
+        { relativePath: 'src/lib/route-builder.ts' },
+        { relativePath: 'src/lib/type-checker.ts' },
+        { relativePath: 'src/lib/cache-manager.ts' },
+        // PascalCase with co-located tests (8+)
         { relativePath: 'src/components/UserCard.tsx' },
         { relativePath: 'src/components/NavBar.tsx' },
+        { relativePath: 'src/components/SidePanel.tsx' },
+        { relativePath: 'src/components/AppLayout.tsx' },
+        { relativePath: 'src/components/DataTable.tsx' },
+        { relativePath: 'src/components/SearchBar.tsx' },
+        { relativePath: 'src/components/ModalView.tsx' },
         { relativePath: 'src/components/UserCard.test.tsx' },
       ],
     });

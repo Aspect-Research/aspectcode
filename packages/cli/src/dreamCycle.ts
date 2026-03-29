@@ -29,6 +29,7 @@ export interface DreamResult {
   updatedAgentsMd: string;
   changes: string[];
   scopedRules: ScopedRule[];
+  deleteSlugs: string[];
 }
 
 // ── Constants ────────────────────────────────────────────────
@@ -166,24 +167,29 @@ export function stripLearnedBlock(agentsMd: string): string {
 
 // ── Dream cycle prompt ───────────────────────────────────────
 
-const DREAM_SYSTEM = `You are an AGENTS.md editor. You will receive the current AGENTS.md and a list of developer corrections from watch mode.
+const DREAM_SYSTEM = `You are an AGENTS.md editor. You will receive the current AGENTS.md, existing scoped rules, and developer corrections from watch mode.
 
 Your job:
 1. For CONFIRMED problems: strengthen or add rules so the AI assistant catches these in the future.
 2. For DISMISSED warnings: soften or remove rules that over-flagged — the developer said these aren't issues.
-3. If there is a <!-- aspectcode:learned --> block, integrate its content into the appropriate sections and remove the markers.
-4. Keep the AGENTS.md under 8000 characters.
+3. If there is a <!-- aspectcode:learned --> block, integrate its content and remove the markers.
+4. Keep AGENTS.md under 8000 characters.
 
-SCOPED RULES: If a correction is specific to a file path or directory (e.g., a hub safety warning for a specific file, a naming convention in a specific directory), output it as a scoped rule instead of an AGENTS.md edit. Repo-wide corrections still go in AGENTS.md.
+SCOPED RULES PHILOSOPHY:
+- Prefer adding general guidance to AGENTS.md. Only use scoped rules when content is truly directory-specific and would be misleading if applied globally.
+- Do NOT create scoped rules for naming conventions alone — that belongs in AGENTS.md.
+- You can create, update, or delete scoped rules. To delete, use: {"slug":"id","action":"delete"}
+- When in doubt, add to AGENTS.md.
 
 OUTPUT FORMAT:
 First, output the complete updated AGENTS.md content (no code fences, no markers).
-Then, if you have scoped rules, add a line containing exactly "---SCOPED_RULES---" followed by a JSON array:
+Then, if you have scoped rule changes, add a line containing exactly "---SCOPED_RULES---" followed by a JSON array:
 [{"slug":"short-id","description":"what this rule does","globs":["path/pattern/**"],"content":"markdown rule body"}]
+To delete a rule: [{"slug":"rule-to-remove","action":"delete"}]
 
-If no scoped rules are needed, just output the AGENTS.md content with no delimiter.`;
+If no scoped rule changes are needed, just output the AGENTS.md content with no delimiter.`;
 
-function buildDreamUserPrompt(agentsMd: string, corrs: Correction[]): string {
+function buildDreamUserPrompt(agentsMd: string, corrs: Correction[], scopedRulesContext?: string): string {
   const formattedCorrections = corrs.map((c, i) => {
     const label = c.action === 'confirm' ? 'CONFIRMED' : 'DISMISSED';
     const a = c.assessment;
@@ -195,15 +201,28 @@ function buildDreamUserPrompt(agentsMd: string, corrs: Correction[]): string {
     return line;
   }).join('\n\n');
 
-  return `CURRENT AGENTS.MD:
+  let prompt = `CURRENT AGENTS.MD:
 ---
 ${agentsMd}
+---`;
+
+  if (scopedRulesContext) {
+    prompt += `
+
+CURRENT SCOPED RULES:
 ---
+${scopedRulesContext}
+---`;
+  }
+
+  prompt += `
 
 DEVELOPER CORRECTIONS (from watch mode):
 ${formattedCorrections}
 
-Produce the updated AGENTS.MD now. Use scoped rules for path-specific corrections.`;
+Produce the updated AGENTS.MD now. You may also create, update, or delete scoped rules if appropriate, but prefer AGENTS.md for general guidance.`;
+
+  return prompt;
 }
 
 // ── Response parsing ─────────────────────────────────────────
@@ -215,21 +234,26 @@ interface RawScopedRule {
   description?: string;
   globs?: string[];
   content?: string;
+  action?: 'create' | 'update' | 'delete';
 }
 
 /**
  * Parse the LLM response into AGENTS.md content and optional scoped rules.
  */
-export function parseDreamResponse(raw: string): { agentsMd: string; scopedRules: ScopedRule[] } {
+export function parseDreamResponse(raw: string): { agentsMd: string; scopedRules: ScopedRule[]; deleteSlugs: string[] } {
   const delimIdx = raw.indexOf(SCOPED_DELIMITER);
 
   let agentsPart: string;
   let scopedRules: ScopedRule[] = [];
 
+  let deleteSlugs: string[] = [];
+
   if (delimIdx >= 0) {
     agentsPart = raw.slice(0, delimIdx).trim();
     const jsonPart = raw.slice(delimIdx + SCOPED_DELIMITER.length).trim();
-    scopedRules = parseScopedRulesJson(jsonPart);
+    const parsed = parseScopedRulesJson(jsonPart);
+    scopedRules = parsed.rules;
+    deleteSlugs = parsed.deleteSlugs;
   } else {
     agentsPart = raw.trim();
   }
@@ -238,12 +262,12 @@ export function parseDreamResponse(raw: string): { agentsMd: string; scopedRules
   agentsPart = agentsPart.replace(/^```(?:markdown)?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
   if (!agentsPart.endsWith('\n')) agentsPart += '\n';
 
-  return { agentsMd: agentsPart, scopedRules };
+  return { agentsMd: agentsPart, scopedRules, deleteSlugs };
 }
 
-function parseScopedRulesJson(raw: string): ScopedRule[] {
+function parseScopedRulesJson(raw: string): { rules: ScopedRule[]; deleteSlugs: string[] } {
   // Strip code fences if present
-  let cleaned = raw.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
+  const cleaned = raw.replace(/^```(?:json)?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
 
   // Try to extract JSON array
   let parsed: RawScopedRule[];
@@ -251,18 +275,22 @@ function parseScopedRulesJson(raw: string): ScopedRule[] {
     parsed = JSON.parse(cleaned);
   } catch {
     const match = cleaned.match(/\[[\s\S]*\]/);
-    if (!match) return [];
+    if (!match) return { rules: [], deleteSlugs: [] };
     try {
       parsed = JSON.parse(match[0]);
     } catch {
-      return [];
+      return { rules: [], deleteSlugs: [] };
     }
   }
 
-  if (!Array.isArray(parsed)) return [];
+  if (!Array.isArray(parsed)) return { rules: [], deleteSlugs: [] };
 
-  return parsed
-    .filter((r) => r.slug && r.description && r.globs?.length && r.content)
+  const deleteSlugs = parsed
+    .filter((r) => r.action === 'delete' && r.slug)
+    .map((r) => r.slug!);
+
+  const rules = parsed
+    .filter((r) => r.action !== 'delete' && r.slug && r.description && r.globs?.length && r.content)
     .map((r) => ({
       slug: r.slug!,
       description: r.description!,
@@ -270,6 +298,8 @@ function parseScopedRulesJson(raw: string): ScopedRule[] {
       content: r.content!,
       source: 'dream' as ScopedRule['source'],
     }));
+
+  return { rules, deleteSlugs };
 }
 
 // ── Dream cycle entry point ──────────────────────────────────
@@ -279,18 +309,19 @@ export async function runDreamCycle(options: {
   corrections: Correction[];
   provider: LlmProvider;
   log?: OptLogger;
+  scopedRulesContext?: string;
 }): Promise<DreamResult> {
-  const { currentAgentsMd, corrections: corrs, provider, log } = options;
+  const { currentAgentsMd, corrections: corrs, provider, log, scopedRulesContext } = options;
 
   if (corrs.length === 0) {
-    return { updatedAgentsMd: currentAgentsMd, changes: [], scopedRules: [] };
+    return { updatedAgentsMd: currentAgentsMd, changes: [], scopedRules: [], deleteSlugs: [] };
   }
 
   log?.info(`Dream cycle: processing ${corrs.length} correction${corrs.length === 1 ? '' : 's'}…`);
 
   const messages: ChatMessage[] = [
     { role: 'system', content: DREAM_SYSTEM },
-    { role: 'user', content: buildDreamUserPrompt(currentAgentsMd, corrs) },
+    { role: 'user', content: buildDreamUserPrompt(currentAgentsMd, corrs, scopedRulesContext) },
   ];
 
   const response = await withRetry(
@@ -298,7 +329,7 @@ export async function runDreamCycle(options: {
     { baseDelayMs: 1000, maxDelayMs: 8000, maxRetries: 2 },
   );
 
-  const { agentsMd, scopedRules } = parseDreamResponse(response);
+  const { agentsMd, scopedRules, deleteSlugs } = parseDreamResponse(response);
 
   // Build change summary
   const confirmed = corrs.filter((c) => c.action === 'confirm').length;
@@ -307,7 +338,8 @@ export async function runDreamCycle(options: {
   if (confirmed > 0) changes.push(`${confirmed} confirmed`);
   if (dismissed > 0) changes.push(`${dismissed} dismissed`);
   if (scopedRules.length > 0) changes.push(`${scopedRules.length} scoped`);
+  if (deleteSlugs.length > 0) changes.push(`${deleteSlugs.length} pruned`);
 
   log?.info(`Dream cycle complete: ${changes.join(', ')}`);
-  return { updatedAgentsMd: agentsMd, changes, scopedRules };
+  return { updatedAgentsMd: agentsMd, changes, scopedRules, deleteSlugs };
 }

@@ -568,6 +568,17 @@ export function generateKbSeedContent(
     parts.push(`## Repo Priors\n${repoParts.join('\n\n')}`);
   }
 
+  // ── Setup (always present) ───────────────────────────────
+  parts.push(`## Setup
+- If Aspect Code is not running, start it: \`aspectcode --background\`
+- This keeps AGENTS.md and scoped rules up to date as you work.`);
+
+  // ── Error Tracking ──────────────────────────────────────
+  parts.push(`## Error Tracking
+- When you encounter a recurring error pattern, log it in \`.claude/errors.md\`.
+- Format: \`## [date] [file] [error summary]\` with a brief note on what caused it.
+- Check \`.claude/errors.md\` before making changes to files that have had recent errors.`);
+
   // ── Guardrails (always present) ──────────────────────────
   parts.push(`## Guardrails
 - No speculative changes or broad refactors without evidence.

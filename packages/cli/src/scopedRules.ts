@@ -26,14 +26,18 @@ export interface ScopedRule {
   /** Markdown body (no frontmatter) */
   content: string;
   /** Which extractor generated this */
-  source: 'hub' | 'convention' | 'circular-dep' | 'dream';
+  source: 'hub' | 'convention' | 'circular-dep' | 'dream' | 'probe';
 }
 
-interface ManifestEntry {
+export interface ManifestEntry {
   slug: string;
   platform: string;
   path: string;
   hash: string;
+  source: ScopedRule['source'] | 'probe';
+  createdAt: string;
+  updatedAt: string;
+  llmReviewed: boolean;
 }
 
 interface Manifest {
@@ -133,11 +137,26 @@ export function extractConventionRules(model: AnalysisModel): ScopedRule[] {
   }
 
   const rules: ScopedRule[] = [];
-  for (const [dir, files] of dirFiles) {
-    if (files.length < 3) continue; // not enough data
+  const ruledDirs = new Set<string>();
+
+  // Sort directories by depth (shallowest first) to skip children with same convention
+  const sortedDirs = [...dirFiles.entries()].sort((a, b) => {
+    const depthA = a[0].split('/').length;
+    const depthB = b[0].split('/').length;
+    return depthA - depthB;
+  });
+
+  for (const [dir, files] of sortedDirs) {
+    if (files.length < 2) continue; // need at least 2 files to detect a pattern
 
     const dirDominant = detectDominantNaming(files);
     if (!dirDominant || dirDominant === repoDominant) continue;
+
+    // Skip if parent directory already has a rule with the same convention
+    const parentHasRule = [...ruledDirs].some(
+      (ruled) => dir.startsWith(ruled + '/'),
+    );
+    if (parentHasRule) continue;
 
     // Check for test co-location
     const hasTests = files.some((f) => {
@@ -159,6 +178,7 @@ export function extractConventionRules(model: AnalysisModel): ScopedRule[] {
       content: lines.join('\n') + '\n',
       source: 'convention',
     });
+    ruledDirs.add(dir);
   }
 
   return rules;
@@ -288,8 +308,10 @@ export async function writeScopedRules(
   platform: AiToolId,
 ): Promise<string[]> {
   const manifest = await loadManifest(host, root);
+  const oldBySlug = new Map(manifest.rules.map((e) => [e.slug, e]));
   const newEntries: ManifestEntry[] = [];
   const written: string[] = [];
+  const now = new Date().toISOString();
 
   for (const rule of rules) {
     const serialized = platform === 'claudeCode'
@@ -302,7 +324,19 @@ export async function writeScopedRules(
     await host.writeFile(absPath, serialized.content);
 
     const hash = crypto.createHash('md5').update(serialized.content).digest('hex').slice(0, 8);
-    newEntries.push({ slug: rule.slug, platform, path: serialized.path, hash });
+    const old = oldBySlug.get(rule.slug);
+    const contentChanged = !old || old.hash !== hash;
+
+    newEntries.push({
+      slug: rule.slug,
+      platform,
+      path: serialized.path,
+      hash,
+      source: rule.source,
+      createdAt: old?.createdAt ?? now,
+      updatedAt: contentChanged ? now : (old?.updatedAt ?? now),
+      llmReviewed: old?.llmReviewed ?? false,
+    });
     written.push(serialized.path);
   }
 
@@ -318,6 +352,29 @@ export async function writeScopedRules(
 
   await saveManifest(host, root, { version: 1, rules: newEntries });
   return written;
+}
+
+/**
+ * Delete scoped rules by slug. Removes files and updates manifest.
+ */
+export async function deleteScopedRules(
+  host: EmitterHost,
+  root: string,
+  slugs: string[],
+): Promise<void> {
+  const manifest = await loadManifest(host, root);
+  const slugSet = new Set(slugs);
+
+  for (const entry of manifest.rules) {
+    if (slugSet.has(entry.slug)) {
+      try {
+        await host.rmrf(host.join(root, entry.path));
+      } catch { /* file may already be gone */ }
+    }
+  }
+
+  const remaining = manifest.rules.filter((e) => !slugSet.has(e.slug));
+  await saveManifest(host, root, { version: 1, rules: remaining });
 }
 
 // ── Manifest ─────────────────────────────────────────────────

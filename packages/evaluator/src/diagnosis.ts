@@ -17,35 +17,34 @@ import { chatWithTemp } from './llmUtil';
 
 // ── Prompts ─────────────────────────────────────────────────
 
-const DIAGNOSE_SYSTEM = `You are an expert AGENTS.md editor. You will be given the current AGENTS.md
-and diagnostic probe outcomes. Your goal is to help the assistant produce
-better fixes by proposing targeted edits.
+const DIAGNOSE_SYSTEM = `You are an expert context editor for AI coding assistants. You manage AGENTS.md (general guidance) and scoped rules (directory-specific guidance).
 
 Output a JSON array of edit objects, each with:
-- "section": one of: "Operating Mode", "Procedural Standards", "High-Impact Hubs", "Entry Points", "Import Chains", "Validation", "Integration Risk", "Conventions", "Guardrails"
+- "section": an AGENTS.md section OR "scoped:slug" to edit a scoped rule OR "scoped:CREATE:slug" to create one OR "scoped:DELETE:slug" to remove one
 - "action": one of "add", "modify", "strengthen", "remove"
-- "content": the specific text to add, modify, or strengthen
+- "content": the specific text (for AGENTS.md: a bullet point; for scoped rules: full markdown body)
+- "globs": (only for scoped:CREATE) array of glob patterns, e.g. ["src/core/**"]
+- "description": (only for scoped:CREATE) short description of the rule
+
+AGENTS.md sections: "Operating Mode", "Procedural Standards", "High-Impact Hubs", "Entry Points", "Import Chains", "Validation", "Integration Risk", "Conventions", "Guardrails", "Setup"
 
 Rules:
-- Keep edits specific and actionable.
-- Focus on reusable repo-level exploration guidance.
-- Prefer edits that help the assistant navigate *this* repo's structure
-  over generic software-engineering process rules.
-- Avoid one-off file paths/commands and speculative semantics changes.
-- The "content" field must be the ACTUAL guideline text to appear in AGENTS.md as a bullet point.
-  Write it as a direct imperative (e.g. "Verify target module exists before adding imports").
-  NEVER write meta-instructions like "Add a step to...", "Include an example of...", or "Add specific instructions on...".
-- Content must be general enough to apply across the repo, not tied to one specific probe scenario.
-  Bad: "Ensure ThemeProvider wraps NavBar". Good: "Check context provider hierarchy when modifying wrapped components".
+- STRONGLY prefer editing AGENTS.md over creating scoped rules. Scoped rules are only for content that is truly directory-specific and would be misleading if applied globally.
+- Do NOT create scoped rules for naming conventions alone — that belongs in AGENTS.md.
+- Keep edits specific and actionable. Write direct imperatives.
+- Content must be general enough to apply broadly, not tied to one probe scenario.
 - Use "modify"/"strengthen" to refine existing guidance before adding new rules.
+- You may delete scoped rules that are redundant, trivial, or already covered by AGENTS.md.
 - Edits are optional: return [] when guidance is already strong.
-- Return at most 6 edits.
-- Keep the total AGENTS.md under 8,000 characters.
+- Return at most 8 edits total.
+- Keep AGENTS.md under 8,000 characters.
 - Output ONLY the JSON array.`;
 
 function buildDiagnoseUserPrompt(
   agentsMd: string,
   results: JudgedProbeResult[],
+  scopedRulesContext?: string,
+  staticAnalysisData?: string,
 ): string {
   const diagnostics = results.map((r, i) => {
     const reviews = r.behaviorReviews
@@ -59,15 +58,35 @@ function buildDiagnoseUserPrompt(
     return `- Probe ${i + 1}: ${r.task}\n${reviews}\n  * Overall: ${r.overallNotes}\n${edits}`;
   }).join('\n\n');
 
-  return `CURRENT AGENTS.MD:
+  let prompt = `CURRENT AGENTS.MD:
 ---
 ${agentsMd}
+---`;
+
+  if (scopedRulesContext) {
+    prompt += `
+
+CURRENT SCOPED RULES:
 ---
+${scopedRulesContext}
+---`;
+  }
+
+  if (staticAnalysisData) {
+    prompt += `
+
+STATIC ANALYSIS DATA:
+${staticAnalysisData}`;
+  }
+
+  prompt += `
 
 PROBE DIAGNOSTICS:
 ${diagnostics}
 
-Propose edits to improve AGENTS.md for future iterations.`;
+Propose edits to improve the guidance. You may edit AGENTS.md sections, create/update/delete scoped rules, or return [] if no changes needed.`;
+
+  return prompt;
 }
 
 // ── JSON parsing ────────────────────────────────────────────
@@ -112,7 +131,7 @@ export function parseDiagnoseResponse(raw: string): RawEdit[] {
  * then proposes up to 6 aggregate edits via a single LLM call.
  */
 export async function diagnose(options: DiagnosisOptions): Promise<AgentsEdit[]> {
-  const { judgedResults, agentsContent, provider, log, signal } = options;
+  const { judgedResults, agentsContent, provider, log, signal, scopedRulesContext, staticAnalysisData } = options;
 
   if (judgedResults.length === 0) return [];
   if (signal?.aborted) return [];
@@ -129,7 +148,7 @@ export async function diagnose(options: DiagnosisOptions): Promise<AgentsEdit[]>
 
   log?.info(`Diagnosing ${weakResults.length} probe result${weakResults.length === 1 ? '' : 's'} with weak behaviors…`);
 
-  const userPrompt = buildDiagnoseUserPrompt(agentsContent, weakResults);
+  const userPrompt = buildDiagnoseUserPrompt(agentsContent, weakResults, scopedRulesContext, staticAnalysisData);
   const messages: ChatMessage[] = [
     { role: 'system', content: DIAGNOSE_SYSTEM },
     { role: 'user', content: userPrompt },
@@ -147,16 +166,20 @@ export async function diagnose(options: DiagnosisOptions): Promise<AgentsEdit[]>
   const rawEdits = parseDiagnoseResponse(response);
 
   const edits: AgentsEdit[] = rawEdits
-    .slice(0, 6)
-    .filter((e) => e.section && e.action && e.content)
+    .slice(0, 8)
+    .filter((e) => e.section && e.action)
     .map((e) => ({
       section: e.section,
       action: (['add', 'modify', 'strengthen', 'remove'].includes(e.action)
         ? e.action
         : 'add') as AgentsEdit['action'],
-      content: e.content,
+      content: e.content || '',
+      globs: (e as any).globs,
+      description: (e as any).description,
     }));
 
-  log?.info(`Diagnosis: ${edits.length} edit${edits.length === 1 ? '' : 's'} proposed`);
+  const agentsEdits = edits.filter((e) => !e.section.startsWith('scoped:'));
+  const scopedEdits = edits.filter((e) => e.section.startsWith('scoped:'));
+  log?.info(`Diagnosis: ${agentsEdits.length} AGENTS.md edit${agentsEdits.length === 1 ? '' : 's'}, ${scopedEdits.length} scoped rule edit${scopedEdits.length === 1 ? '' : 's'}`);
   return edits;
 }

@@ -195,16 +195,31 @@ export function bumpPreferenceHit(store: PreferencesStore, prefId: string): Pref
  * Format confirmed (deny) preferences as natural language hints for the LLM.
  * Returns empty string if no deny preferences exist.
  */
-export function formatPreferencesForPrompt(store: PreferencesStore): string {
-  const denied = store.preferences.filter((p) => p.disposition === 'deny');
+const MAX_PREFERENCES_IN_PROMPT = 30;
+const MAX_PREF_DESCRIPTION_CHARS = 200;
+const MAX_PREFERENCES_BLOCK_CHARS = 3000;
+
+export function formatPreferencesForPrompt(prefsStore: PreferencesStore): string {
+  const denied = prefsStore.preferences.filter((p) => p.disposition === 'deny');
   if (denied.length === 0) return '';
 
-  const lines = denied.map((p) => {
+  // Sort by hitCount descending — most-used preferences are most important
+  const sorted = [...denied].sort((a, b) => (b.hitCount ?? 0) - (a.hitCount ?? 0));
+  const capped = sorted.slice(0, MAX_PREFERENCES_IN_PROMPT);
+
+  const lines = capped.map((p) => {
     const scope = p.file ? `in \`${p.file}\`` : p.directory ? `in \`${p.directory}\`` : 'project-wide';
-    return `- The developer confirmed that "${p.rule}" should be enforced ${scope}: ${p.pattern}`;
+    const pattern = p.pattern.length > MAX_PREF_DESCRIPTION_CHARS
+      ? p.pattern.slice(0, MAX_PREF_DESCRIPTION_CHARS) + '...'
+      : p.pattern;
+    return `- "${p.rule}" enforced ${scope}: ${pattern}`;
   });
 
-  return `## Developer preferences\n\nThese rules were explicitly confirmed by the developer during watch mode:\n\n${lines.join('\n')}`;
+  let block = `## Developer preferences\n\nConfirmed rules from watch mode corrections:\n\n${lines.join('\n')}`;
+  if (block.length > MAX_PREFERENCES_BLOCK_CHARS) {
+    block = block.slice(0, MAX_PREFERENCES_BLOCK_CHARS) + '\n...';
+  }
+  return block;
 }
 
 // ── Community suggestions ───────────────────────────────────

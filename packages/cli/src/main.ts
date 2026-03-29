@@ -40,6 +40,7 @@ export function parseArgs(argv: string[]): CliFlags {
     noColor: false,
     compact: false,
     cursor: false,
+    background: false,
   };
 
   const args = argv.slice(2); // skip node + script
@@ -188,7 +189,7 @@ async function main(): Promise<void> {
   // selectPrompt uses raw stdin which conflicts with ink's useInput.
   const { ownership, generate } = await resolveRunMode(root);
 
-  const useDashboard = !flags.quiet && !flags.noColor && process.stdout.isTTY === true;
+  const useDashboard = !flags.quiet && !flags.noColor && !flags.background && process.stdout.isTTY === true;
 
   let log;
   let spin: SpinnerFactory;

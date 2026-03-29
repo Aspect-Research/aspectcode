@@ -42,16 +42,6 @@ function useDreamSpinner(active: boolean): string {
   return DREAM_FRAMES[frame];
 }
 
-// ── Auto-dismiss eval status when cancelled ──────────────────
-
-function useAutoDismissEval(evalDone: boolean, cancelled: boolean): void {
-  useEffect(() => {
-    if (!evalDone || !cancelled) return;
-    const id = setTimeout(() => store.dismissEvalStatus(), 5000);
-    return () => clearTimeout(id);
-  }, [evalDone, cancelled]);
-}
-
 // ── Auto-clear hooks ─────────────────────────────────────────
 
 function useAutoMessage(msg: string, clearFn: () => void, durationMs = 4000): string {
@@ -63,6 +53,32 @@ function useAutoMessage(msg: string, clearFn: () => void, durationMs = 4000): st
     return () => clearTimeout(id);
   }, [msg]);
   return visible;
+}
+
+// ── Eval phase elapsed timer ─────────────────────────────────
+
+function useEvalElapsed(phase: EvalPhase): string {
+  const [startMs, setStartMs] = useState(0);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (phase === 'idle' || phase === 'done') {
+      setStartMs(0);
+      return;
+    }
+    setStartMs(Date.now());
+  }, [phase]);
+
+  useEffect(() => {
+    if (!startMs) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [startMs]);
+
+  if (!startMs || phase === 'idle' || phase === 'done') return '';
+  const secs = Math.floor((now - startMs) / 1000);
+  if (secs < 1) return '';
+  return `${secs}s`;
 }
 
 // ── Slow pulse for watching indicator ─────────────────────────
@@ -112,34 +128,34 @@ const WORKING = new Set<PipelinePhase>([
 // ── Eval progress text ───────────────────────────────────────
 
 function evalText(phase: EvalPhase, s: DashboardState['evalStatus']): string | null {
-  const round = s.iteration && s.maxIterations
+  const round = s.iteration && s.maxIterations && s.maxIterations > 1
     ? `Round ${s.iteration}/${s.maxIterations}: `
     : '';
   switch (phase) {
     case 'idle': return null;
     case 'generating-probes':
-      return `${round}Creating test scenarios…`;
+      return `${round}Generating synthetic test scenarios…`;
     case 'probing': {
       const progress = s.probesPassed !== undefined && s.probesTotal !== undefined
         ? ` (${s.probesPassed}/${s.probesTotal})`
         : '';
-      return `${round}Testing guidelines${progress}…`;
+      return `${round}Simulating AI responses${progress}…`;
     }
     case 'judging': {
       const progress = s.judgedCount !== undefined && s.probesTotal !== undefined
         ? ` (${s.judgedCount}/${s.probesTotal})`
         : '';
-      return `${round}Reviewing results${progress}…`;
+      return `${round}Judging response quality${progress}…`;
     }
     case 'diagnosing': {
       const detail = s.weakCount !== undefined && s.strongCount !== undefined
         ? ` — ${s.strongCount} passed, ${s.weakCount} gap${s.weakCount === 1 ? '' : 's'}`
         : '';
-      return `${round}Identifying improvements${detail}…`;
+      return `${round}Diagnosing weaknesses${detail}…`;
     }
     case 'applying': {
       const count = s.proposedEditCount ? ` ${s.proposedEditCount}` : '';
-      return `${round}Applying${count} improvement${s.proposedEditCount === 1 ? '' : 's'}…`;
+      return `${round}Applying${count} improvement${s.proposedEditCount === 1 ? '' : 's'} to AGENTS.md…`;
     }
     case 'done': {
       const edits = s.diagnosisEdits ?? 0;
@@ -262,13 +278,12 @@ const Dashboard: React.FC = () => {
   const evalLabel = evalText(s.evalStatus.phase, s.evalStatus);
   const evalDone = s.evalStatus.phase === 'done';
   const evalActive = s.evalStatus.phase !== 'idle';
+  const evalElapsed = useEvalElapsed(s.evalStatus.phase);
   const learnedMsg = useAutoMessage(s.learnedMessage, () => store.setLearnedMessage(''));
+  const warningMsg = useAutoMessage(s.warning, () => store.setWarning(''), 5000);
   const changeFlash = useAutoMessage(s.lastChangeFlash, () => store.setLastChangeFlash(''));
   const current = s.currentAssessment;
   const queueLen = s.pendingAssessments.length;
-
-  // Auto-dismiss cancelled eval status after 5s
-  useAutoDismissEval(evalDone, s.evalStatus.cancelled ?? false);
 
   // ── Build header info ──────────────────────────────────────
   const rootLabel = s.rootPath ? s.rootPath.replace(/\\/g, '/').split('/').pop() || s.rootPath : '';
@@ -319,8 +334,11 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── First-run hint ────────────────────────── */}
-      {s.isFirstRun && working && (
+      {s.isFirstRun && working && s.phase !== 'evaluating' && (
         <Text color={COLORS.gray}>{'Analyzing your codebase to generate AGENTS.md'}</Text>
+      )}
+      {s.isFirstRun && s.phase === 'evaluating' && (
+        <Text color={COLORS.gray}>{'Optimizing AGENTS.md — testing with synthetic scenarios to find gaps'}</Text>
       )}
 
       {/* ── Memory map (always visible once populated) ── */}
@@ -335,12 +353,38 @@ const Dashboard: React.FC = () => {
         <Box flexDirection="column">
           <Text color={evalDone ? COLORS.primary : COLORS.primaryDim}>
             {evalDone ? evalLabel : `${spinner} ${evalLabel}`}
+            {!evalDone && evalElapsed ? <Text color={COLORS.gray}>{` ${evalElapsed}`}</Text> : null}
             {!evalDone && !s.evalStatus.cancelled ? '  [x] cancel' : ''}
             {evalDone ? '  [c] clear' : ''}
           </Text>
+
+          {/* Live probe results during judging */}
+          {s.evalStatus.phase === 'judging' && s.evalStatus.probeResults && (
+            <>
+              {s.evalStatus.probeResults.map((pr, i) => {
+                if (pr.status === 'pending') return null;
+                const icon = pr.status === 'strong' ? '✓' : '✗';
+                const color = pr.status === 'strong' ? COLORS.gray : COLORS.yellow;
+                return <Text key={`pr-${i}`} color={color}>{`  ${icon} ${pr.task}`}</Text>;
+              })}
+            </>
+          )}
+
+          {/* Live edit summaries during applying */}
+          {s.evalStatus.phase === 'applying' && s.evalStatus.editSummaries && s.evalStatus.editSummaries.length > 0 && (
+            <>
+              {s.evalStatus.editSummaries.map((line, i) => (
+                <Text key={`ae-${i}`} color={COLORS.gray}>{`  + ${line}`}</Text>
+              ))}
+            </>
+          )}
+
+          {/* Completed iteration summaries */}
           {s.evalStatus.iterationSummaries && s.evalStatus.iterationSummaries.map((summary, i) => (
             <Text key={`iter-${i}`} color={COLORS.gray}>{`├ ${summary}`}</Text>
           ))}
+
+          {/* Final edit summaries (done phase) */}
           {evalDone && s.evalStatus.editSummaries && s.evalStatus.editSummaries.length > 0 && (
             <>
               {s.evalStatus.editSummaries.slice(0, 5).map((line, i, arr) => {
@@ -356,8 +400,8 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── Warning ──────────────────────────────── */}
-      {s.warning !== '' && (
-        <Text color={COLORS.yellow}>{`● ${s.warning}`}</Text>
+      {warningMsg !== '' && (
+        <Text color={COLORS.yellow}>{`● ${warningMsg}`}</Text>
       )}
 
       {/* ── Watching indicator ─────────────────────── */}

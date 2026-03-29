@@ -373,3 +373,72 @@ export function trimToBudget(
 
   return { content: reconstructDocument(sections, ''), trimmed };
 }
+
+// ── LLM-augmented apply ──────────────────────────────────────
+
+import type { LlmProvider, ChatMessage } from '@aspectcode/optimizer';
+import { chatWithTemp } from './llmUtil';
+
+/**
+ * Apply edits with LLM assistance when content exceeds budget or
+ * multiple edits target the same section.
+ *
+ * Falls back to deterministic apply if LLM fails.
+ */
+export async function applyEditsWithLlm(
+  agentsMd: string,
+  edits: AgentsEdit[],
+  charBudget: number,
+  provider: LlmProvider,
+  signal?: AbortSignal,
+): Promise<ApplyResult> {
+  // First try deterministic apply
+  const deterministicResult = applyEdits(agentsMd, edits, charBudget);
+
+  // Check if LLM assistance would help:
+  // 1. Content was trimmed (lost information)
+  // 2. Multiple edits to the same section (consolidation opportunity)
+  const sectionCounts = new Map<string, number>();
+  for (const edit of edits) {
+    const s = edit.section;
+    sectionCounts.set(s, (sectionCounts.get(s) ?? 0) + 1);
+  }
+  const hasConsolidationOpportunity = [...sectionCounts.values()].some((c) => c > 3);
+  const needsLlm = deterministicResult.trimmed > 0 || hasConsolidationOpportunity;
+
+  if (!needsLlm) return deterministicResult;
+
+  // LLM-assisted apply
+  try {
+    const editDescriptions = edits.map((e) =>
+      `- ${e.action} in "${e.section}": ${e.content}`
+    ).join('\n');
+
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: `You apply edits to AGENTS.md. Given the current content and proposed edits, produce an updated AGENTS.md that:
+- Integrates all edits intelligently (merge related bullets, consolidate redundant content)
+- Stays under ${charBudget} characters
+- Preserves the most important guidance when trimming
+- Maintains section structure and markdown formatting
+Output ONLY the updated AGENTS.md content, no code fences.`,
+      },
+      {
+        role: 'user',
+        content: `CURRENT AGENTS.MD (${agentsMd.length} chars, budget ${charBudget}):\n---\n${agentsMd}\n---\n\nPROPOSED EDITS:\n${editDescriptions}\n\nApply these edits and produce the updated AGENTS.md.`,
+      },
+    ];
+
+    const response = await chatWithTemp(provider, messages, 0.0, signal);
+    const cleaned = response.replace(/^```(?:markdown)?\s*\n?/m, '').replace(/\n?```\s*$/m, '').trim();
+
+    if (cleaned.length > 0 && cleaned.length <= charBudget * 1.1) {
+      return { content: cleaned + '\n', applied: edits.length, trimmed: 0 };
+    }
+  } catch {
+    // Fall back to deterministic result
+  }
+
+  return deterministicResult;
+}

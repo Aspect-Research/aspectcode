@@ -44,6 +44,7 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)' },
   { name: 'compact',                       type: 'boolean', description: 'Compact dashboard (no banner)' },
   { name: 'cursor',                       type: 'boolean', description: 'Target Cursor instead of Claude Code' },
+  { name: 'background',                   type: 'boolean', description: 'Run headless (no dashboard UI)' },
 ] as const;
 
 // ── Parsed structures ────────────────────────────────────────
@@ -63,6 +64,7 @@ export interface CliFlags {
   temperature?: number;
   compact: boolean;
   cursor: boolean;
+  background: boolean;
 }
 
 /** Exit codes. */

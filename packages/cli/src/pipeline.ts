@@ -42,7 +42,8 @@ import {
   runDreamCycle,
   saveDreamState,
 } from './dreamCycle';
-import { extractScopedRules, writeScopedRules } from './scopedRules';
+import { extractScopedRules, writeScopedRules, deleteScopedRules } from './scopedRules';
+import type { ScopedRule } from './scopedRules';
 import { loadCredentials, startBackgroundLogin } from './auth';
 import type { ManagedFile } from './ui/store';
 import { resolveProvider, loadEnvFile } from '@aspectcode/optimizer';
@@ -112,8 +113,10 @@ function buildManagedFiles(
         const cat = (entry.path as string).startsWith('.claude/') ? 'claude-rule'
           : (entry.path as string).startsWith('.cursor/') ? 'cursor-rule'
           : 'agents';
-        const abs = path.join(root, entry.path);
-        files.push({ path: entry.path, annotation: '● active', updatedAt: fileMtime(abs), category: cat as ManagedFile['category'], scope: 'workspace', owner: 'aspectcode' });
+        // Use manifest timestamp if available, fall back to file mtime
+        const ts = entry.updatedAt ? new Date(entry.updatedAt).getTime() : fileMtime(path.join(root, entry.path));
+        const reviewed = entry.llmReviewed ? ' ✦' : '';
+        files.push({ path: entry.path, annotation: `● active${reviewed}`, updatedAt: ts, category: cat as ManagedFile['category'], scope: 'workspace', owner: 'aspectcode' });
       }
     } catch { /* malformed manifest */ }
   }
@@ -321,6 +324,8 @@ async function runOnce(
 
   // ── 6. Generate or skip ───────────────────────────────────
   let finalContent = baseContent;
+  let consolidatedScopedRules: ScopedRule[] = [];
+  let deleteSlugsFromOptimizer: string[] = [];
 
   if (ctx.generate) {
     if (!flags.dryRun) {
@@ -329,10 +334,13 @@ async function runOnce(
     }
 
     store.setPhase('optimizing');
+    const staticRules = extractScopedRules(model);
     const optimizeResult = await tryOptimize(
-      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings,
+      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, staticRules,
     );
     finalContent = optimizeResult.content;
+    consolidatedScopedRules = optimizeResult.scopedRules;
+    deleteSlugsFromOptimizer = optimizeResult.deleteSlugs;
 
     store.setPhase('writing');
     if (flags.dryRun) {
@@ -368,6 +376,8 @@ async function runOnce(
       store.addOutput('AGENTS.md written (KB-custom)');
       store.setSummary(summarizeContent(baseContent));
     }
+    // No LLM available — use static extraction for scoped rules
+    consolidatedScopedRules = extractScopedRules(model);
   }
 
   // ── 7. Persist runtime state ───────────────────────────────
@@ -378,13 +388,21 @@ async function runOnce(
     fileContents: workspace.relativeFiles,
   });
 
-  // ── 8. Write scoped rules for active platform ──────────────
+  // ── 8. Write scoped rules (LLM-decided or static fallback) ──
   if (!flags.dryRun) {
     const platform = activePlatform === 'claude' ? 'claudeCode' as const : 'cursor' as const;
-    const scopedRules = extractScopedRules(model);
-    const written = await writeScopedRules(host, root, scopedRules, platform);
-    if (written.length > 0) {
-      store.addOutput(`${written.length} scoped rule${written.length === 1 ? '' : 's'}`);
+
+    // Delete rules the evaluator marked for removal
+    if (deleteSlugsFromOptimizer.length > 0) {
+      await deleteScopedRules(host, root, deleteSlugsFromOptimizer);
+      store.addOutput(`${deleteSlugsFromOptimizer.length} scoped rule${deleteSlugsFromOptimizer.length === 1 ? '' : 's'} removed`);
+    }
+
+    if (consolidatedScopedRules.length > 0) {
+      const written = await writeScopedRules(host, root, consolidatedScopedRules, platform);
+      if (written.length > 0) {
+        store.addOutput(`${written.length} scoped rule${written.length === 1 ? '' : 's'}`);
+      }
     }
   }
 
@@ -647,19 +665,43 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     store.setDreaming(true);
     pipelineRunning = true;
     try {
+      // Read current scoped rules for dream context
+      let scopedRulesContext = '';
+      try {
+        const manifestPath = path.join(root, '.aspectcode', 'scoped-rules.json');
+        if (fs.existsSync(manifestPath)) {
+          const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+          const parts: string[] = [];
+          for (const entry of manifest.rules ?? []) {
+            try {
+              const content = fs.readFileSync(path.join(root, entry.path), 'utf-8');
+              parts.push(`### ${entry.slug} (${entry.path})\n${content}`);
+            } catch { /* skip missing files */ }
+          }
+          scopedRulesContext = parts.join('\n---\n');
+        }
+      } catch { /* ignore */ }
+
       const result = await runDreamCycle({
         currentAgentsMd: state.agentsContent,
         corrections: getCorrections(),
         provider,
         log: optLog,
+        scopedRulesContext,
       });
       const host = createNodeEmitterHost();
       await writeAgentsMd(host, root, result.updatedAgentsMd, ownership);
       updateRuntimeState({ agentsContent: result.updatedAgentsMd });
       // Write any scoped rules from the dream cycle
-      if (result.scopedRules.length > 0 && activePlatform) {
+      if ((result.scopedRules.length > 0 || result.deleteSlugs.length > 0) && activePlatform) {
         const plat = activePlatform === 'claude' ? 'claudeCode' as const : 'cursor' as const;
-        await writeScopedRules(host, root, result.scopedRules, plat);
+        // Delete rules the dream cycle marked for removal
+        if (result.deleteSlugs.length > 0) {
+          await deleteScopedRules(host, root, result.deleteSlugs);
+        }
+        if (result.scopedRules.length > 0) {
+          await writeScopedRules(host, root, result.scopedRules, plat);
+        }
       }
       markProcessed();
       store.setCorrectionCount(getUnprocessedCount());

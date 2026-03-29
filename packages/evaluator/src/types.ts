@@ -74,7 +74,7 @@ export interface JudgedProbeResult {
 
 /** A specific proposed edit to AGENTS.md. */
 export interface AgentsEdit {
-  /** What section/area of AGENTS.md to modify. */
+  /** What section/area to modify. AGENTS.md section name, or "scoped:slug" / "scoped:CREATE:slug" / "scoped:DELETE:slug". */
   section: string;
 
   /** The type of edit. */
@@ -85,6 +85,12 @@ export interface AgentsEdit {
 
   /** Which probe failures motivated this edit (optional). */
   motivatedBy?: string[];
+
+  /** Glob patterns (only for scoped:CREATE). */
+  globs?: string[];
+
+  /** Description (only for scoped:CREATE). */
+  description?: string;
 }
 
 // ── Probe-and-refine loop ───────────────────────────────────
@@ -208,6 +214,12 @@ export interface DiagnosisOptions {
 
   /** Current AGENTS.md content. */
   agentsContent: string;
+
+  /** Current scoped rules context (slug → content map). Optional. */
+  scopedRulesContext?: string;
+
+  /** Raw static analysis data for scoped rule decisions. Optional. */
+  staticAnalysisData?: string;
 
   /** LLM provider for diagnosis. */
   provider: LlmProvider;

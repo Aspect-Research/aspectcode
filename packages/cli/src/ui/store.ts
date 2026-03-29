@@ -54,6 +54,10 @@ export interface EvalStatus {
   /** Probes with at least one weak/missing behavior. */
   weakCount?: number;
 
+  // ── Live probe results ─────────────────────────────────
+  /** Per-probe result summaries, shown live during judging. */
+  probeResults?: Array<{ task: string; status: 'strong' | 'weak' | 'pending' }>;
+
   // ── Edits ──────────────────────────────────────────────
   /** Total edits applied across all iterations. */
   diagnosisEdits?: number;
