@@ -7,6 +7,7 @@
  */
 
 import * as path from 'path';
+import { spawn } from 'child_process';
 import type { CliFlags } from './cli';
 import { ExitCode, FLAG_DEFS, flagPropName } from './cli';
 import type { SpinnerFactory } from './cli';
@@ -124,6 +125,47 @@ function parseFloatFlag(value: unknown, min: number, max: number): number | unde
   return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
 }
 
+// ── Background: spawn in a new terminal ──────────────────────
+
+/** Spawn aspectcode in a new terminal window. Returns true if successful. */
+function spawnInTerminal(): boolean {
+  const binPath = path.resolve(__dirname, '..', 'bin', 'aspectcode.js');
+  const forwardedArgs = process.argv.slice(2).filter((a) => a !== '--background');
+  const nodeExe = process.execPath;
+
+  try {
+    let child;
+
+    if (process.platform === 'win32') {
+      child = spawn('cmd', ['/c', 'start', '"Aspect Code"', 'cmd', '/k', nodeExe, binPath, ...forwardedArgs], {
+        detached: true,
+        stdio: 'ignore',
+        shell: true,
+      });
+    } else if (process.platform === 'darwin') {
+      const cmd = [nodeExe, binPath, ...forwardedArgs].map((a) => `"${a}"`).join(' ');
+      child = spawn('osascript', ['-e', `tell app "Terminal" to do script "${cmd.replace(/"/g, '\\"')}"`], {
+        detached: true,
+        stdio: 'ignore',
+      });
+    } else {
+      const fullCmd = [nodeExe, binPath, ...forwardedArgs];
+      child = spawn('gnome-terminal', ['--', ...fullCmd], {
+        detached: true,
+        stdio: 'ignore',
+      });
+    }
+
+    child.unref();
+    console.log(`◆ aspect code running in background${child.pid ? ` (pid ${child.pid})` : ''}`);
+    process.exitCode = ExitCode.OK;
+    return true;
+  } catch {
+    console.log('◆ could not open terminal window — running headless');
+    return false;
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -153,6 +195,13 @@ async function main(): Promise<void> {
     printHelp();
     process.exitCode = ExitCode.OK;
     return;
+  }
+
+  // Background mode: spawn in a new terminal window and exit immediately
+  if (flags.background) {
+    if (spawnInTerminal()) return;
+    // Spawn failed — fall through to run headless in this process
+    flags.background = false;
   }
 
   // Require login for the pipeline

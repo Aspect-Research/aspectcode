@@ -257,15 +257,26 @@ const Dashboard: React.FC = () => {
       }
       return;
     }
-    if (input === 'n') {
-      handler({ type: 'dismiss', assessment: current });
-    } else if (input === 'y') {
-      if (current.suggestion) {
-        process.stderr.write(`\n  Suggestion:\n  ${current.suggestion}\n\n`);
+    if (current.llmRecommendation) {
+      // LLM has already decided — y/n are overrides
+      if (input === 'n') {
+        handler({ type: 'dismiss', assessment: current });
+      } else if (input === 'y') {
+        handler({ type: 'confirm', assessment: current });
       }
-      handler({ type: 'confirm', assessment: current });
-    } else if (input === 's') {
-      handler({ type: 'skip', assessment: current });
+      // No skip, no accept — LLM answer is the default via timer
+    } else {
+      // No LLM recommendation — classic y/n/s
+      if (input === 'n') {
+        handler({ type: 'dismiss', assessment: current });
+      } else if (input === 'y') {
+        if (current.suggestion) {
+          process.stderr.write(`\n  Suggestion:\n  ${current.suggestion}\n\n`);
+        }
+        handler({ type: 'confirm', assessment: current });
+      } else if (input === 's') {
+        handler({ type: 'skip', assessment: current });
+      }
     }
   });
 
@@ -280,6 +291,31 @@ const Dashboard: React.FC = () => {
   const evalActive = s.evalStatus.phase !== 'idle';
   const evalElapsed = useEvalElapsed(s.evalStatus.phase);
   const learnedMsg = useAutoMessage(s.learnedMessage, () => store.setLearnedMessage(''));
+
+  // Timer for auto-resolving assessments with LLM recommendation
+  const [autoTimer, setAutoTimer] = useState(30);
+  useEffect(() => {
+    const cur = s.currentAssessment;
+    if (!cur?.llmRecommendation) { setAutoTimer(30); return; }
+    setAutoTimer(30);
+    const interval = setInterval(() => {
+      setAutoTimer((t) => {
+        if (t <= 1) {
+          // Auto-apply LLM decision
+          const handler = (store as any)._onAssessmentAction as ((a: any) => void) | undefined;
+          if (handler && cur.llmRecommendation) {
+            handler({
+              type: cur.llmRecommendation.decision === 'allow' ? 'dismiss' : 'confirm',
+              assessment: cur,
+            });
+          }
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [s.currentAssessment]);
   const warningMsg = useAutoMessage(s.warning, () => store.setWarning(''), 5000);
   const changeFlash = useAutoMessage(s.lastChangeFlash, () => store.setLastChangeFlash(''));
   const current = s.currentAssessment;
@@ -449,10 +485,26 @@ const Dashboard: React.FC = () => {
           {current.details ? (
             <Text color={COLORS.gray}>{`  ${current.details}`}</Text>
           ) : null}
+          {current.llmRecommendation ? (
+            <>
+              <Text color={COLORS.primary}>
+                {`  → ${current.llmRecommendation.decision} (${Math.round(current.llmRecommendation.confidence * 100)}%) — ${current.llmRecommendation.reasoning}`}
+              </Text>
+              <Box>
+                <Text color={COLORS.gray}>{'  [y] override: confirm  [n] override: dismiss'}</Text>
+                {autoTimer > 0 && (
+                  <Text color={COLORS.gray}>{`  (${autoTimer}s)`}</Text>
+                )}
+              </Box>
+            </>
+          ) : (
+            <Box>
+              <Text color={COLORS.gray}>{'  [y] confirm  [n] dismiss  [s] skip'}</Text>
+            </Box>
+          )}
           <Box>
-            <Text color={COLORS.gray}>{'  [y] confirm  [n] dismiss  [s] skip'}</Text>
             {queueLen > 0 && (
-              <Text color={COLORS.gray}>{`       (1 of ${queueLen + 1})`}</Text>
+              <Text color={COLORS.gray}>{`  (1 of ${queueLen + 1})`}</Text>
             )}
           </Box>
         </Box>
@@ -490,6 +542,7 @@ const Dashboard: React.FC = () => {
             if (stats.violations > 0) parts.push(`${stats.violations} violations`);
             if (s.correctionCount > 0) parts.push(`${s.correctionCount} corrections`);
             if (s.preferenceCount > 0) parts.push(`${s.preferenceCount} learned`);
+            if (stats.autoResolved > 0) parts.push(`${stats.autoResolved} auto`);
             return parts.join(' · ');
           })()}
         </Text>
