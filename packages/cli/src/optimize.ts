@@ -514,6 +514,9 @@ export async function tryOptimize(
       // Clean up abort listener if we exit via exception
       store.removeListener('change', onStoreChange);
 
+      // Tier exhaustion — re-throw so pipeline can show upgrade prompt
+      if ((err as any)?.tierExhausted) throw err;
+
       // AbortError from cancel — not a real error
       if (err instanceof DOMException && err.name === 'AbortError') {
         const editSummaries = allAppliedEdits.map((e) => {

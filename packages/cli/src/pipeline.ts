@@ -702,6 +702,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   log.blank();
   store.setRootPath(root);
 
+  // ── Show update message if available ──────────────────────
+  const updateMsg = (globalThis as any).__updateMessage;
+  if (updateMsg) store.setUpdateMessage(updateMsg);
+
   // ── Set platforms from pre-resolved context ────────────────
   const activePlatforms = ctx.platforms;
   store.setPlatform(activePlatforms.join(', '));
@@ -733,15 +737,22 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         const cap = data.usage?.tokensCap ?? creds.tierTokensCap ?? 100_000;
         const resetAt = data.usage?.resetAt ?? '';
         store.setTierInfo(tier, used, cap, resetAt || undefined);
+        if (used >= cap) store.setTierExhausted();
         updateCredentials({ tier, tierTokensUsed: used, tierTokensCap: cap });
       } else if (creds.tier) {
         // Offline fallback — use cached tier
-        store.setTierInfo(creds.tier, creds.tierTokensUsed ?? 0, creds.tierTokensCap ?? 100_000);
+        const used = creds.tierTokensUsed ?? 0;
+        const cap = creds.tierTokensCap ?? 100_000;
+        store.setTierInfo(creds.tier, used, cap);
+        if (used >= cap) store.setTierExhausted();
       }
     } catch {
       // Offline — use cached tier if available
       if (creds.tier) {
-        store.setTierInfo(creds.tier, creds.tierTokensUsed ?? 0, creds.tierTokensCap ?? 100_000);
+        const used = creds.tierTokensUsed ?? 0;
+        const cap = creds.tierTokensCap ?? 100_000;
+        store.setTierInfo(creds.tier, used, cap);
+        if (used >= cap) store.setTierExhausted();
       }
     }
   }
@@ -778,9 +789,21 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         if (count > maxCount) { primaryLang = lang; maxCount = count; }
       }
       if (primaryLang) {
+        // Fetch community suggestions, filter to relevant ones, feed to dream cycle
+        const projectDirs = new Set(state.model.files.map((f) => {
+          const parts = f.relativePath.split('/');
+          return parts.length > 1 ? parts[0] + '/' : '';
+        }));
         fetchSuggestions(primaryLang, undefined, { byok: false })
           .then((suggestions) => {
-            if (suggestions.length > 0) store.setSuggestions(suggestions.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, description: s.description })));
+            // Filter out suggestions for directories that don't exist in this project
+            const relevant = suggestions.filter((s) => {
+              if (!s.directory) return true; // project-wide suggestions always apply
+              return projectDirs.has(s.directory) || [...projectDirs].some((d) => s.directory!.startsWith(d));
+            });
+            if (relevant.length > 0) {
+              store.setSuggestions(relevant.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, suggestion: s.suggestion })));
+            }
           })
           .catch(() => {});
 
@@ -828,7 +851,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       .then((suggestions) => {
         lastSuggestionsFetch = Date.now();
         if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
-          store.setSuggestions(suggestions.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, description: s.description })));
+          store.setSuggestions(suggestions.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, suggestion: s.suggestion })));
         }
       })
       .catch(() => {});
@@ -976,6 +999,17 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         userRulesContext = combined;
       } catch { /* ignore */ }
 
+      // Format community suggestions for dream cycle context
+      let communitySuggestions: string | undefined;
+      const suggestions = store.state.suggestions;
+      if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
+        communitySuggestions = suggestions
+          .map((s) => `- [${s.rule}] ${s.suggestion}`)
+          .join('\n');
+        // Mark as consumed so they're only integrated once
+        store.dismissSuggestions();
+      }
+
       const result = await runDreamCycle({
         currentAgentsMd: state.agentsContent,
         corrections: getCorrections(),
@@ -983,6 +1017,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         log: optLog,
         scopedRulesContext,
         userRulesContext: userRulesContext || undefined,
+        communitySuggestions,
       });
       const host = createNodeEmitterHost();
       await writeAgentsMd(host, root, result.updatedAgentsMd, ownership);
@@ -1005,9 +1040,13 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       }
       // Refresh memory map to reflect any new files
       store.setManagedFiles(buildManagedFiles(root, (await loadPreferences(root)).preferences.length, activePlatforms));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn(`Dream cycle failed: ${msg}`);
+    } catch (err: any) {
+      if (err?.tierExhausted) {
+        store.setTierExhausted();
+      } else {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(`Dream cycle failed: ${msg}`);
+      }
     } finally {
       pipelineRunning = false;
       store.setDreaming(false);
@@ -1250,22 +1289,6 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open';
       exec(`${cmd} "${url}"`);
       store.setLearnedMessage('opened pricing page');
-      return;
-    }
-    if (action.type === 'apply-suggestions') {
-      const suggestions = action.suggestions ?? store.state.suggestions;
-      for (const sg of suggestions) {
-        prefs = addPreference(prefs, {
-          rule: sg.rule,
-          pattern: sg.description,
-          disposition: sg.disposition === 'deny' ? 'deny' : 'allow',
-          directory: sg.directory ?? undefined,
-        });
-      }
-      savePreferences(root, prefs);
-      store.setPreferenceCount(prefs.preferences.length);
-      store.setLearnedMessage(`Applied ${suggestions.length} suggestion${suggestions.length === 1 ? '' : 's'}`);
-      store.dismissSuggestions();
       return;
     }
     if (action.type === 'login') {

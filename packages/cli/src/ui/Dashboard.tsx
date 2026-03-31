@@ -17,6 +17,7 @@ import SettingsPanel from './SettingsPanel';
 import type { UserSettings, AspectCodeConfig } from '../config';
 import { loadConfig, saveConfig, saveUserSettings } from '../config';
 import { formatTokens } from '../usageTracker';
+import { getVersion } from '../version';
 
 // ── Spinner ──────────────────────────────────────────────────
 
@@ -224,7 +225,7 @@ const Dashboard: React.FC = () => {
         return;
       }
       if (input === 'k') {
-        process.stderr.write(`\n  Add your API key to aspectcode.json:\n  { "apiKey": "sk-..." }\n\n  Or set ASPECTCODE_LLM_KEY in your environment.\n\n`);
+        store.setLearnedMessage('Add "apiKey": "sk-..." to aspectcode.json, or set ASPECTCODE_LLM_KEY in your env');
         return;
       }
     }
@@ -235,21 +236,6 @@ const Dashboard: React.FC = () => {
       return;
     }
     if (!current) {
-      // Suggestions handling
-      if (!store.state.suggestionsDismissed && store.state.suggestions.length > 0) {
-        if (input === 'a') {
-          // Apply all suggestions — handler in pipeline will convert to preferences
-          const handler = (store as any)._onAssessmentAction as ((a: any) => void) | undefined;
-          if (handler) handler({ type: 'apply-suggestions', suggestions: store.state.suggestions });
-          store.dismissSuggestions();
-          return;
-        }
-        if (input === 'i') {
-          store.dismissSuggestions();
-          store.setLearnedMessage('suggestions dismissed');
-          return;
-        }
-      }
 
       // No active assessment — 's' opens settings
       if (input === 's' && store.state.phase === 'watching') {
@@ -370,9 +356,10 @@ const Dashboard: React.FC = () => {
 
       {/* ── Header ──────────────────────────────── */}
       <Text>
-        <Text color={COLORS.primary} bold>{'◆ aspect code'}</Text>
+        <Text color={COLORS.primary} bold>{`◆ aspect code v${getVersion()}`}</Text>
         {rootLabel ? <Text color={COLORS.gray}>{` ${SEP_CHAR} ${rootLabel}`}</Text> : null}
         {s.activePlatform ? <Text color={COLORS.gray}>{` ${SEP_CHAR} ${s.activePlatform}`}</Text> : null}
+        {s.updateMessage ? <Text color={COLORS.gray}>{` ${SEP_CHAR} ${s.updateMessage}`}</Text> : null}
       </Text>
 
       {/* ── Working status (during pipeline) ──────── */}
@@ -476,15 +463,9 @@ const Dashboard: React.FC = () => {
         <Text color={COLORS.primary}>{`${dreamSpinner} refining context — ${s.correctionCount} correction${s.correctionCount === 1 ? '' : 's'}…`}</Text>
       )}
 
-      {/* ── Community suggestions (one-time) ────────── */}
+      {/* ── Community suggestions (auto-applied via dream cycle) ────── */}
       {isWatching && !s.suggestionsDismissed && s.suggestions.length > 0 && !current && !s.dreaming && (
-        <Box flexDirection="column">
-          <Text color={COLORS.primary}>{`💡 ${s.suggestions.length} suggestion${s.suggestions.length === 1 ? '' : 's'} based on similar projects:`}</Text>
-          {s.suggestions.slice(0, 5).map((sg, i) => (
-            <Text key={i} color={COLORS.gray}>{`  • ${sg.description}`}</Text>
-          ))}
-          <Text color={COLORS.gray}>{'  [a] apply all  [i] ignore'}</Text>
-        </Box>
+        <Text color={COLORS.gray}>{`  ✦ ${s.suggestions.length} community insight${s.suggestions.length === 1 ? '' : 's'} — will refine on next dream cycle`}</Text>
       )}
 
       {/* ── Assessment area ───────────────────────── */}
@@ -570,12 +551,15 @@ const Dashboard: React.FC = () => {
       {/* ── Tier exhaustion prompt ────────────── */}
       {s.tierExhausted && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={COLORS.primary} bold>
-            {`Token limit reached (${formatTokens(s.tierTokensCap)} ${s.userTier === 'free' ? 'lifetime' : 'weekly'} tokens used).`}
+          <Text color={COLORS.red} bold>
+            {`${s.userTier === 'free' ? 'Free' : 'Weekly'} limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
           </Text>
-          <Text color={COLORS.gray}>{''}</Text>
-          <Text color={COLORS.primaryDim}>{'  [u] Upgrade to Pro ($8/mo — 1M tokens/week + community suggestions)'}</Text>
-          <Text color={COLORS.primaryDim}>{'  [k] Add your own OpenAI/Anthropic key: ASPECTCODE_LLM_KEY=sk-...'}</Text>
+          <Text>{''}</Text>
+          <Text color={COLORS.primaryDim}>{'  [u] Upgrade to Pro — $8/mo, 1M tokens/week'}</Text>
+          {s.suggestions.length > 0 && (
+            <Text color={COLORS.gray}>{`      ${s.suggestions.length} community suggestion${s.suggestions.length === 1 ? '' : 's'} ready for your codebase`}</Text>
+          )}
+          <Text color={COLORS.gray} dimColor>{'  [k] Add your own key: ASPECTCODE_LLM_KEY=sk-...'}</Text>
         </Box>
       )}
 
@@ -592,7 +576,7 @@ const Dashboard: React.FC = () => {
         </Text>
       ) : s.tierTokensUsed >= 75_000 ? (
         <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>
-          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} lifetime tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
+          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} free tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
         </Text>
       ) : (
         s.sessionUsage.calls > 0 ? (

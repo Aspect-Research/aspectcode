@@ -185,12 +185,15 @@ export interface DashboardState {
   dreaming: boolean;
   /** Managed files for the memory map. */
   managedFiles: ManagedFile[];
+
+  /** Update status message (e.g. "Updated to v0.5.0" or "v0.5.0 available"). */
+  updateMessage: string;
   /** Cloud sync status for display. */
   syncStatus: 'idle' | 'syncing' | 'synced' | 'offline';
   /** Epoch ms of last successful sync. */
   lastSyncAt: number;
   /** Community suggestions for this project type. */
-  suggestions: Array<{ rule: string; disposition: string; directory: string | null; description: string }>;
+  suggestions: Array<{ rule: string; disposition: string; directory: string | null; suggestion: string }>;
   /** Cumulative LLM usage for this session. */
   sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
   /** Whether suggestions have been shown/dismissed. */
@@ -249,6 +252,7 @@ class DashboardStore extends EventEmitter {
     dreamPrompt: false,
     dreaming: false,
     managedFiles: [],
+    updateMessage: '',
     syncStatus: 'idle',
     lastSyncAt: 0,
     sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
@@ -441,6 +445,10 @@ class DashboardStore extends EventEmitter {
     this.update({ sessionUsage: usage });
   }
 
+  setUpdateMessage(msg: string): void {
+    this.update({ updateMessage: msg });
+  }
+
   setSyncStatus(syncStatus: DashboardState['syncStatus']): void {
     this.update({
       syncStatus,
@@ -499,6 +507,8 @@ class DashboardStore extends EventEmitter {
       changeCount: 0,
       dreamPrompt: false,
       dreaming: false,
+      // NOTE: tierExhausted is NOT reset here — it persists until CLI restart
+      // so the upgrade prompt stays visible across probe-and-refine runs.
     });
   }
 }
