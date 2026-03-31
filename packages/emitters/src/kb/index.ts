@@ -29,8 +29,6 @@ export type { DetectedEntryPoint } from './entryPoints';
 // Graph analysis
 export {
   calculateCentralityScores,
-  groupEndpointsByModule,
-  buildEntryPointFlows,
   detectLayerFlows,
   findDependencyChains,
   findModuleClusters,
@@ -44,12 +42,8 @@ export type { ModuleCluster, DirInfo } from './analyzers';
 export {
   analyzeFileNaming,
   analyzeFunctionNaming,
-  analyzeClassNaming,
-  analyzeImportPatterns,
-  analyzeTestNaming,
   analyzeTestOrganization,
   detectFrameworkPatterns,
-  getFixTemplate,
 } from './conventions';
 
 // Symbol extraction
@@ -69,4 +63,3 @@ export type { MapEmitterInput } from './mapEmitter';
 
 export { buildContextContent } from './contextEmitter';
 export type { ContextEmitterInput } from './contextEmitter';
-

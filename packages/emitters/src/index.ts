@@ -1,7 +1,7 @@
 /**
  * @aspectcode/emitters — public API surface.
  *
- * KB content builders and instruction generators.
+ * KB content builders, AI platform formats, and host abstraction.
  */
 
 // ── Host ─────────────────────────────────────────────────────
@@ -12,14 +12,6 @@ export { createNodeEmitterHost } from './host';
 // ── KB helpers ───────────────────────────────────────────────
 
 export * from './kb';
-
-// ── Instructions ────────────────────────────────────────────
-
-export {
-  generateCanonicalContentForMode,
-  generateKbCustomContent,
-  generateKbSeedContent,
-} from './instructions/content';
 
 // ── Formats ─────────────────────────────────────────────────
 

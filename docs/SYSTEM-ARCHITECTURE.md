@@ -1,249 +1,211 @@
 # System Architecture
 
-> Source-of-truth for layering, package responsibilities, and data flow.
+> Source-of-truth for layering, package responsibilities, data flow, and web app integration.
 
 ---
 
 ## Overview
 
-Aspect Code generates a project-local knowledge base and `AGENTS.md`
-instruction file that helps AI coding assistants understand a codebase
-before making changes. It produces KB content (opt-in via `--kb` flag),
-an `AGENTS.md` instruction file, and optionally optimizes `AGENTS.md`
-via LLM generation with probe-based evaluation.
-
-**Everything runs offline** by default. There are no network calls, no telemetry,
-no phone-home checks. WASM grammars ship in-repo; all analysis is local.
-The only network usage is the opt-in LLM optimizer (requires API key).
+Aspect Code analyzes a codebase with tree-sitter, builds a dependency graph, generates `AGENTS.md` + platform-specific scoped rules, and enters watch mode to learn from developer corrections. It optionally uses an LLM (via a hosted proxy or BYOK key) for optimization, auto-resolve, and autonomous context refinement.
 
 ---
 
 ## Package Map
 
 ```
-aspectcode/                         ← npm workspaces root
+aspectcode/                         npm workspaces root
 ├── packages/
-│   ├── core/       @aspectcode/core        Static analysis engine
-│   ├── emitters/   @aspectcode/emitters    Artifact generation
-│   ├── evaluator/  @aspectcode/evaluator   Evidence-based evaluation
-│   ├── optimizer/  @aspectcode/optimizer   LLM-based optimization
-│   └── cli/        aspectcode              CLI entry point (npm package)
-└── docs/                                   This file, guides
+│   ├── core/       @aspectcode/core        Static analysis (tree-sitter, graph)
+│   ├── emitters/   @aspectcode/emitters    KB content builders, platform formats
+│   ├── evaluator/  @aspectcode/evaluator   Probe-and-refine evaluation loop
+│   ├── optimizer/  @aspectcode/optimizer   LLM provider abstraction + retry
+│   └── cli/        aspectcode              CLI, dashboard, watch mode, auth
+└── docs/                                   This file
 ```
 
 ### Dependency Graph
 
 ```
-  ┌─────────────┐
-  │     cli      │──uses──▶ @aspectcode/core
-  │  (Node.js)   │──uses──▶ @aspectcode/emitters
-  │              │──uses──▶ @aspectcode/evaluator
-  │              │──uses──▶ @aspectcode/optimizer
-  └─────────────┘
-        │
-        ▼
-  ┌─────────────┐     ┌────────────────┐     ┌────────────────┐     ┌────────────────┐
-  │    core      │◀────│    emitters     │     │   evaluator    │────▶│   optimizer    │
-  │              │     └────────────────┘     │                │     └────────────────┘
-  │              │◀───────────────────────────│                │
-  └─────────────┘                             └────────────────┘
+cli ──→ core
+cli ──→ emitters ──→ core
+cli ──→ evaluator ──→ core, optimizer
+cli ──→ optimizer
 ```
 
-**Rule:** `core` has zero knowledge of `emitters`, `evaluator`, `optimizer`,
-or `cli`. `emitters` depends on `core` only. `evaluator` depends on `core`
-+ `optimizer`. `cli` depends on all four.
+No cycles. Core has zero internal dependencies.
 
 ---
 
-## Package Details
-
-### @aspectcode/core
-
-Pure TypeScript analysis engine. Target: ES2020 / CommonJS.
-
-| Export | Purpose |
-|--------|---------|
-| `analyzeRepo(root, files)` | Build an `AnalysisModel` from source files |
-| `analyzeRepoWithDependencies(root, files, host)` | `analyzeRepo` + `DependencyAnalyzer` graph/hubs |
-| `discoverFiles(root, opts?)` | Recursive walk → sorted absolute paths |
-| `computeModelStats(model, topN)` | Summary stats from a model |
-| `DependencyAnalyzer` | Full import/export/call graph builder |
-| `createNodeHost(wasmDir)` | Node fs-backed `CoreHost` for tree-sitter grammars |
-| `loadGrammars(host, log?)` | Initialize tree-sitter parsers from WASM |
-| `toPosix(path)` | Normalize to forward slashes |
-
-Key types: `AnalysisModel`, `AnalyzedFile`, `GraphEdge`, `HubMetric`,
-`ModelStats`, `CoreHost`.
-
-### @aspectcode/emitters
-
-Artifact generation. Depends on `@aspectcode/core` for model types and
-stats. Target: ES2020 / CommonJS.
-
-| Export | Purpose |
-|--------|---------|
-| `runEmitters(model, host, opts)` | Orchestrate all emitters → `EmitReport` |
-| `createNodeEmitterHost()` | Node fs-backed `EmitterHost` |
-| `createKBEmitter()` | KB content builder (architecture/map/context) |
-| `createInstructionsEmitter()` | AGENTS.md instruction file emitter |
-| `GenerationTransaction` | Atomic writes — temp files → rename, manifest last |
-
-Key types: `EmitterHost`, `EmitOptions`, `EmitReport`, `Emitter`,
-`InstructionsMode`.
-
-### @aspectcode/optimizer
-
-LLM-based generation for AGENTS.md content.
-
-| Export | Purpose |
-|--------|---------|
-| `runGenerateAgent(opts)` | Single-pass LLM generation from KB |
-| `runComplaintAgent(opts)` | Apply user complaints to AGENTS.md |
-| `resolveProvider(env, opts)` | Resolve OpenAI or Anthropic provider |
-
-Key types: `LlmProvider`, `OptimizeOptions`, `OptimizeResult`.
-
-### @aspectcode/evaluator
-
-Evidence-based evaluation for generated content. Harvests real prompts
-from local AI tool logs (Claude Code, Cline, Aider, Copilot),
-runs probe-based micro-tests against generated content, and diagnoses
-failures with targeted fixes.
-
-| Export | Purpose |
-|--------|---------|
-| `evaluate(opts)` | Run full evaluation pipeline |
-| `harvestPrompts(root)` | Collect prompts from local AI tool logs |
-| `generateProbes(opts)` | Generate probe micro-tests from KB |
-| `runProbes(content, probes, provider)` | Execute probes against content |
-| `diagnose(failures, content, provider)` | Analyze failures and propose fixes |
-| `applyDiagnosisEdits(content, diagnosis)` | Apply diagnostic fixes to content |
-
-Key types: `Probe`, `ProbeResult`, `HarvestedPrompt`, `Diagnosis`.
-
-### aspectcode (CLI)
-
-Node.js command-line interface. Depends on all four packages.
-No subcommands — single command with flags.
-
-**Usage:** `aspectcode [options]`
-
-The pipeline: discover files → analyze → build KB in memory →
-optimize AGENTS.md (if API key available) → watch for changes.
-
-| Flag | Short | Purpose |
-|------|-------|---------|
-| `--help` | `-h` | Show help |
-| `--version` | `-V` | Print version |
-| `--verbose` | `-v` | Show debug output |
-| `--quiet` | `-q` | Suppress non-error output |
-| `--root <path>` | `-r` | Workspace root (default: cwd) |
-| `--kb` | | Also write kb.md to disk |
-| `--dry-run` | | Print output without writing |
-| `--once` | | Run once then exit (no watch) |
-| `--no-color` | | Disable colored output |
-| `--provider <name>` | `-p` | LLM provider: `openai` or `anthropic` |
-| `--model <name>` | `-m` | LLM model override |
-| `--temperature <n>` | | Sampling temperature (0–2) |
-| `--compact` | | Compact dashboard (no banner) |
-
-Config file: `aspectcode.json`.
-
----
-
-## Data Flow
-
-### CLI Pipeline (`aspectcode --once`)
+## Pipeline Flow
 
 ```
-aspectcode --once
-  │
-  ├─ 1. discoverFiles(root)              @aspectcode/core
-  ├─ 2. read file contents               Node built-in
-  ├─ 3. analyzeRepo(root, fileMap)        @aspectcode/core
-  ├─ 4. build KB content in memory        @aspectcode/emitters
-  ├─ 5. evaluator (when enabled)          @aspectcode/evaluator
-  │    └─ harvest prompts → run probes → diagnose → apply fixes
-  └─ 6. optimizer (when API key present)  @aspectcode/optimizer
-       └─ single-pass LLM generation from KB
-```
-
-### CLI Pipeline (watch mode, default)
-
-```
-aspectcode
-  │
-  ├─ 1. run pipeline (same as --once)
-  ├─ 2. start filesystem watchers
-  └─ 3. re-run pipeline on file changes
-       └─ keep process alive until SIGINT/SIGTERM
+main.ts
+  → loginCommand() (if not authenticated)
+  → resolveRunMode() (ownership: full | section)
+  → resolvePlatforms() (multi-select: claude, cursor, copilot, ...)
+  → detect tier (BYOK key? → byok | verify endpoint → free/pro)
+  → mount Ink dashboard
+  → runPipeline()
+      → runOnce()
+          1. Discover files (walker + exclusions)
+          2. Analyze (tree-sitter → AnalysisModel: files, symbols, graph, metrics)
+          3. Build KB content (architecture + map + context)
+          4. Read existing tool instruction files
+          5. Render AGENTS.md (agentsMdRenderer.ts, 3000 char budget)
+          6. tryOptimize() — if LLM available, runs probe-and-refine
+          7. Write AGENTS.md + scoped rules for selected platforms
+          8. Snapshot hub counts for new-hub detection
+      → Enter watch mode
+          - Session-start dream (3s delay)
+          - File watcher (fs.watch, recursive)
+          - On file change:
+              → 500ms debounce
+              → evaluateChange() (12 pure/sync checks)
+              → co-change settle window (5s)
+              → batch auto-resolve (single LLM call)
+              → preference caching
+          - Auto-dream timer (every 30s check, fires at 10+ corrections, 2min cooldown)
+          - Auto-probe timer (every 60s check, fires at 20+ changes + 5min idle)
+          - Manual [r] for immediate probe-and-refine
 ```
 
 ---
 
-## File Outputs
+## Change Evaluation Rules
 
-| File | Source | Content |
-|------|--------|---------|
-| `AGENTS.md` | Instructions emitter | AI agent instructions |
-| `kb.md` | KB emitter (--kb flag) | Architecture, map, context |
+All checks are pure functions — no LLM calls, no file I/O beyond RuntimeState. Fast enough to run on every file save.
 
-`AGENTS.md` supports two ownership modes: `full` (overwrite entire file)
-and `section` (preserve user content outside markers).
-
----
-
-## Transaction Safety
-
-`runEmitters` uses `GenerationTransaction`:
-
-1. Each write goes to a temp file (`.tmp-aspect-*`)
-2. On commit: rename temp → final, manifest file written last
-3. On error: roll back (delete temps, restore backups)
-
-This prevents partial/corrupt output if a write fails mid-generation.
+| Rule | Trigger | What it detects |
+|------|---------|-----------------|
+| `co-change` | add/change/unlink | Dependents not updated when a file changes |
+| `directory-convention` | add | Test/route file in unexpected directory |
+| `naming-convention` | add | Filename style doesn't match siblings |
+| `import-pattern` | change | New import from a high-risk hub |
+| `export-contract` | change | Removed exports with live consumers |
+| `circular-dependency` | change | New import creates a cycle |
+| `test-coverage-gap` | change | Source changed but test file not updated |
+| `file-size` | change | File exceeds 500 lines or grew 100+ lines |
+| `new-hub` | change | File's inDegree crossed hub threshold (3+) |
+| `cross-boundary` | change | Import crosses top-level directory boundary |
+| `stale-import` | change | Imports from a recently deleted file |
+| `inheritance-change` | change | Base class modified, children not updated |
 
 ---
 
-## Offline Guarantees
+## LLM Call Map
 
-| Concern | How it's handled |
-|---------|-----------------|
-| Tree-sitter WASM | `.wasm` files committed in `packages/core/parsers/` |
-| NPM packages | root `package-lock.json`; `npm ci --prefer-offline` works |
-| Build tools | `tsc`, `mocha` — all local binaries |
-| Telemetry | None. Zero network calls (except opt-in optimizer) |
+Every LLM call in the system, when it fires, and approximate token cost:
+
+### During probe-and-refine (1 iteration, 5 probes)
+
+| Call | Count | Input tokens | Output tokens | Model |
+|------|-------|-------------|---------------|-------|
+| Probe generation | 1 | ~4,000 | ~1,500 | Haiku |
+| Probe simulation | 5 | ~2,500 each | ~1,000 each | Haiku |
+| Probe judging | 5 | ~2,000 each | ~750 each | Haiku |
+| Diagnosis | 1 | ~5,000 | ~1,500 | Sonnet |
+| Edit application | 0-1 | ~3,000 | ~2,000 | Haiku |
+
+**Total: ~48K tokens per run, ~13 calls**
+
+### During watch mode
+
+| Call | Frequency | Input tokens | Output tokens |
+|------|-----------|-------------|---------------|
+| Batch auto-resolve | 1 per debounce batch | ~2,000-3,500 | ~500-1,000 |
+| Dream cycle | 1 per 10+ corrections | ~3,000 | ~2,000 |
+
+### Usage tracking
+
+All provider calls are wrapped with `withUsageTracking()` (cli/src/usageTracker.ts). Token counts flow to the dashboard and to the server's `tierUsage` response field.
+
+---
+
+## Web App Integration
+
+The CLI communicates with `aspectcode.com` (or `ASPECTCODE_WEB_URL`) for auth, LLM proxy, and sync. All calls are optional — the CLI works fully offline with a BYOK key.
+
+### Authentication
+
+1. `aspectcode login` opens browser to `/api/cli/auth?port=<PORT>&state=<STATE>`
+2. Web app handles Google OAuth, redirects to `localhost:<PORT>/callback?token=<TOKEN>&state=<STATE>`
+3. Token stored at `~/.aspectcode/credentials.json` (mode 0o600)
+4. All API calls use `Authorization: Bearer <token>`
+
+### API Endpoints
+
+| Endpoint | Method | Data sent | Data returned |
+|----------|--------|-----------|---------------|
+| `/api/cli/verify` | POST | Bearer token | `{ user, tier, usage: { tokensUsed, tokensCap, resetAt } }` |
+| `/api/cli/llm` | POST | `{ messages, temperature, maxTokens, model }` | `{ content, usage, tierUsage }` |
+| `/api/cli/preferences` | GET | Bearer token + project query | `{ preferences[] }` |
+| `/api/cli/preferences` | POST | `{ project, preferences[] }` | 200 OK |
+| `/api/cli/settings` | GET/PUT | Bearer token, optional settings body | `{ settings }` |
+| `/api/cli/suggestions` | GET | Bearer token + language query | `{ suggestions[] }` |
+| `/api/cli/usage` | GET | Bearer token | `{ tier, tokensUsed, tokensCap, tokensRemaining, resetAt }` |
+
+### LLM Proxy (aspectcode provider)
+
+File: `packages/optimizer/src/providers/aspectcode.ts`
+
+- Routes LLM calls through `aspectcode.com/api/cli/llm`
+- Server uses Haiku 4.5 by default, enforces tier token caps
+- Returns `tierUsage` in response body for real-time dashboard display
+- On exhaustion: returns 403 with `{ error: "token_limit_exceeded", message, tier, upgradeUrl }`
+- CLI catches 403, shows upgrade prompt with `[u]` and `[k]` options
+
+### Provider Resolution Order
+
+File: `packages/optimizer/src/providers/index.ts`
+
+1. `ASPECTCODE_LLM_KEY` env var or `apiKey` in aspectcode.json → direct provider (BYOK)
+2. `LLM_PROVIDER` explicitly set → direct provider
+3. CLI token present → hosted proxy at aspectcode.com
+4. Legacy: `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`
+
+---
+
+## Platform Output
+
+### Scoped Rules
+
+| Platform | Write location | Format |
+|----------|---------------|--------|
+| Claude Code | `.claude/rules/ac-{slug}.md` | Markdown with frontmatter |
+| Cursor | `.cursor/rules/ac-{slug}.mdc` | Markdown with frontmatter |
+
+### Single Instruction Files
+
+| Platform | Write location |
+|----------|---------------|
+| Copilot | `.github/copilot-instructions.md` |
+| Windsurf | `.windsurfrules` |
+| Cline | `.clinerules` |
+| Gemini | `GEMINI.md` |
+| Aider | `CONVENTIONS.md` |
+
+### Manifest
+
+`.aspectcode/scoped-rules.json` tracks all generated rule files (slug, platform, path, hash, source, timestamps). Used to clean up deleted rules.
+
+---
+
+## Configuration Files
+
+| File | Scope | Committed? | Purpose |
+|------|-------|------------|---------|
+| `aspectcode.json` | Project | Yes | Platforms, exclusions, evaluate settings, BYOK key |
+| `~/.aspectcode/credentials.json` | User | No | CLI auth token + cached tier |
+| `.aspectcode/scoped-rules.json` | Project | Optional | Rule file manifest |
+| `.aspectcode/dream-state.json` | Project | Optional | Dream cycle state |
 
 ---
 
 ## Testing
 
-| Package | Runner | Notes |
-|---------|--------|-------|
-| `@aspectcode/core` | mocha + ts-node | Snapshot tests against fixture repo |
-| `@aspectcode/emitters` | mocha + ts-node | KB, instructions, manifest, transaction |
-| `@aspectcode/optimizer` | mocha + ts-node | Agent, prompt, provider |
-| `@aspectcode/evaluator` | mocha + ts-node | Evaluator probes and diagnosis |
-| `aspectcode` | mocha + ts-node | parseArgs, config; `check:bundled` CI script |
-
-All tests are offline. Temp directories via `os.tmpdir()`, fixed
-timestamps for determinism.
-
-Run all package tests:
-
-```bash
-npm test --workspaces
-```
-
----
-
-## Conventions
-
-| Item | Rule |
-|------|------|
-| File size | ≤ 400 lines (CI-enforced for new files) |
-| File names | PascalCase for classes, camelCase for modules |
-| Types | PascalCase, no `I` prefix |
-| Test files | `*.test.ts`, mocha + `node:assert/strict` |
-| JSON output | `stableStringify()` for determinism |
-| Path handling | `toPosix()` everywhere; no raw backslashes in output |
+- **Unit tests:** Mocha + Node.js built-in assertions (`node:assert/strict`)
+- **Test files:** `packages/*/test/*.test.ts`
+- **Mocking:** `fakeProvider()` creates canned LLM responses
+- **File system:** `os.tmpdir()` + cleanup in before/afterEach
+- **Core package:** Snapshot-based integration testing
+- **CLI package:** Integration-focused + sandbox smoke tests
