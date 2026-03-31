@@ -19,6 +19,7 @@ import { extractPythonImports, extractPythonSymbols } from '../parsers/pythonExt
 import { extractTSJSImports, extractTSJSSymbols } from '../parsers/tsJsExtractors';
 import { extractJavaImports, extractJavaSymbols } from '../parsers/javaExtractors';
 import { extractCSharpImports, extractCSharpSymbols } from '../parsers/csharpExtractors';
+import { extractGenericImports, extractGenericSymbols, GENERIC_LANGUAGE_IDS } from '../parsers/genericExtractors';
 import { setDependencyAdapterGrammars } from './dependencyAdapters';
 
 // ── Language dispatch tables ─────────────────────────────────
@@ -46,6 +47,10 @@ const IMPORT_EXTRACTORS: Partial<Record<GrammarLanguageId, ImportExtractorFn>> =
   javascript: extractTSJSImports,
   java: extractJavaImports,
   csharp: extractCSharpImports,
+  // Generic extractors — curried with language id
+  ...Object.fromEntries(
+    GENERIC_LANGUAGE_IDS.map((id) => [id, (lang: Parser.Language, code: string) => extractGenericImports(id, lang, code)]),
+  ),
 };
 
 const SYMBOL_EXTRACTORS: Partial<Record<GrammarLanguageId, SymbolExtractorFn>> = {
@@ -55,6 +60,10 @@ const SYMBOL_EXTRACTORS: Partial<Record<GrammarLanguageId, SymbolExtractorFn>> =
   javascript: extractTSJSSymbols,
   java: extractJavaSymbols,
   csharp: extractCSharpSymbols,
+  // Generic extractors — curried with language id
+  ...Object.fromEntries(
+    GENERIC_LANGUAGE_IDS.map((id) => [id, (lang: Parser.Language, code: string) => extractGenericSymbols(id, lang, code)]),
+  ),
 };
 
 // ── analyzeRepo ──────────────────────────────────────────────

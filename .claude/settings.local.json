@@ -17,7 +17,9 @@
       "Bash(while read:*)",
       "Bash(do echo:*)",
       "Read(//c/code/aspectcode/**)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(npx tree-sitter:*)",
+      "Bash(ls:*)"
     ]
   }
 }

@@ -3,11 +3,8 @@
  */
 
 import * as assert from 'node:assert/strict';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { evaluateChange, extractExportNames, hasPathInGraph } from '../src/changeEvaluator';
-import { loadPreferences, addPreference, findMatchingPreference, bumpPreferenceHit } from '../src/preferences';
+import { addPreference, findMatchingPreference, bumpPreferenceHit } from '../src/preferences';
 import type { PreferencesStore } from '../src/preferences';
 import type { AnalysisModel } from '@aspectcode/core';
 
@@ -504,33 +501,6 @@ describe('preference tracking', () => {
   });
 });
 
-// ── Migration: hub-safety → co-change ────────────────────────
-
-describe('hub-safety migration', () => {
-  it('loading preferences with hub-safety rule auto-migrates to co-change', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-migrate-'));
-    try {
-      const prefsDir = path.join(tmpDir, '.aspectcode');
-      fs.mkdirSync(prefsDir, { recursive: true });
-      fs.writeFileSync(path.join(prefsDir, 'preferences.json'), JSON.stringify({
-        version: 1,
-        preferences: [{
-          id: 'test123',
-          rule: 'hub-safety',
-          pattern: 'Old hub warning',
-          disposition: 'allow',
-          directory: 'src/',
-          createdAt: '2025-01-01T00:00:00Z',
-        }],
-      }));
-
-      const prefs = loadPreferences(tmpDir);
-      assert.equal(prefs.preferences[0].rule, 'co-change');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-});
 
 // ── extractExportNames helper ────────────────────────────────
 

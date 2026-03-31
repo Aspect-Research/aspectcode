@@ -36,13 +36,10 @@ import {
   getCorrections,
   markProcessed,
   getUnprocessedCount,
-  deriveLearnedRule,
-  appendLearnedRule,
   runDreamCycle,
   saveDreamState,
 } from './dreamCycle';
-import { extractScopedRules, deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
-import type { ScopedRule } from './scopedRules';
+import { deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
 import { autoResolveAssessment } from './autoResolve';
 import { renderAgentsMd } from './agentsMdRenderer';
 import { withUsageTracking } from './usageTracker';
@@ -361,8 +358,6 @@ async function runOnce(
 
   // ── 6. Generate or skip ───────────────────────────────────
   let finalContent = baseContent;
-  let consolidatedScopedRules: ScopedRule[] = [];
-  let deleteSlugsFromOptimizer: string[] = [];
 
   if (ctx.generate) {
     if (!flags.dryRun) {
@@ -371,13 +366,11 @@ async function runOnce(
     }
 
     store.setPhase('optimizing');
-    const staticRules = extractScopedRules(model).filter((r) => !deletedSlugs.has(r.slug));
+    // No static scoped rules — the dream cycle is the sole author of rules
     const optimizeResult = await tryOptimize(
-      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, staticRules,
+      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, [],
     );
     finalContent = optimizeResult.content;
-    consolidatedScopedRules = optimizeResult.scopedRules;
-    deleteSlugsFromOptimizer = optimizeResult.deleteSlugs;
 
     store.setPhase('writing');
     if (flags.dryRun) {
@@ -414,7 +407,7 @@ async function runOnce(
       store.setSummary(summarizeContent(baseContent));
     }
     // No LLM available — use static extraction for scoped rules
-    consolidatedScopedRules = extractScopedRules(model).filter((r) => !deletedSlugs.has(r.slug));
+    // No static rules in non-LLM path — dream cycle handles rules
   }
 
   // ── 7. Persist runtime state ───────────────────────────────
@@ -425,22 +418,8 @@ async function runOnce(
     fileContents: workspace.relativeFiles,
   });
 
-  // ── 8. Write scoped rules — only on first run; dream cycle manages them after that
-  const isFirstRunForRules = store.state.isFirstRun;
-  if (!flags.dryRun && isFirstRunForRules) {
-    // Delete rules the evaluator marked for removal
-    if (deleteSlugsFromOptimizer.length > 0) {
-      await deleteScopedRules(host, root, deleteSlugsFromOptimizer);
-      store.addOutput(`${deleteSlugsFromOptimizer.length} scoped rule${deleteSlugsFromOptimizer.length === 1 ? '' : 's'} removed`);
-    }
-
-    if (consolidatedScopedRules.length > 0) {
-      const written = await writeRulesForPlatforms(host, root, consolidatedScopedRules, activePlatforms);
-      if (written.length > 0) {
-        store.addOutput(`${written.length} rule file${written.length === 1 ? '' : 's'}`);
-      }
-    }
-  }
+  // ── 8. Scoped rules are managed exclusively by the dream cycle.
+  //    No static rules written during runOnce.
 
   // ── 9. Populate memory map ─────────────────────────────────
   const prefs = await loadPreferences(root);
@@ -640,7 +619,7 @@ async function handleAssessmentAction(
   action: AssessmentAction,
   prefs: PreferencesStore,
   root: string,
-  ownership: OwnershipMode,
+  _ownership: OwnershipMode,
 ): Promise<PreferencesStore> {
   if (!action.assessment) return prefs;
   const a = action.assessment;
@@ -680,15 +659,7 @@ async function handleAssessmentAction(
     store.resolveAssessment('confirm');
     addCorrection('confirm', a);
 
-    // Append immediate learned rule to AGENTS.md
-    const rule = deriveLearnedRule(a);
-    const state = getRuntimeState();
-    if (state.agentsContent) {
-      const updated = appendLearnedRule(state.agentsContent, rule);
-      updateRuntimeState({ agentsContent: updated });
-      const host = createNodeEmitterHost();
-      await writeAgentsMd(host, root, updated, ownership);
-    }
+    // Don't directly modify AGENTS.md — the dream cycle handles integration cleanly
   } else if (action.type === 'skip') {
     store.advanceAssessment();
   }

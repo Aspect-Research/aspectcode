@@ -42,6 +42,31 @@ export const LANGUAGE_SPECS = [
     grammarFile: 'c_sharp.wasm',
     extensions: ['.cs'],
   },
+  {
+    id: 'go',
+    grammarFile: 'go.wasm',
+    extensions: ['.go'],
+  },
+  {
+    id: 'rust',
+    grammarFile: 'rust.wasm',
+    extensions: ['.rs'],
+  },
+  {
+    id: 'ruby',
+    grammarFile: 'ruby.wasm',
+    extensions: ['.rb'],
+  },
+  {
+    id: 'php',
+    grammarFile: 'php.wasm',
+    extensions: ['.php'],
+  },
+  {
+    id: 'cpp',
+    grammarFile: 'cpp.wasm',
+    extensions: ['.c', '.cpp', '.h', '.hpp'],
+  },
 ] as const satisfies readonly LanguageSpec[];
 
 export type GrammarLanguageId = (typeof LANGUAGE_SPECS)[number]['id'];

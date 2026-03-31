@@ -26,3 +26,6 @@ export { extractJavaImports, extractJavaSymbols } from './javaExtractors';
 
 // C#
 export { extractCSharpImports, extractCSharpSymbols } from './csharpExtractors';
+
+// Generic (Go, Rust, Ruby, PHP, C/C++)
+export { extractGenericImports, extractGenericSymbols, GENERIC_LANGUAGE_IDS } from './genericExtractors';

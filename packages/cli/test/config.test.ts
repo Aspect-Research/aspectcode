@@ -30,12 +30,12 @@ describe('config', () => {
     assert.deepEqual(loaded?.exclude, ['vendor', 'dist']);
   });
 
-  it('loads a valid config file with optimize settings', () => {
-    const cfg = { optimize: { provider: 'openai', temperature: 0.5 } };
+  it('loads a valid config file with evaluate settings', () => {
+    const cfg = { evaluate: { enabled: true, maxProbes: 5 } };
     fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(cfg));
     const loaded = loadConfig(tmpDir);
-    assert.equal(loaded?.optimize?.provider, 'openai');
-    assert.equal(loaded?.optimize?.temperature, 0.5);
+    assert.equal(loaded?.evaluate?.enabled, true);
+    assert.equal(loaded?.evaluate?.maxProbes, 5);
   });
 
   it('throws on malformed JSON', () => {
@@ -83,12 +83,12 @@ describe('saveConfig', () => {
   });
 
   it('preserves fields not in update', () => {
-    const original = { exclude: ['dist'], optimize: { provider: 'openai' } };
+    const original = { exclude: ['dist'], evaluate: { enabled: true } };
     fs.writeFileSync(path.join(tmpDir, CONFIG_FILE_NAME), JSON.stringify(original));
     saveConfig(tmpDir, { ownership: 'full' });
     const loaded = loadConfig(tmpDir);
     assert.deepEqual(loaded?.exclude, ['dist']);
-    assert.equal(loaded?.optimize?.provider, 'openai');
+    assert.equal(loaded?.evaluate?.enabled, true);
     assert.equal(loaded?.ownership, 'full');
   });
 

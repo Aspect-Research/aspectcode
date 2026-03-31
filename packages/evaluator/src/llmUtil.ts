@@ -27,16 +27,21 @@ export async function chatWithTemp(
 
   if (!signal) return chatPromise;
 
-  return Promise.race([
-    chatPromise,
-    new Promise<never>((_, reject) => {
-      if (signal.aborted) {
-        reject(new DOMException('Aborted', 'AbortError'));
-        return;
-      }
-      signal.addEventListener('abort', () => {
-        reject(new DOMException('Aborted', 'AbortError'));
-      }, { once: true });
-    }),
-  ]);
+  // Race the chat against the abort signal, cleaning up the listener afterward
+  let cleanup: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const handler = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', handler, { once: true });
+    cleanup = () => signal.removeEventListener('abort', handler);
+  });
+
+  try {
+    return await Promise.race([chatPromise, abortPromise]);
+  } finally {
+    cleanup?.();
+  }
 }

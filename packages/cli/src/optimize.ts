@@ -29,6 +29,7 @@ import type { RunContext } from './cli';
 import type { AspectCodeConfig, UserSettings } from './config';
 import { fmt } from './logger';
 import { store } from './ui/store';
+import { loadCredentials } from './auth';
 import { withUsageTracking } from './usageTracker';
 import type { PreferencesStore } from './preferences';
 import { formatPreferencesForPrompt } from './preferences';
@@ -72,7 +73,6 @@ export async function tryOptimize(
 
   const temperature = flags.temperature ?? userSettings?.temperature;
   const model = flags.model ?? userSettings?.model;
-  const providerName = flags.provider ?? userSettings?.provider;
   const maxTokens = userSettings?.maxTokens;
 
   // ── Load .env and try to resolve a provider ───────────────
@@ -83,15 +83,16 @@ export async function tryOptimize(
     env = {};
   }
 
-  if (providerName && !env['LLM_PROVIDER']) {
-    env['LLM_PROVIDER'] = providerName;
-  }
-
   // Pass CLI token so the aspectcode hosted provider can authenticate
-  const { loadCredentials } = await import('./auth');
   const creds = loadCredentials();
   if (creds && !env['ASPECTCODE_CLI_TOKEN']) {
     env['ASPECTCODE_CLI_TOKEN'] = creds.token;
+  }
+
+  // Only set LLM_PROVIDER from CLI flags, not user settings.
+  // When logged in, the hosted proxy handles model selection server-side.
+  if (flags.provider && !env['LLM_PROVIDER']) {
+    env['LLM_PROVIDER'] = flags.provider;
   }
 
   const providerOptions: ProviderOptions = {};
@@ -105,16 +106,15 @@ export async function tryOptimize(
     provider = withUsageTracking(resolveProvider(env, providerOptions));
     // Use Sonnet for the diagnosis step (higher quality for the most impactful call)
     try {
-      diagnosisProvider = withUsageTracking(resolveProvider(env, { ...providerOptions, model: 'claude-sonnet-4-6-20250514' }));
+      diagnosisProvider = withUsageTracking(resolveProvider(env, { ...providerOptions, model: 'claude-sonnet-4-20250514' }));
     } catch {
       diagnosisProvider = provider; // Fall back to same provider
     }
-  } catch {
-    store.addSetupNote('no API key found — using built-in rules');
-    log.warn(
-      'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
-    );
-    return { content: _baseContent, reasoning: [], scopedRules: staticRules ?? [], deleteSlugs: [] };
+  } catch (providerErr) {
+    store.addSetupNote('no LLM available — using static content');
+    const errMsg = providerErr instanceof Error ? providerErr.message : String(providerErr);
+    log.warn(`LLM failed: ${errMsg}`);
+    return { content: _baseContent, reasoning: [], scopedRules: [], deleteSlugs: [] };
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;

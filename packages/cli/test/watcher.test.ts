@@ -15,7 +15,7 @@ import type { FileChangeEvent } from '../src/pipeline';
 import { updateRuntimeState, resetRuntimeState, getRuntimeState } from '../src/runtimeState';
 import { store } from '../src/ui/store';
 import { evaluateChange, trackChange, getRecentChanges, clearRecentChanges } from '../src/changeEvaluator';
-import { loadPreferences, savePreferences, addPreference, formatPreferencesForPrompt } from '../src/preferences';
+import { loadPreferences, addPreference, formatPreferencesForPrompt } from '../src/preferences';
 import type { PreferencesStore } from '../src/preferences';
 import type { AnalysisModel } from '@aspectcode/core';
 
@@ -179,8 +179,8 @@ describe('watcher → evaluate → store (full chain)', () => {
    * Create a watcher wired into the full pipeline evaluation chain.
    * This is a faithful copy of what runPipeline() does.
    */
-  function startWatcher(): fs.FSWatcher {
-    const prefs = loadPreferences(tmpDir);
+  async function startWatcher(): Promise<fs.FSWatcher> {
+    const prefs = await loadPreferences(tmpDir);
     const EVAL_DEBOUNCE_MS = 500;
     let evalTimer: NodeJS.Timeout | undefined;
     const pendingEvalEvents: FileChangeEvent[] = [];
@@ -293,7 +293,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     seedModel([
       { rel: 'src/app.ts', content: 'const x = 1;\n' },
     ]);
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     assert.equal((store as any).state.assessmentStats.changes, 0);
     await delay(300);
@@ -309,7 +309,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     seedModel([
       { rel: 'src/app.ts', content: 'const x = 1;\n' },
     ]);
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     await delay(300);
     fs.writeFileSync(path.join(tmpDir, 'src', 'newModule.ts'), 'export const z = 3;\n');
@@ -333,7 +333,7 @@ describe('watcher → evaluate → store (full chain)', () => {
         { source: 'src/bar.ts', target: 'src/types.ts', type: 'import', strength: 1, symbols: ['Foo'], lines: [1], bidirectional: false },
       ],
     });
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     await delay(300);
     fs.appendFileSync(path.join(tmpDir, 'src', 'types.ts'), 'export interface Bar {}\n');
@@ -361,7 +361,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     ];
     setupFiles(files);
     seedModel(files);
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     await delay(300);
     // snake_case file in a PascalCase directory → naming mismatch
@@ -391,7 +391,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     ];
     setupFiles(files);
     seedModel(files);
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     await delay(300);
     // Test file in a brand-new directory (not test/)
@@ -424,7 +424,7 @@ describe('watcher → evaluate → store (full chain)', () => {
       hubs: [{ file: 'src/types.ts', inDegree: 5, outDegree: 0 }],
       edges: [],
     });
-    watcher = startWatcher();
+    watcher = await startWatcher();
 
     await delay(300);
     // Modify app.ts to add import from the hub
@@ -446,7 +446,7 @@ describe('watcher → evaluate → store (full chain)', () => {
 
   // ── Preference learning ────────────────────────────────────
 
-  it('dismissed warning is suppressed by preferences on next occurrence', () => {
+  it('dismissed warning is suppressed by preferences on next occurrence', async () => {
     const files = [
       { rel: 'src/types.ts', content: 'export interface Foo {}\n' },
       { rel: 'src/app.ts', content: 'import { Foo } from "./types";\n', imports: ['./types'] },
@@ -480,7 +480,7 @@ describe('watcher → evaluate → store (full chain)', () => {
       },
     } as unknown as AnalysisModel;
 
-    let prefs = loadPreferences(tmpDir);
+    let prefs: PreferencesStore = { version: 1, preferences: [] };
 
     // First: warning fires
     const assessments1 = evaluateChange(
@@ -491,14 +491,13 @@ describe('watcher → evaluate → store (full chain)', () => {
     const warning = assessments1.find((a) => a.rule === 'co-change');
     assert.ok(warning);
 
-    // Simulate [n] dismiss — saves 'allow' preference
+    // Simulate [n] dismiss — adds 'allow' preference in-memory
     prefs = addPreference(prefs, {
       rule: warning!.rule,
       pattern: warning!.message,
       disposition: 'allow',
       directory: 'src/',
     });
-    savePreferences(tmpDir, prefs);
 
     // Second: same warning is now suppressed
     clearRecentChanges();
@@ -508,12 +507,7 @@ describe('watcher → evaluate → store (full chain)', () => {
     );
     const coChange2 = assessments2.find((a) => a.rule === 'co-change');
     assert.ok(!coChange2, `Should be suppressed, got: ${JSON.stringify(assessments2)}`);
-
-    // Verify preferences file exists
-    const prefPath = path.join(tmpDir, '.aspectcode', 'preferences.json');
-    assert.ok(fs.existsSync(prefPath));
-    const saved = JSON.parse(fs.readFileSync(prefPath, 'utf-8'));
-    assert.ok(saved.preferences.length > 0);
+    assert.ok(prefs.preferences.length > 0, 'Preference should be stored');
   }).timeout(10000);
 });
 
