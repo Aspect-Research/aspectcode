@@ -9,11 +9,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { SUPPORTED_EXTENSIONS, analyzeRepoWithDependencies } from '@aspectcode/core';
-import { createNodeEmitterHost, generateCanonicalContentForMode, generateKbCustomContent } from '@aspectcode/emitters';
+import { createNodeEmitterHost } from '@aspectcode/emitters';
 import type { RunContext, RunMode } from './cli';
 import { ExitCode } from './cli';
 import type { ExitCodeValue } from './cli';
-import { loadConfig, loadUserSettings } from './config';
+import { loadConfig, saveConfig, getConfigPlatforms, loadUserSettings } from './config';
 import type { UserSettings } from './config';
 import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
@@ -33,7 +33,6 @@ import { evaluateChange, trackChange, getRecentChanges } from './changeEvaluator
 import type { ChangeAssessment } from './changeEvaluator';
 import {
   addCorrection,
-  shouldDream,
   getCorrections,
   markProcessed,
   getUnprocessedCount,
@@ -42,9 +41,11 @@ import {
   runDreamCycle,
   saveDreamState,
 } from './dreamCycle';
-import { extractScopedRules, writeScopedRules, deleteScopedRules } from './scopedRules';
+import { extractScopedRules, deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
 import type { ScopedRule } from './scopedRules';
 import { autoResolveAssessment } from './autoResolve';
+import { renderAgentsMd } from './agentsMdRenderer';
+import { withUsageTracking } from './usageTracker';
 import { loadCredentials, startBackgroundLogin } from './auth';
 import type { ManagedFile } from './ui/store';
 import { resolveProvider, loadEnvFile } from '@aspectcode/optimizer';
@@ -79,7 +80,7 @@ function fileMtime(filePath: string): number {
 function buildManagedFiles(
   root: string,
   preferenceCount: number,
-  platform: 'claude' | 'cursor' | '' = '',
+  platforms: string[] = [],
 ): ManagedFile[] {
   const files: ManagedFile[] = [];
 
@@ -90,12 +91,13 @@ function buildManagedFiles(
   }
 
   // ── Workspace-scope: platform instruction files ─────────────
-  if (platform === 'claude') {
+  if (platforms.includes('claude')) {
     const claudeMdAbs = path.join(root, 'CLAUDE.md');
     if (fs.existsSync(claudeMdAbs)) {
       files.push({ path: 'CLAUDE.md', annotation: '○ user', updatedAt: fileMtime(claudeMdAbs), category: 'workspace-config', scope: 'workspace', owner: 'user' });
     }
-  } else if (platform === 'cursor') {
+  }
+  if (platforms.includes('cursor')) {
     const cursorrules = path.join(root, '.cursorrules');
     if (fs.existsSync(cursorrules)) {
       files.push({ path: '.cursorrules', annotation: '○ user', updatedAt: fileMtime(cursorrules), category: 'workspace-config', scope: 'workspace', owner: 'user' });
@@ -105,27 +107,42 @@ function buildManagedFiles(
   // ── Workspace-scope: scoped rules from manifest ─────────────
   const manifestPath = path.join(root, '.aspectcode', 'scoped-rules.json');
   const manifestRulePaths = new Set<string>();
+  let manifestNeedsCleanup = false;
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const validRules: any[] = [];
       for (const entry of manifest.rules ?? []) {
         if (manifestRulePaths.has(entry.path)) continue;
+        const absPath = path.join(root, entry.path);
+        // Skip files that no longer exist on disk
+        if (!fs.existsSync(absPath)) {
+          manifestNeedsCleanup = true;
+          continue;
+        }
         manifestRulePaths.add(entry.path);
+        validRules.push(entry);
         const cat = (entry.path as string).startsWith('.claude/') ? 'claude-rule'
           : (entry.path as string).startsWith('.cursor/') ? 'cursor-rule'
           : 'agents';
-        // Use manifest timestamp if available, fall back to file mtime
-        const ts = entry.updatedAt ? new Date(entry.updatedAt).getTime() : fileMtime(path.join(root, entry.path));
-        const reviewed = entry.llmReviewed ? ' ✦' : '';
-        files.push({ path: entry.path, annotation: `● active${reviewed}`, updatedAt: ts, category: cat as ManagedFile['category'], scope: 'workspace', owner: 'aspectcode' });
+        const ts = entry.updatedAt ? new Date(entry.updatedAt).getTime() : fileMtime(absPath);
+        files.push({ path: entry.path, annotation: '● active', updatedAt: ts, category: cat as ManagedFile['category'], scope: 'workspace', owner: 'aspectcode' });
+      }
+      // Clean stale entries from manifest so they don't persist across restarts
+      if (manifestNeedsCleanup) {
+        try {
+          fs.writeFileSync(manifestPath, JSON.stringify({ version: 1, rules: validRules }, null, 2) + '\n');
+        } catch { /* ignore write errors */ }
       }
     } catch { /* malformed manifest */ }
   }
 
   // ── Workspace-scope: user-created scoped rules ──────────────
-  if (platform === 'claude' || platform === 'cursor') {
-    const rulesDir = platform === 'claude' ? '.claude/rules' : '.cursor/rules';
-    const ext = platform === 'claude' ? '.md' : '.mdc';
+  const platformRuleDirs: Array<{ dir: string; ext: string }> = [];
+  if (platforms.includes('claude')) platformRuleDirs.push({ dir: '.claude/rules', ext: '.md' });
+  if (platforms.includes('cursor')) platformRuleDirs.push({ dir: '.cursor/rules', ext: '.mdc' });
+
+  for (const { dir: rulesDir, ext } of platformRuleDirs) {
     const absDir = path.join(root, rulesDir);
     try {
       if (fs.existsSync(absDir)) {
@@ -141,7 +158,7 @@ function buildManagedFiles(
   }
 
   // ── Workspace-scope: settings ───────────────────────────────
-  if (platform === 'claude') {
+  if (platforms.includes('claude')) {
     const settingsLocal = path.join(root, '.claude', 'settings.local.json');
     if (fs.existsSync(settingsLocal)) {
       files.push({ path: '.claude/settings.local.json', annotation: '○ user', updatedAt: fileMtime(settingsLocal), category: 'workspace-config', scope: 'workspace', owner: 'user' });
@@ -164,7 +181,7 @@ function buildManagedFiles(
   }
 
   // ── Device-scope: ~/.claude/ memory (Claude Code only) ──────
-  if (platform === 'claude') {
+  if (platforms.includes('claude')) {
     const home = require('os').homedir();
 
     // Device-root CLAUDE.md
@@ -272,7 +289,7 @@ async function runOnce(
   ownership: OwnershipMode,
   probeAndRefine = false,
   preferences?: PreferencesStore,
-  activePlatform?: string,
+  activePlatforms: string[] = ['claude'],
   userSettings?: UserSettings,
 ): Promise<RunOnceResult> {
   const { root, flags, log } = ctx;
@@ -281,6 +298,27 @@ async function runOnce(
   store.resetRun();
   store.setRunStartMs(startMs);
   if (config) store.addSetupNote('using config file');
+
+  // Clean stale manifest entries (files deleted by user)
+  const deletedSlugs = new Set<string>();
+  const manifestPath = path.join(root, '.aspectcode', 'scoped-rules.json');
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const validRules = [];
+      for (const entry of manifest.rules ?? []) {
+        if (fs.existsSync(path.join(root, entry.path))) {
+          validRules.push(entry);
+        } else {
+          deletedSlugs.add(entry.slug);
+        }
+      }
+      if (deletedSlugs.size > 0) {
+        fs.writeFileSync(manifestPath, JSON.stringify({ version: 1, rules: validRules }, null, 2) + '\n');
+        log.debug(`Cleaned ${deletedSlugs.size} stale manifest entries`);
+      }
+    } catch { /* ignore */ }
+  }
 
   const agentsPath = path.join(root, 'AGENTS.md');
   if (!fs.existsSync(agentsPath)) {
@@ -318,10 +356,8 @@ async function runOnce(
     store.addSetupNote(`context: ${[...toolInstructions.keys()].join(', ')}`);
   }
 
-  // ── 5. Build base content ─────────────────────────────────
-  const baseContent = kbContent.length > 0
-    ? generateKbCustomContent(kbContent, 'safe')
-    : generateCanonicalContentForMode('safe', false);
+  // ── 5. Build base content (directly from model, no KB extraction) ──
+  const baseContent = renderAgentsMd(model, path.basename(root));
 
   // ── 6. Generate or skip ───────────────────────────────────
   let finalContent = baseContent;
@@ -335,7 +371,7 @@ async function runOnce(
     }
 
     store.setPhase('optimizing');
-    const staticRules = extractScopedRules(model);
+    const staticRules = extractScopedRules(model).filter((r) => !deletedSlugs.has(r.slug));
     const optimizeResult = await tryOptimize(
       ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, staticRules,
     );
@@ -378,7 +414,7 @@ async function runOnce(
       store.setSummary(summarizeContent(baseContent));
     }
     // No LLM available — use static extraction for scoped rules
-    consolidatedScopedRules = extractScopedRules(model);
+    consolidatedScopedRules = extractScopedRules(model).filter((r) => !deletedSlugs.has(r.slug));
   }
 
   // ── 7. Persist runtime state ───────────────────────────────
@@ -389,10 +425,9 @@ async function runOnce(
     fileContents: workspace.relativeFiles,
   });
 
-  // ── 8. Write scoped rules (LLM-decided or static fallback) ──
-  if (!flags.dryRun) {
-    const platform = activePlatform === 'claude' ? 'claudeCode' as const : 'cursor' as const;
-
+  // ── 8. Write scoped rules — only on first run; dream cycle manages them after that
+  const isFirstRunForRules = store.state.isFirstRun;
+  if (!flags.dryRun && isFirstRunForRules) {
     // Delete rules the evaluator marked for removal
     if (deleteSlugsFromOptimizer.length > 0) {
       await deleteScopedRules(host, root, deleteSlugsFromOptimizer);
@@ -400,16 +435,16 @@ async function runOnce(
     }
 
     if (consolidatedScopedRules.length > 0) {
-      const written = await writeScopedRules(host, root, consolidatedScopedRules, platform);
+      const written = await writeRulesForPlatforms(host, root, consolidatedScopedRules, activePlatforms);
       if (written.length > 0) {
-        store.addOutput(`${written.length} scoped rule${written.length === 1 ? '' : 's'}`);
+        store.addOutput(`${written.length} rule file${written.length === 1 ? '' : 's'}`);
       }
     }
   }
 
   // ── 9. Populate memory map ─────────────────────────────────
   const prefs = await loadPreferences(root);
-  store.setManagedFiles(buildManagedFiles(root, prefs.preferences.length, (activePlatform as 'claude' | 'cursor') || ''));
+  store.setManagedFiles(buildManagedFiles(root, prefs.preferences.length, activePlatforms));
 
   const elapsedMs = Date.now() - startMs;
   store.setElapsed(`${(elapsedMs / 1000).toFixed(1)}s`);
@@ -455,7 +490,10 @@ export async function resolveRunMode(root: string): Promise<RunMode> {
         continue;
       }
 
-      return { ownership: idx === 1 ? 'section' : 'full', generate: true };
+      const ownership = idx === 1 ? 'section' : 'full';
+      // Save choice so we don't ask again
+      saveConfig(root, { ownership });
+      return { ownership, generate: true };
     }
   } catch {
     return { ownership: 'full', generate: true };
@@ -527,10 +565,73 @@ function showFilePreview(content: string): Promise<void> {
   });
 }
 
+// ── Platform resolution ─────────────────────────────────────
+
+const ALL_PLATFORMS = [
+  { id: 'claude', label: 'Claude Code', detect: ['.claude'] },
+  { id: 'cursor', label: 'Cursor', detect: ['.cursor', '.cursorrules'] },
+  { id: 'copilot', label: 'GitHub Copilot', detect: ['.github'] },
+  { id: 'windsurf', label: 'Windsurf', detect: ['.windsurfrules'] },
+  { id: 'codex', label: 'Codex', detect: [] },
+  { id: 'cline', label: 'Cline', detect: ['.clinerules'] },
+  { id: 'gemini', label: 'Gemini', detect: ['GEMINI.md'] },
+  { id: 'aider', label: 'Aider', detect: ['CONVENTIONS.md'] },
+];
+
+export async function resolvePlatforms(root: string): Promise<string[]> {
+  const config = loadConfig(root);
+  const configured = getConfigPlatforms(config);
+  if (configured?.length) {
+    // Check if collaborator has a platform not in config
+    const declined = (config as any)?.declinedPlatforms as string[] ?? [];
+    const detected = ALL_PLATFORMS
+      .filter((p) => p.detect.some((d) => fs.existsSync(path.join(root, d))))
+      .map((p) => p.id);
+    const missing = detected.filter((d) => !configured.includes(d) && !declined.includes(d));
+    if (missing.length > 0) {
+      const names = missing.map((id) => ALL_PLATFORMS.find((p) => p.id === id)?.label ?? id).join(', ');
+      const { confirmPrompt } = await import('./ui/prompts');
+      const add = await confirmPrompt(`${names} detected but not configured. Add?`);
+      if (add) {
+        const updated = [...configured, ...missing];
+        saveConfig(root, { platforms: updated });
+        return updated;
+      } else {
+        // Remember declined so we don't ask again
+        saveConfig(root, { declinedPlatforms: [...declined, ...missing] } as any);
+      }
+    }
+    return configured;
+  }
+
+  // First run: auto-detect + prompt
+  const detected = ALL_PLATFORMS
+    .filter((p) => p.detect.some((d) => fs.existsSync(path.join(root, d))))
+    .map((p) => p.id);
+  const preselected = detected.map((id) => ALL_PLATFORMS.findIndex((p) => p.id === id)).filter((i) => i >= 0);
+
+  try {
+    const { multiSelectPrompt } = await import('./ui/prompts');
+    const labels = ALL_PLATFORMS.map((p) => {
+      const det = detected.includes(p.id) ? ' (detected)' : '';
+      return `${p.label}${det}`;
+    });
+    const indices = await multiSelectPrompt('Which editors do you use?', labels, preselected);
+    const selected = indices.map((i) => ALL_PLATFORMS[i].id);
+    const platforms = selected.length > 0 ? selected : ['claude']; // default to Claude Code
+    saveConfig(root, { platforms });
+    return platforms;
+  } catch {
+    const platforms = detected.length > 0 ? detected : ['claude'];
+    saveConfig(root, { platforms });
+    return platforms;
+  }
+}
+
 // ── Assessment action handler ────────────────────────────────
 
 export interface AssessmentAction {
-  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'dream' | 'login' | 'accept-ai' | 'apply-suggestions';
+  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions';
   assessment?: ChangeAssessment;
   suggestions?: any[];
 }
@@ -605,9 +706,9 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   log.blank();
   store.setRootPath(root);
 
-  // ── Resolve platform (Claude Code default, --cursor overrides) ──
-  const activePlatform = flags.cursor ? 'cursor' : 'claude';
-  store.setPlatform(activePlatform);
+  // ── Set platforms from pre-resolved context ────────────────
+  const activePlatforms = ctx.platforms;
+  store.setPlatform(activePlatforms.join(', '));
 
   // ── Check login status ────────────────────────────────────
   const creds = loadCredentials();
@@ -620,7 +721,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
 
   // ── Initial run — only probe-and-refine on first run (no existing AGENTS.md)
   const initialProbeAndRefine = !fs.existsSync(path.join(root, 'AGENTS.md'));
-  const result = await runOnce(ctx, ownership, initialProbeAndRefine, undefined, activePlatform, userSettings);
+  const result = await runOnce(ctx, ownership, initialProbeAndRefine, undefined, activePlatforms, userSettings);
   ctx.generate = true;
   if (result.code !== ExitCode.OK) return result.code;
 
@@ -636,19 +737,27 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     const env = loadEnvFile(root);
     const creds = loadCredentials();
     if (creds) env['ASPECTCODE_CLI_TOKEN'] = creds.token;
-    watchProvider = resolveProvider(env);
+    watchProvider = withUsageTracking(resolveProvider(env));
   } catch { /* no LLM — assessments go to user as before */ }
 
   // ── Watch mode with real-time evaluation ───────────────────
   log.blank();
   store.setPhase('watching');
 
+  // Refresh memory map every 10s to catch file deletions/additions
+  const memoryMapInterval = setInterval(() => {
+    if (stopped) return;
+    store.setManagedFiles(buildManagedFiles(root, prefs.preferences.length, activePlatforms));
+  }, 10_000);
+
   let evalTimer: NodeJS.Timeout | undefined;
   let pipelineRunning = false;
   let stopped = false;
   let pendingEvalEvents: FileChangeEvent[] = [];
-  let dreamTimer: NodeJS.Timeout | undefined;
-  let dreamPromptShown = false;
+
+  // Fire an immediate dream at session start to review/prune existing rules
+  let sessionDreamDone = false;
+  let lastDreamAt = Date.now();
 
   const optLog = flags.quiet ? undefined : {
     info(msg: string)  { log.info(msg); },
@@ -657,12 +766,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     debug(msg: string) { log.debug(msg); },
   };
 
-  // ── Dream cycle (d key or auto after 2 min) ────────────────
+  // ── Dream cycle (autonomous) ────────────────────────────────
 
   const doDreamCycle = async (): Promise<void> => {
-    if (pipelineRunning) return;
-    if (dreamTimer) { clearTimeout(dreamTimer); dreamTimer = undefined; }
-    dreamPromptShown = false;
+    if (pipelineRunning || stopped) return;
     store.setDreamPrompt(false);
 
     const state = getRuntimeState();
@@ -671,7 +778,9 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     let provider;
     try {
       const env = loadEnvFile(root);
-      provider = resolveProvider(env);
+      const creds = loadCredentials();
+      if (creds && !env['ASPECTCODE_CLI_TOKEN']) env['ASPECTCODE_CLI_TOKEN'] = creds.token;
+      provider = withUsageTracking(resolveProvider(env));
     } catch { return; }
 
     store.setDreaming(true);
@@ -705,14 +814,13 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       await writeAgentsMd(host, root, result.updatedAgentsMd, ownership);
       updateRuntimeState({ agentsContent: result.updatedAgentsMd });
       // Write any scoped rules from the dream cycle
-      if ((result.scopedRules.length > 0 || result.deleteSlugs.length > 0) && activePlatform) {
-        const plat = activePlatform === 'claude' ? 'claudeCode' as const : 'cursor' as const;
+      if ((result.scopedRules.length > 0 || result.deleteSlugs.length > 0) && activePlatforms.length > 0) {
         // Delete rules the dream cycle marked for removal
         if (result.deleteSlugs.length > 0) {
           await deleteScopedRules(host, root, result.deleteSlugs);
         }
         if (result.scopedRules.length > 0) {
-          await writeScopedRules(host, root, result.scopedRules, plat);
+          await writeRulesForPlatforms(host, root, result.scopedRules, activePlatforms);
         }
       }
       markProcessed();
@@ -720,7 +828,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       saveDreamState(root, { lastDreamAt: new Date().toISOString() });
       store.setLearnedMessage(`Refined: ${result.changes.join(', ')}`);
       // Refresh memory map to reflect any new files
-      store.setManagedFiles(buildManagedFiles(root, (await loadPreferences(root)).preferences.length, activePlatform as 'claude' | 'cursor'));
+      store.setManagedFiles(buildManagedFiles(root, (await loadPreferences(root)).preferences.length, activePlatforms));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.warn(`Dream cycle failed: ${msg}`);
@@ -730,27 +838,39 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     }
   };
 
-  const checkDreamThreshold = (): void => {
-    if (shouldDream() && !dreamPromptShown) {
-      store.setDreamPrompt(true);
-      dreamPromptShown = true;
-      dreamTimer = setTimeout(() => void doDreamCycle(), 2 * 60 * 1000);
-    }
-  };
+  // Auto-dream timer: fires every 30s, dreams if corrections exist and 2+ min since last dream
+  const AUTO_DREAM_INTERVAL_MS = 2 * 60 * 1000;
+  const autoDreamTimer = setInterval(() => {
+    if (stopped || pipelineRunning) return;
+    if (getUnprocessedCount() === 0) return;
+    if (Date.now() - lastDreamAt < AUTO_DREAM_INTERVAL_MS) return;
+    void doDreamCycle().then(() => { lastDreamAt = Date.now(); });
+  }, 30_000);
+
+  // ── Session-start dream: review rules immediately ───────────
+  if (watchProvider) {
+    // Small delay to let the dashboard render first
+    setTimeout(() => {
+      if (stopped || pipelineRunning || sessionDreamDone) return;
+      sessionDreamDone = true;
+      void doDreamCycle().then(() => { lastDreamAt = Date.now(); });
+    }, 3000);
+  }
 
   // ── Probe and refine (manual via 'r' key) ──────────────────
 
   const doProbeAndRefine = async (): Promise<void> => {
     if (stopped || pipelineRunning) return;
     // Run pending dream cycle before full probe-and-refine
-    if (shouldDream()) await doDreamCycle();
-    if (pipelineRunning) return; // doDreamCycle may have set this
+    // Dream before re-running if corrections exist
+    if (getUnprocessedCount() > 0) await doDreamCycle();
+    if (pipelineRunning) return;
     pipelineRunning = true;
     if (evalTimer) { clearTimeout(evalTimer); evalTimer = undefined; }
     pendingEvalEvents.length = 0;
     store.setRecommendProbe(false);
     try {
-      await runOnce(ctx, ownership, true, prefs, activePlatform, userSettings);
+      await runOnce(ctx, ownership, true, prefs, activePlatforms, userSettings);
       prefs = await loadPreferences(root);
       store.setPreferenceCount(prefs.preferences.length);
       store.setPhase('watching');
@@ -875,10 +995,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       void doProbeAndRefine();
       return;
     }
-    if (action.type === 'dream') {
-      void doDreamCycle();
-      return;
-    }
+    // Dream cycle is autonomous — no manual trigger
     if (action.type === 'login') {
       store.setLearnedMessage('opening browser…');
       void startBackgroundLogin().then((email) => {
@@ -893,7 +1010,6 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     }
     void handleAssessmentAction(action, prefs, root, ownership).then((updated) => {
       prefs = updated;
-      checkDreamThreshold();
     });
   };
 
@@ -903,8 +1019,9 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
     const shutdown = async (signal: string) => {
       if (stopped) return;
       stopped = true;
+      clearInterval(memoryMapInterval);
+      clearInterval(autoDreamTimer);
       if (evalTimer) { clearTimeout(evalTimer); evalTimer = undefined; }
-      if (dreamTimer) { clearTimeout(dreamTimer); dreamTimer = undefined; }
       log.blank();
       log.info(fmt.dim(`Stopping (${signal})…`));
       await watcher.close();

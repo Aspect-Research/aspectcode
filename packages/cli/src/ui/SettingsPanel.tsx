@@ -30,12 +30,13 @@ const SETTINGS: SettingDef[] = [
   { key: 'model', label: 'Model', type: 'string', section: 'user', configPath: 'model', defaultValue: 'provider default' },
   { key: 'temperature', label: 'Temperature', type: 'number', section: 'user', configPath: 'temperature', defaultValue: '0.7' },
   { key: 'maxTokens', label: 'Max Tokens', type: 'number', section: 'user', configPath: 'maxTokens', defaultValue: '4000' },
+  { key: 'autoResolve', label: 'Auto-resolve', type: 'number', section: 'user', configPath: 'autoResolveThreshold', defaultValue: '0.8' },
   // Project settings (local)
   { key: 'ownership', label: 'Ownership Mode', type: 'select', options: ['full', 'section'], section: 'project', configPath: 'ownership', defaultValue: 'full' },
   { key: 'platform', label: 'Platform', type: 'select', options: ['claude', 'cursor'], section: 'project', configPath: 'platform', defaultValue: 'claude' },
   { key: 'exclude', label: 'Exclude Dirs', type: 'string', section: 'project', configPath: 'exclude', defaultValue: 'none' },
   { key: 'evalEnabled', label: 'Probe & Refine', type: 'boolean', section: 'project', configPath: 'evaluate.enabled', defaultValue: 'true' },
-  { key: 'maxProbes', label: 'Max Probes', type: 'number', section: 'project', configPath: 'evaluate.maxProbes', defaultValue: '10' },
+  { key: 'maxProbes', label: 'Probes/Iter', type: 'number', section: 'project', configPath: 'evaluate.maxProbes', defaultValue: '5' },
   { key: 'maxIterations', label: 'Max Iterations', type: 'number', section: 'project', configPath: 'evaluate.maxIterations', defaultValue: '1' },
   { key: 'maxEdits', label: 'Max Edits/Iter', type: 'number', section: 'project', configPath: 'evaluate.maxEditsPerIteration', defaultValue: '5' },
   { key: 'charBudget', label: 'Char Budget', type: 'number', section: 'project', configPath: 'evaluate.charBudget', defaultValue: '8000' },
@@ -137,6 +138,8 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
         if (!isNaN(temp)) newUser.temperature = temp;
         const maxTok = parseInt(draft.maxTokens, 10);
         if (!isNaN(maxTok)) newUser.maxTokens = maxTok;
+        const autoResolve = parseFloat(draft.autoResolve);
+        if (!isNaN(autoResolve)) newUser.autoResolveThreshold = autoResolve;
 
         // Build project config
         const newProject: AspectCodeConfig = {};

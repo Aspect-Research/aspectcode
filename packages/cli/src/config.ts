@@ -19,8 +19,11 @@ export interface AspectCodeConfig {
   /** AGENTS.md ownership: 'full' overwrites the file, 'section' uses markers. */
   ownership?: 'full' | 'section';
 
-  /** Primary AI platform: 'claude' or 'cursor'. Auto-detects when absent. */
+  /** @deprecated Use `platforms` instead. Kept for backward compat. */
   platform?: string;
+
+  /** AI platforms to write rules for. Multi-select. */
+  platforms?: string[];
 
   /** Evaluator settings (probe-and-refine tuning). */
   evaluate?: {
@@ -43,6 +46,15 @@ export interface UserSettings {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** Auto-resolve threshold (0.0 = always auto, 1.0 = never auto). Default 0.8. */
+  autoResolveThreshold?: number;
+}
+
+/** Resolve platforms from config with backward compat for `platform` (singular). */
+export function getConfigPlatforms(config?: AspectCodeConfig): string[] | undefined {
+  if (config?.platforms?.length) return config.platforms;
+  if (config?.platform) return [config.platform];
+  return undefined;
 }
 
 /**

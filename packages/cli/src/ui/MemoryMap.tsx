@@ -25,6 +25,7 @@ interface TreeEntry {
 interface MemoryMapProps {
   files: ManagedFile[];
   dreaming: boolean;
+  userEmail: string;
 }
 
 // ── Relative time formatting ─────────────────────────────────
@@ -175,7 +176,7 @@ function buildScopeEntries(
   return { entries, nextIdx: itemIdx };
 }
 
-function buildEntries(files: ManagedFile[]): TreeEntry[] {
+function buildEntries(files: ManagedFile[], userEmail: string): TreeEntry[] {
   // Split by scope
   const workspaceFiles = files.filter((f) => f.scope === 'workspace');
   const deviceFiles = files.filter((f) => f.scope === 'device');
@@ -221,10 +222,10 @@ function buildEntries(files: ManagedFile[]): TreeEntry[] {
     }
   }
 
-  // Cloud placeholder (visually separated)
+  // Cloud status (visually separated)
   entries.push({
     label: '☁  cloud',
-    annotation: 'awaiting sync',
+    annotation: userEmail || 'not logged in [l]',
     updatedAt: 0,
     indent: 0,
     isLast: true,
@@ -273,14 +274,13 @@ function getPrefix(entries: TreeEntry[], idx: number): string {
 
 // ── Component ────────────────────────────────────────────────
 
-const MemoryMap: React.FC<MemoryMapProps> = ({ files, dreaming: _dreaming }) => {
+const MemoryMap: React.FC<MemoryMapProps> = ({ files, dreaming: _dreaming, userEmail }) => {
   if (files.length === 0) return null;
 
-  const entries = buildEntries(files);
+  const entries = buildEntries(files, userEmail);
 
   return (
     <Box flexDirection="column">
-      <Text color={COLORS.gray} dimColor>{'memory'}</Text>
       {entries.map((entry, idx) => {
         const prefix = getPrefix(entries, idx);
         const recent = isRecent(entry.updatedAt);

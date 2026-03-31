@@ -25,14 +25,13 @@ import type {
   JudgedProbeResult,
   AgentsEdit,
 } from '@aspectcode/evaluator';
-import { generateCanonicalContentForMode, generateKbCustomContent, generateKbSeedContent } from '@aspectcode/emitters';
 import type { RunContext } from './cli';
 import type { AspectCodeConfig, UserSettings } from './config';
 import { fmt } from './logger';
 import { store } from './ui/store';
+import { withUsageTracking } from './usageTracker';
 import type { PreferencesStore } from './preferences';
 import { formatPreferencesForPrompt } from './preferences';
-import * as path from 'path';
 
 import type { ScopedRule } from './scopedRules';
 
@@ -101,17 +100,21 @@ export async function tryOptimize(
   if (maxTokens !== undefined) providerOptions.maxTokens = maxTokens;
 
   let provider;
+  let diagnosisProvider; // Sonnet for higher-quality diagnosis
   try {
-    provider = resolveProvider(env, providerOptions);
+    provider = withUsageTracking(resolveProvider(env, providerOptions));
+    // Use Sonnet for the diagnosis step (higher quality for the most impactful call)
+    try {
+      diagnosisProvider = withUsageTracking(resolveProvider(env, { ...providerOptions, model: 'claude-sonnet-4-6-20250514' }));
+    } catch {
+      diagnosisProvider = provider; // Fall back to same provider
+    }
   } catch {
     store.addSetupNote('no API key found — using built-in rules');
     log.warn(
       'No LLM API key found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env for optimization.',
     );
-    const content = kbContent.length > 0
-      ? generateKbCustomContent(kbContent, 'safe')
-      : generateCanonicalContentForMode('safe', false);
-    return { content, reasoning: [], scopedRules: staticRules ?? [], deleteSlugs: [] };
+    return { content: _baseContent, reasoning: [], scopedRules: staticRules ?? [], deleteSlugs: [] };
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
@@ -132,21 +135,19 @@ export async function tryOptimize(
     if (prefBlock) enrichedKb = kbContent + '\n\n' + prefBlock;
   }
 
-  // ── Generate seed AGENTS.md ─────────────────────────────
+  // ── Use base content as seed AGENTS.md ──────────────────
 
-  const projectName = path.basename(root);
+  const projectName = root.split('/').pop() || root.split('\\').pop() || 'Project';
   store.setPhase('optimizing', 'generating seed AGENTS.md…');
 
   let finalContent: string;
   if (evaluatorEnabled) {
-    // Use the structured KB seed format for probe-and-refine
-    finalContent = generateKbSeedContent(enrichedKb, projectName);
-    log.info('Generated KB seed for probe-and-refine tuning');
+    // Use the base content (rendered directly from AnalysisModel) as the seed
+    finalContent = _baseContent;
+    log.info('Using base AGENTS.md for probe-and-refine tuning');
   } else {
-    // Use KB-custom content when not doing probe-and-refine
-    finalContent = enrichedKb.length > 0
-      ? generateKbCustomContent(enrichedKb, 'safe')
-      : generateCanonicalContentForMode('safe', false);
+    // Use base content directly (already rendered from AnalysisModel)
+    finalContent = _baseContent;
   }
 
   store.setPhase('optimizing', 'generation complete');
@@ -358,7 +359,7 @@ export async function tryOptimize(
         const diagnosisEdits = await diagnose({
           judgedResults,
           agentsContent: finalContent,
-          provider,
+          provider: diagnosisProvider ?? provider,
           log: optLog,
           signal,
           scopedRulesContext: rulesCtx,

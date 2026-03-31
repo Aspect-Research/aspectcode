@@ -167,27 +167,24 @@ export function stripLearnedBlock(agentsMd: string): string {
 
 // ── Dream cycle prompt ───────────────────────────────────────
 
-const DREAM_SYSTEM = `You are an AGENTS.md editor. You will receive the current AGENTS.md, existing scoped rules, and developer corrections from watch mode.
+const DREAM_SYSTEM = `You are a context optimizer. You review AGENTS.md and scoped rules to improve quality and remove clutter.
 
-Your job:
-1. For CONFIRMED problems: strengthen or add rules so the AI assistant catches these in the future.
-2. For DISMISSED warnings: soften or remove rules that over-flagged — the developer said these aren't issues.
-3. If there is a <!-- aspectcode:learned --> block, integrate its content and remove the markers.
+Your tasks:
+1. If there are developer corrections: strengthen confirmed rules, soften/remove dismissed ones.
+2. ACTIVELY PRUNE scoped rules. Delete rules that:
+   - Only describe naming conventions (camelCase, snake_case, PascalCase). These are trivial and not worth a separate file.
+   - Only state something obvious or already covered by AGENTS.md.
+   - Are too narrow (apply to just one or two files).
+   Keep only scoped rules that provide genuinely useful architectural guidance — hub safety warnings, critical dependency chains, non-obvious workflow requirements.
+3. If a scoped rule has useful information, fold it into AGENTS.md and delete the scoped rule.
 4. Keep AGENTS.md under 8000 characters.
 
-SCOPED RULES PHILOSOPHY:
-- Prefer adding general guidance to AGENTS.md. Only use scoped rules when content is truly directory-specific and would be misleading if applied globally.
-- Do NOT create scoped rules for naming conventions alone — that belongs in AGENTS.md.
-- You can create, update, or delete scoped rules. To delete, use: {"slug":"id","action":"delete"}
-- When in doubt, add to AGENTS.md.
-
 OUTPUT FORMAT:
-First, output the complete updated AGENTS.md content (no code fences, no markers).
-Then, if you have scoped rule changes, add a line containing exactly "---SCOPED_RULES---" followed by a JSON array:
-[{"slug":"short-id","description":"what this rule does","globs":["path/pattern/**"],"content":"markdown rule body"}]
-To delete a rule: [{"slug":"rule-to-remove","action":"delete"}]
-
-If no scoped rule changes are needed, just output the AGENTS.md content with no delimiter.`;
+Output the complete AGENTS.md content (no code fences).
+If you have scoped rule changes, add "---SCOPED_RULES---" then a JSON array:
+[{"slug":"id","description":"...","globs":["..."],"content":"..."}]
+To delete: [{"slug":"id","action":"delete"}]
+If no changes to scoped rules, just output AGENTS.md with no delimiter.`;
 
 function buildDreamUserPrompt(agentsMd: string, corrs: Correction[], scopedRulesContext?: string): string {
   const formattedCorrections = corrs.map((c, i) => {
@@ -215,12 +212,16 @@ ${scopedRulesContext}
 ---`;
   }
 
-  prompt += `
+  if (corrs.length > 0) {
+    prompt += `
 
 DEVELOPER CORRECTIONS (from watch mode):
-${formattedCorrections}
+${formattedCorrections}`;
+  }
 
-Produce the updated AGENTS.MD now. You may also create, update, or delete scoped rules if appropriate, but prefer AGENTS.md for general guidance.`;
+  prompt += `
+
+Review the AGENTS.MD and scoped rules above. Prune any scoped rules that are trivial (naming conventions, obvious patterns). Produce the updated AGENTS.MD. Delete, update, or create scoped rules as needed.`;
 
   return prompt;
 }
@@ -313,7 +314,7 @@ export async function runDreamCycle(options: {
 }): Promise<DreamResult> {
   const { currentAgentsMd, corrections: corrs, provider, log, scopedRulesContext } = options;
 
-  if (corrs.length === 0) {
+  if (corrs.length === 0 && !scopedRulesContext) {
     return { updatedAgentsMd: currentAgentsMd, changes: [], scopedRules: [], deleteSlugs: [] };
   }
 

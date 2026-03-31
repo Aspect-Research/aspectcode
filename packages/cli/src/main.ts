@@ -42,7 +42,6 @@ export function parseArgs(argv: string[]): CliFlags {
     once: false,
     noColor: false,
     compact: false,
-    cursor: false,
     background: false,
   };
 
@@ -255,9 +254,11 @@ async function main(): Promise<void> {
 
   const root = path.resolve(flags.root ?? process.cwd());
 
-  // Resolve ownership + generate mode BEFORE mounting the ink dashboard.
-  // selectPrompt uses raw stdin which conflicts with ink's useInput.
+  // Resolve ownership + platforms BEFORE mounting the ink dashboard.
+  // selectPrompt / multiSelectPrompt use raw stdin which conflicts with ink's useInput.
   const { ownership, generate } = await resolveRunMode(root);
+  const { resolvePlatforms } = await import('./pipeline');
+  const activePlatforms = await resolvePlatforms(root);
 
   const useDashboard = !flags.quiet && !flags.noColor && !flags.background && process.stdout.isTTY === true;
 
@@ -299,7 +300,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate });
+    process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate, platforms: activePlatforms });
   } finally {
     if (unmount) unmount();
   }

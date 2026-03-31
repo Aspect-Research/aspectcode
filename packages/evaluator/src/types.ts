@@ -110,7 +110,7 @@ export interface ProbeRefineConfig {
 /** Default probe-and-refine configuration. */
 export const DEFAULT_PROBE_REFINE_CONFIG: ProbeRefineConfig = {
   maxIterations: 1,
-  targetProbesPerIteration: 10,
+  targetProbesPerIteration: 5,
   maxEditsPerIteration: 5,
   charBudget: 8000,
 };

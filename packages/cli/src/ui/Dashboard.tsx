@@ -16,6 +16,7 @@ import MemoryMap from './MemoryMap';
 import SettingsPanel from './SettingsPanel';
 import type { UserSettings, AspectCodeConfig } from '../config';
 import { loadConfig, saveConfig, saveUserSettings } from '../config';
+import { estimateCost, formatTokens } from '../usageTracker';
 
 // ── Spinner ──────────────────────────────────────────────────
 
@@ -221,15 +222,6 @@ const Dashboard: React.FC = () => {
       handler({ type: 'login' });
       return;
     }
-    if (input === 'd') {
-      if (store.state.correctionCount === 0) {
-        store.setLearnedMessage('no corrections to dream on yet');
-      } else {
-        handler({ type: 'dream' });
-      }
-      return;
-    }
-
     if (!current) {
       // Suggestions handling
       if (!store.state.suggestionsDismissed && store.state.suggestions.length > 0) {
@@ -443,21 +435,18 @@ const Dashboard: React.FC = () => {
       {isWatching && (
         <Text color={COLORS.gray}>
           {`${pulse} watching`}
-          {s.tokenUsage && (
-            <Text color={COLORS.gray}>{` — ${s.tokenUsage.inputTokens.toLocaleString()} in / ${s.tokenUsage.outputTokens.toLocaleString()} out tokens`}</Text>
-          )}
-          {s.userEmail && s.syncStatus === 'synced' && s.lastSyncAt > 0 && (
+          {s.userEmail && s.syncStatus === 'synced' && s.lastSyncAt > 0 ? (
             <Text color={COLORS.gray}>{` — ☁  synced`}</Text>
-          )}
-          {s.userEmail && s.syncStatus === 'offline' && (
+          ) : null}
+          {s.userEmail && s.syncStatus === 'offline' ? (
             <Text color={COLORS.yellow}>{` — ☁  offline`}</Text>
-          )}
+          ) : null}
         </Text>
       )}
 
       {/* ── Dream cycle in progress ───────────────── */}
       {s.dreaming && (
-        <Text color={COLORS.primary}>{`${dreamSpinner} dreaming — refining from ${s.correctionCount} correction${s.correctionCount === 1 ? '' : 's'}…`}</Text>
+        <Text color={COLORS.primary}>{`${dreamSpinner} refining context — ${s.correctionCount} correction${s.correctionCount === 1 ? '' : 's'}…`}</Text>
       )}
 
       {/* ── Community suggestions (one-time) ────────── */}
@@ -519,15 +508,7 @@ const Dashboard: React.FC = () => {
         <Text color={COLORS.primary}>{`● ${learnedMsg}`}</Text>
       )}
 
-      {/* ── Dream prompt ──────────────────────────── */}
-      {s.dreamPrompt && !s.dreaming && isWatching && (
-        <Box flexDirection="column">
-          <Text color={COLORS.yellow}>{`✦ ${s.correctionCount} corrections — press d to refine`}</Text>
-          {s.assessmentStats.confirmed > 0 || s.assessmentStats.dismissed > 0 ? (
-            <Text color={COLORS.gray}>{`  confirmed: ${s.assessmentStats.confirmed} · dismissed: ${s.assessmentStats.dismissed}`}</Text>
-          ) : null}
-        </Box>
-      )}
+      {/* Dream cycle runs autonomously — no prompt needed */}
 
       {/* ── Status bar ────────────────────────────── */}
       {isWatching && (
@@ -535,12 +516,11 @@ const Dashboard: React.FC = () => {
           {(() => {
             const stats = s.assessmentStats;
             const parts: string[] = [];
-            parts.push(`${stats.changes} changes`);
-            if (stats.ok > 0) parts.push(`${stats.ok} ok`);
+            parts.push(`${stats.changes} file changes`);
             if (stats.warnings > 0) parts.push(`${stats.warnings} warnings`);
             if (stats.violations > 0) parts.push(`${stats.violations} violations`);
-            if (s.correctionCount > 0) parts.push(`${s.correctionCount} corrections`);
             if (s.preferenceCount > 0) parts.push(`${s.preferenceCount} learned`);
+            if (stats.autoResolved > 0) parts.push(`${stats.autoResolved} auto-resolved`);
             if (stats.autoResolved > 0) parts.push(`${stats.autoResolved} auto`);
             return parts.join(' · ');
           })()}
@@ -548,10 +528,16 @@ const Dashboard: React.FC = () => {
       )}
       {isWatching && (
         <Text>
-          <Text color={s.correctionCount > 0 ? COLORS.primaryDim : COLORS.gray} dimColor={s.correctionCount === 0}>{'[d] dream'}</Text>
-          <Text color={COLORS.primaryDim}>{'  [r] probe & refine'}</Text>
+          <Text color={COLORS.primaryDim}>{'[r] probe & refine'}</Text>
           {s.recommendProbe ? <Text color={COLORS.primary}>{' ●'}</Text> : null}
           <Text color={COLORS.gray}>{'  [s] settings'}</Text>
+        </Text>
+      )}
+
+      {/* ── Usage tracker (always visible) ────────────── */}
+      {s.sessionUsage.calls > 0 && (
+        <Text color={COLORS.gray} dimColor>
+          {`${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · $${estimateCost(s.sessionUsage.inputTokens, s.sessionUsage.outputTokens).toFixed(4)} · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}`}
         </Text>
       )}
     </Box>

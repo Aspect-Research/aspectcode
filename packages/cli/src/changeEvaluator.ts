@@ -29,6 +29,12 @@ export interface ChangeAssessment {
   suggestion?: string;
   dependencyContext?: string;
   dismissable: boolean;
+  /** LLM auto-resolve recommendation (attached when auto-resolve is active). */
+  llmRecommendation?: {
+    decision: 'allow' | 'deny';
+    confidence: number;
+    reasoning: string;
+  };
 }
 
 export interface ChangeContext {

@@ -161,6 +161,7 @@ export interface DashboardState {
     dismissed: number;
     confirmed: number;
     changes: number;
+    autoResolved: number;
   };
   /** Number of consecutive OK-only changes (used to suppress output). */
   consecutiveOk: number;
@@ -190,6 +191,8 @@ export interface DashboardState {
   lastSyncAt: number;
   /** Community suggestions for this project type. */
   suggestions: Array<{ rule: string; disposition: string; directory: string | null; description: string }>;
+  /** Cumulative LLM usage for this session. */
+  sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
   /** Whether suggestions have been shown/dismissed. */
   suggestionsDismissed: boolean;
 }
@@ -222,7 +225,7 @@ class DashboardStore extends EventEmitter {
     compact: false,
     pendingAssessments: [],
     currentAssessment: null,
-    assessmentStats: { ok: 0, warnings: 0, violations: 0, dismissed: 0, confirmed: 0, changes: 0 },
+    assessmentStats: { ok: 0, warnings: 0, violations: 0, dismissed: 0, confirmed: 0, changes: 0, autoResolved: 0 },
     consecutiveOk: 0,
     preferenceCount: 0,
     learnedMessage: '',
@@ -236,6 +239,7 @@ class DashboardStore extends EventEmitter {
     managedFiles: [],
     syncStatus: 'idle',
     lastSyncAt: 0,
+    sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
     suggestions: [],
     suggestionsDismissed: false,
   };
@@ -414,6 +418,10 @@ class DashboardStore extends EventEmitter {
 
   setManagedFiles(files: ManagedFile[]): void {
     this.update({ managedFiles: files });
+  }
+
+  setSessionUsage(usage: DashboardState['sessionUsage']): void {
+    this.update({ sessionUsage: usage });
   }
 
   setSyncStatus(syncStatus: DashboardState['syncStatus']): void {

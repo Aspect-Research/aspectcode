@@ -43,7 +43,6 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'model',            short: 'm', type: 'string',  description: 'LLM model override' },
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)' },
   { name: 'compact',                       type: 'boolean', description: 'Compact dashboard (no banner)' },
-  { name: 'cursor',                       type: 'boolean', description: 'Target Cursor instead of Claude Code' },
   { name: 'background',                   type: 'boolean', description: 'Run headless (no dashboard UI)' },
 ] as const;
 
@@ -63,7 +62,6 @@ export interface CliFlags {
   model?: string;
   temperature?: number;
   compact: boolean;
-  cursor: boolean;
   background: boolean;
 }
 
@@ -102,6 +100,8 @@ export interface RunContext {
   ownership: 'full' | 'section';
   /** Whether to run LLM generation (false = KB-custom only). */
   generate: boolean;
+  /** Active platforms resolved before dashboard mount. */
+  platforms: string[];
 }
 
 // ── Flag-def helpers ─────────────────────────────────────────

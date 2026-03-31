@@ -104,186 +104,102 @@ function extractKbSection(kb: string, heading: string): string | undefined {
   return cleaned || undefined;
 }
 
+/**
+ * Build a clean, compact AGENTS.md matching the sweagent_bench format.
+ * Used for both safe and permissive modes — same structure, no fluff.
+ */
 function buildSafeKbCustom(s: KbSections): string {
-  const parts: string[] = [];
-
-  parts.push(`## Aspect Code — Project-Specific Guidelines
-
-**Aspect Code** analyzed your codebase and generated the project-specific guidelines below.
-The full Knowledge Base is in \`kb.md\` at the workspace root for detailed reference.`);
-
-  // ── Project Architecture ────────────────────────────────
-  const archParts: string[] = [];
-
-  if (s.hubs) {
-    archParts.push(`### High-Risk Hubs
-
-These files have many dependents — changes here ripple widely. Edit with care.
-
-${s.hubs}`);
-  }
-
-  if (s.entryPoints) {
-    archParts.push(`### Entry Points
-
-${s.entryPoints}`);
-  }
-
-  if (s.layout) {
-    archParts.push(`### Directory Layout
-
-${s.layout}`);
-  }
-
-  if (s.circularDeps) {
-    archParts.push(`### Circular Dependencies
-
-${s.circularDeps}`);
-  }
-
-  if (archParts.length > 0) {
-    parts.push(`## Project Architecture\n\n${archParts.join('\n\n')}`);
-  }
-
-  // ── Conventions & Integrations ─────────────────────────
-  if (s.conventions) {
-    parts.push(`## Coding Conventions
-
-${s.conventions}`);
-  }
-
-  if (s.integrations) {
-    parts.push(`## External Integrations
-
-${s.integrations}`);
-  }
-
-  // ── Golden Rules ────────────────────────────────────────
-  parts.push(`## Golden Rules
-
-1. **Read before you write.** Open and read the relevant files before multi-file edits.
-2. **Check high-risk hubs first.** Review the hubs listed above before editing widely-imported files.
-3. **Think step-by-step.** Break complex tasks into smaller steps; reason through each before coding.
-4. **Prefer minimal, local changes.** Small patches are safer than large refactors, especially in hub files.
-5. **Never truncate code.** Don't use placeholders like \`// ...rest\` or \`# existing code...\`. Provide complete implementations.
-6. **Don't touch tests, migrations, or third-party code** unless the user explicitly asks you to.
-7. **Never remove referenced logic.** Check all callers before deleting a function, class, or symbol.
-8. **Understand blast radius.** Trace relationships and dependents before refactoring.
-9. **Follow conventions above.** Match the project's existing naming patterns and import styles.
-10. **When unsure, go small.** Propose a minimal, reversible change instead of a sweeping refactor.`);
-
-  // ── When Changing Code ──────────────────────────────────
-  parts.push(`## When Changing Code
-
-- **Read the COMPLETE file** before modifying it. Preserve all existing exports/functions.
-- **Add, don't reorganize.** Unless the task says "refactor", avoid moving code around.
-- **Check high-risk hubs** listed above before editing widely-imported files.
-- **Avoid renaming** widely-used symbols without updating all callers.
-- **No new dependency cycles.** Before adding an import, verify it won't create a circular dependency.
-- **Match conventions** listed above (naming, imports, frameworks).
-- **Prefer small, localized changes** in the most relevant module.
-- Consult \`kb.md\` for the full symbol index, module clusters, and data models.`);
-
-  // ── When Things Go Wrong ────────────────────────────────
-  parts.push(`## When Things Go Wrong
-
-If you encounter repeated errors or unexpected behavior:
-
-1. **Use git** to see what changed: \`git diff\`, \`git status\`
-2. **Restore lost code** with \`git checkout -- <file>\` if needed
-3. **Re-read the complete file** before making more changes
-4. **Trace data flows** to understand execution paths
-5. **Run actual tests** to verify behavior before assuming something works`);
-
-  return parts.join('\n\n').trim();
+  return buildCleanAgentsMd(s);
 }
 
 function buildPermissiveKbCustom(s: KbSections): string {
+  return buildCleanAgentsMd(s);
+}
+
+function buildCleanAgentsMd(s: KbSections): string {
   const parts: string[] = [];
 
-  parts.push(`## Aspect Code — Project-Specific Guidelines
+  parts.push(`## Operating Mode
+- Verify repo priors with targeted reads before editing.
+- Localize, trace deps, then apply minimal scoped edit.
+- Run the smallest relevant test first, broaden only if needed.`);
 
-**Aspect Code** analyzed your codebase and generated the project-specific guidelines below.
-The full Knowledge Base is in \`kb.md\` at the workspace root.
+  parts.push(`## Procedural Standards
+- Reproduce the failure before editing when possible.
+- Read target files and nearby callers before patching.
+- Keep first patch minimal; inspect call sites if public API changes.
+- Require evidence from file reads or command output — no fabricated edits.
+- Patches must be syntactically complete; remove unused imports.`);
 
-Use these guidelines as orientation — not as constraints.`);
-
-  // ── Project Architecture ────────────────────────────────
-  const archParts: string[] = [];
+  // ── Repo Priors (compact, from KB) ─────────────────────
+  const repoParts: string[] = [];
 
   if (s.hubs) {
-    archParts.push(`### High-Risk Hubs
-
-${s.hubs}`);
+    // Table format: | Rank | File | Imports | Imported By | Risk |
+    const hubLines = s.hubs.split('\n')
+      .filter((l) => l.startsWith('|') && !l.includes('File') && !l.includes('---') && !l.includes('Rank'))
+      .slice(0, 2)
+      .map((l) => {
+        const cells = l.split('|').map((c) => c.trim()).filter(Boolean);
+        // cells[0]=Rank, cells[1]=File (backtick-wrapped), cells[2]=Imports, cells[3]=ImportedBy
+        if (cells.length >= 4) {
+          const file = cells[1].replace(/`/g, '');
+          const importedBy = cells[3];
+          return `- \`${file}\` — hub (${importedBy} importers).`;
+        }
+        return '';
+      })
+      .filter(Boolean);
+    if (hubLines.length > 0) {
+      repoParts.push(`### High-Impact Hubs\n${hubLines.join('\n')}`);
+    }
   }
 
   if (s.entryPoints) {
-    archParts.push(`### Entry Points
-
-${s.entryPoints}`);
-  }
-
-  if (s.layout) {
-    archParts.push(`### Directory Layout
-
-${s.layout}`);
-  }
-
-  if (archParts.length > 0) {
-    parts.push(`## Project Architecture\n\n${archParts.join('\n\n')}`);
+    // Table format: | File | Kind | Confidence | Evidence |
+    const epLines = s.entryPoints.split('\n')
+      .filter((l) => l.startsWith('|') && !l.includes('File') && !l.includes('---') && !l.includes('Kind'))
+      .slice(0, 2)
+      .map((l) => {
+        const cells = l.split('|').map((c) => c.trim()).filter(Boolean);
+        if (cells.length >= 2) {
+          const file = cells[0].replace(/`/g, '').replace(/🟢|🟡|🟠/g, '').trim();
+          const kind = cells[1].replace(/🟢|🟡|🟠/g, '').trim();
+          return `- \`${file}\` (${kind}).`;
+        }
+        return '';
+      })
+      .filter(Boolean);
+    if (epLines.length > 0) {
+      repoParts.push(`### Entry Points\n${epLines.join('\n')}`);
+    }
   }
 
   if (s.conventions) {
-    parts.push(`## Coding Conventions
-
-${s.conventions}`);
+    const convLines = s.conventions.split('\n')
+      .filter((l) => l.trim().startsWith('- '))
+      .slice(0, 3);
+    if (convLines.length > 0) {
+      repoParts.push(`### Conventions\n${convLines.join('\n')}`);
+    }
   }
 
   if (s.integrations) {
-    parts.push(`## External Integrations
-
-${s.integrations}`);
+    const intLines = s.integrations.split('\n')
+      .filter((l) => l.trim().startsWith('- '))
+      .slice(0, 2);
+    if (intLines.length > 0) {
+      repoParts.push(`### Integration Risk\n${intLines.join('\n')}`);
+    }
   }
 
-  // ── Operating Rules ─────────────────────────────────────
-  parts.push(`### Operating Rules (Pragmatic, Not Rigid)
+  if (repoParts.length > 0) {
+    parts.push(`## Repo Priors\n${repoParts.join('\n\n')}`);
+  }
 
-- Read relevant code before large edits; use the architecture above for orientation
-- Treat the hubs and entry points above as the "structural spine" of the project
-- If your change conflicts with existing structure, either:
-  - update the code in a way that keeps the existing intent valid, or
-  - explicitly state the mismatch and proceed with a coherent new structure
-
-### You May (Explicitly Allowed)
-
-- Refactor for clarity: extract functions, split files, consolidate duplicates
-- Reorganize modules/folders when it improves cohesion and discoverability
-- Touch multiple files when the change is conceptually one improvement
-- Change public/internal APIs when it simplifies the design (with follow-through updates)
-- Edit high-risk hubs when needed — do it deliberately, with dependency awareness
-- Rename symbols for consistency (types, functions, modules) and update references
-
-### You Should
-
-- Explain the new structure in terms of the existing architecture
-- Keep changes "conceptually tight": one goal, end-to-end, fully wired
-- Update call sites and imports immediately when you move/rename things
-- Prefer simplification over novelty; remove unnecessary layers when justified
-- Validate that referenced symbols still exist and are still reachable from call sites
-
-### Avoid
-
-- Deleting or renaming referenced symbols without updating all usages
-- Unnecessary scope creep (adding features unrelated to the request)
-- Blind rewrites that ignore the project's dependency structure and entry points
-- "Rebuild everything" refactors when a targeted restructure achieves the goal
-- Cosmetic churn that obscures meaningful changes`);
-
-  parts.push(`## Suggested Workflow
-
-1. Read the architecture above and relevant code for orientation.
-2. Implement the change end-to-end.
-3. Run tests / build.`);
+  parts.push(`## Guardrails
+- No speculative changes or broad refactors without evidence.
+- Every touched file must tie to the diagnosed path.`);
 
   return parts.join('\n\n').trim();
 }
@@ -293,105 +209,25 @@ ${s.integrations}`);
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function generateCanonicalContentSafe(): string {
-  return `## Aspect Code — Coding Guidelines
+  return `## Operating Mode
+- Verify repo priors with targeted reads before editing.
+- Localize, trace deps, then apply minimal scoped edit.
+- Run the smallest relevant test first, broaden only if needed.
 
-**Aspect Code** provides coding guidelines to help you make safer, more informed code changes.
+## Procedural Standards
+- Reproduce the failure before editing when possible.
+- Read target files and nearby callers before patching.
+- Keep first patch minimal; inspect call sites if public API changes.
+- Require evidence from file reads or command output — no fabricated edits.
+- Patches must be syntactically complete; remove unused imports.
 
-## Golden Rules
-
-1. **Read before you write.** Open and read the relevant files before multi-file edits.
-2. **Think step-by-step.** Break complex tasks into smaller steps; reason through each before coding.
-3. **Prefer minimal, local changes.** Small patches are safer than large refactors, especially in widely-imported files.
-4. **Never truncate code.** Don't use placeholders like \`// ...rest\` or \`# existing code...\`. Provide complete implementations.
-5. **Don't touch tests, migrations, or third-party code** unless the user explicitly asks you to.
-6. **Never remove referenced logic.** Check all callers before deleting a function, class, or symbol.
-7. **Understand blast radius.** Trace relationships and dependents before refactoring.
-8. **Follow existing naming patterns.** Match the project's existing naming patterns and import styles.
-9. **When unsure, go small.** Propose a minimal, reversible change instead of a sweeping refactor.
-
-## Recommended Workflow
-
-1. **Understand the task.** Parse requirements; note which files or endpoints are involved.
-2. **Find relevant code.** Locate data models, symbols, and naming conventions.
-3. **Understand relationships.** See which files are commonly edited together and how they connect.
-4. **Trace impact.** Review callers and dependents to gauge the blast radius of changes.
-5. **Gather evidence.** If behavior is unclear, add targeted logging or traces to confirm assumptions.
-6. **Make minimal edits.** Implement the smallest change that solves the task; run tests.
-
-## When Changing Code
-
-- **Read the COMPLETE file** before modifying it. Preserve all existing exports/functions.
-- **Add, don't reorganize.** Unless the task says "refactor", avoid moving code around.
-- **Check widely-imported files** before editing them — changes ripple to all dependents.
-- **Avoid renaming** widely-used symbols without updating all callers.
-- **No new dependency cycles.** Before adding an import, verify it won't create a circular dependency.
-- **Match conventions.** Follow existing naming patterns (naming, imports, frameworks).
-- **Prefer small, localized changes** in the most relevant module.
-
-## When Things Go Wrong
-
-If you encounter repeated errors or unexpected behavior:
-
-1. **Use git** to see what changed: \`git diff\`, \`git status\`
-2. **Restore lost code** with \`git checkout -- <file>\` if needed
-3. **Re-read the complete file** before making more changes
-4. **Trace data flows** to understand execution paths
-5. **Run actual tests** to verify behavior before assuming something works
-
-## General Guidelines
-
-- **Start with the most relevant file.** Understand the area before changing it.
-- **Check widely-imported modules.** Know which files have many dependents before editing.
-- **Follow existing conventions.** Match existing naming patterns and coding styles exactly.
-- **Minimal changes.** Make the smallest change that solves the problem correctly.
-- **Acknowledge risk.** If editing a widely-imported file, note the elevated risk.
-`.trim();
+## Guardrails
+- No speculative changes or broad refactors without evidence.
+- Every touched file must tie to the diagnosed path.`.trim();
 }
 
 export function generateCanonicalContentPermissive(): string {
-  return `## Aspect Code — Coding Guidelines
-
-**Aspect Code** provides coding guidelines to help you make informed code changes.
-
-Use these guidelines as orientation — not as constraints.
-
-### Operating Rules (Pragmatic, Not Rigid)
-
-- Read relevant code before large edits; understand boundaries, flows, and ownership
-- If your change creates a conflict with existing structure, either:
-  - update the code in a way that keeps the existing intent valid, or
-  - explicitly state the mismatch and proceed with a coherent new structure
-
-### You May (Explicitly Allowed)
-
-- Refactor for clarity: extract functions, split files, consolidate duplicates
-- Reorganize modules/folders when it improves cohesion and discoverability
-- Touch multiple files when the change is conceptually one improvement
-- Change public/internal APIs when it simplifies the design (with follow-through updates)
-- Rename symbols for consistency (types, functions, modules) and update references
-
-### You Should
-
-- Explain the new structure in terms of the existing architecture
-- Keep changes "conceptually tight": one goal, end-to-end, fully wired
-- Update call sites and imports immediately when you move/rename things
-- Prefer simplification over novelty; remove unnecessary layers when justified
-- Validate that referenced symbols still exist and are still reachable from call sites
-
-### Avoid
-
-- Deleting or renaming referenced symbols without updating all usages
-- Unnecessary scope creep (adding features unrelated to the request)
-- Blind rewrites that ignore the project's dependency structure and entry points
-- "Rebuild everything" refactors when a targeted restructure achieves the goal
-- Cosmetic churn that obscures meaningful changes
-
-## Suggested Workflow
-
-1. Read the relevant code for orientation.
-2. Implement the change end-to-end.
-3. Run tests / build.
-`.trim();
+  return generateCanonicalContentSafe();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -399,7 +235,13 @@ Use these guidelines as orientation — not as constraints.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function generateCanonicalContentSafeKB(): string {
-  return `## Aspect Code Knowledge Base
+  return generateCanonicalContentSafe();
+}
+
+// Old verbose KB content removed — clean format only
+
+function _deletedOldSafeKB(): string {
+  return `## Old content removed
 
 **Aspect Code** is a static-analysis tool that generates a Knowledge Base (KB) for your codebase. The KB is in \`kb.md\` at the workspace root and contains these sections:
 
@@ -497,6 +339,7 @@ If you encounter repeated errors or unexpected behavior:
 **Context:** \`## Module Clusters\` (co-edited files), \`## External Integrations\`, \`## Critical Flows\`
 `.trim();
 }
+void _deletedOldSafeKB;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // KB seed content — structured seed for probe-and-refine tuning
@@ -602,23 +445,33 @@ function extractKbSeedSection(kb: string, heading: string, maxItems: number): st
   const section = extractKbSection(kb, heading);
   if (!section) return undefined;
 
-  // Extract bullet items or table rows
   const bullets: string[] = [];
 
   // Try bullet items first
   for (const line of section.split('\n')) {
     const trimmed = line.trim();
     if (/^[-*]\s+/.test(trimmed)) {
-      bullets.push(trimmed);
+      // Strip emojis from bullet text
+      bullets.push(trimmed.replace(/🟢|🟡|🟠|🔴|⚠️/g, '').trim());
     }
   }
 
   // Try table rows if no bullets found
   if (bullets.length === 0) {
-    const tableRegex = /\|\s*(?:\d+\s*\|)?\s*`([^`]+)`\s*\|/g;
-    let match: RegExpExecArray | null;
-    while ((match = tableRegex.exec(section)) !== null) {
-      bullets.push(`- \`${match[1]}\``);
+    for (const line of section.split('\n')) {
+      if (!line.startsWith('|') || line.includes('---') || line.includes('File') || line.includes('Rank')) continue;
+      const cells = line.split('|').map((c) => c.trim()).filter(Boolean);
+      if (cells.length >= 4) {
+        // Table: | Rank | File | Imports | ImportedBy | Risk |
+        const file = cells[1].replace(/`/g, '');
+        const importedBy = cells[3];
+        bullets.push(`- \`${file}\` — hub (${importedBy} importers).`);
+      } else if (cells.length >= 2) {
+        // Simpler table: | File | Kind | ...
+        const file = cells[0].replace(/`/g, '').replace(/🟢|🟡|🟠|🔴/g, '').trim();
+        const kind = cells.length >= 2 ? cells[1].replace(/🟢|🟡|🟠|🔴/g, '').trim() : '';
+        bullets.push(kind ? `- \`${file}\` (${kind}).` : `- \`${file}\``);
+      }
     }
   }
 
@@ -658,6 +511,10 @@ function extractValidationSection(kb: string): string | undefined {
 }
 
 export function generateCanonicalContentPermissiveKB(): string {
+  return generateCanonicalContentSafe();
+}
+
+function _oldGenerateCanonicalContentPermissiveKB(): string {
   return `## Aspect Code Knowledge Base
 
 **Aspect Code** is a static-analysis tool that generates a Knowledge Base (KB) for your codebase. The KB is in \`kb.md\` at the workspace root and contains these sections:
@@ -710,3 +567,4 @@ Use the Knowledge Base (KB) as orientation and ground truth for architecture and
 3. Run tests / build.
 `.trim();
 }
+void _oldGenerateCanonicalContentPermissiveKB;

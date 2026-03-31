@@ -77,6 +77,72 @@ export async function selectPrompt(
 }
 
 /**
+ * Ask the user to pick multiple items from a list using arrow keys + space.
+ * Returns array of 0-based indices of selected options.
+ *
+ * Falls back to `preselected` when not interactive.
+ */
+export async function multiSelectPrompt(
+  question: string,
+  options: string[],
+  preselected: number[] = [],
+): Promise<number[]> {
+  if (!isInteractive()) return preselected;
+
+  return new Promise((resolve) => {
+    let cursor = 0;
+    const selected = new Set(preselected);
+
+    const render = () => {
+      if (painted) {
+        process.stdout.write(`\x1b[${options.length}A`);
+      }
+      for (let i = 0; i < options.length; i++) {
+        const check = selected.has(i) ? '\x1b[35m●\x1b[0m' : '○';
+        const pointer = i === cursor ? '\x1b[35m❯\x1b[0m' : ' ';
+        const label = i === cursor ? `\x1b[1m${options[i]}\x1b[0m` : options[i];
+        process.stdout.write(`\x1b[2K  ${pointer} ${check} ${label}\n`);
+      }
+      painted = true;
+    };
+
+    let painted = false;
+    process.stdout.write(`\x1b[35m?\x1b[0m ${question} \x1b[90m(space to toggle, enter to confirm)\x1b[0m\n`);
+    render();
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.setEncoding('utf-8');
+
+    const onData = (key: string) => {
+      if (key === '\x1b[A' || key === 'k') {
+        cursor = (cursor - 1 + options.length) % options.length;
+        render();
+      } else if (key === '\x1b[B' || key === 'j') {
+        cursor = (cursor + 1) % options.length;
+        render();
+      } else if (key === ' ') {
+        if (selected.has(cursor)) selected.delete(cursor);
+        else selected.add(cursor);
+        render();
+      } else if (key === '\r' || key === '\n') {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdin.removeListener('data', onData);
+        resolve([...selected].sort());
+      } else if (key === '\x03') {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdin.removeListener('data', onData);
+        process.exit(130);
+      }
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+
+/**
  * Ask a yes/no question. Returns `true` for yes.
  *
  * Falls back to `defaultValue` when not interactive.

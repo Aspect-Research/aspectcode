@@ -111,9 +111,9 @@ describe('parseArgs', () => {
     assert.equal(r.verbose, true);
   });
 
-  it('parses --cursor flag', () => {
-    const r = parseArgs([...base, '--cursor']);
-    assert.equal(r.cursor, true);
+  it('parses --background flag', () => {
+    const r = parseArgs([...base, '--background']);
+    assert.equal(r.background, true);
   });
 
   it('ignores positional arguments (e.g. subcommands)', () => {

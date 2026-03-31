@@ -10,8 +10,8 @@ describe('DEFAULT_PROBE_REFINE_CONFIG', () => {
     assert.equal(DEFAULT_PROBE_REFINE_CONFIG.maxIterations, 1);
   });
 
-  it('defaults to 10 probes per iteration', () => {
-    assert.equal(DEFAULT_PROBE_REFINE_CONFIG.targetProbesPerIteration, 10);
+  it('defaults to 5 probes per iteration', () => {
+    assert.equal(DEFAULT_PROBE_REFINE_CONFIG.targetProbesPerIteration, 5);
   });
 
   it('defaults to 5 edits per iteration', () => {
