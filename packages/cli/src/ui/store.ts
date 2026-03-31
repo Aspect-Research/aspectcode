@@ -195,6 +195,18 @@ export interface DashboardState {
   sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
   /** Whether suggestions have been shown/dismissed. */
   suggestionsDismissed: boolean;
+
+  // ── Tier state ────────────────────────────────────────────
+  /** User's tier: 'free', 'pro', or 'byok'. */
+  userTier: 'free' | 'pro' | 'byok';
+  /** Tokens used toward the tier cap. */
+  tierTokensUsed: number;
+  /** Token cap for the tier (0 = unlimited/BYOK). */
+  tierTokensCap: number;
+  /** ISO date of next monthly reset (Pro only, '' otherwise). */
+  tierResetAt: string;
+  /** True when the tier token cap has been reached. */
+  tierExhausted: boolean;
 }
 
 /**
@@ -242,6 +254,11 @@ class DashboardStore extends EventEmitter {
     sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
     suggestions: [],
     suggestionsDismissed: false,
+    userTier: 'free',
+    tierTokensUsed: 0,
+    tierTokensCap: 100_000,
+    tierResetAt: '',
+    tierExhausted: false,
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -437,6 +454,18 @@ class DashboardStore extends EventEmitter {
 
   dismissSuggestions(): void {
     this.update({ suggestionsDismissed: true });
+  }
+
+  setTierInfo(tier: DashboardState['userTier'], used: number, cap: number, resetAt?: string): void {
+    this.update({ userTier: tier, tierTokensUsed: used, tierTokensCap: cap, tierResetAt: resetAt ?? '' });
+  }
+
+  addTierTokens(tokens: number): void {
+    this.update({ tierTokensUsed: this.state.tierTokensUsed + tokens });
+  }
+
+  setTierExhausted(): void {
+    this.update({ tierExhausted: true });
   }
 
   /** Update a single managed file's annotation or timestamp. */

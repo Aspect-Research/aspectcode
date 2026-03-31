@@ -236,7 +236,11 @@ export interface Suggestion {
 export async function fetchSuggestions(
   language: string,
   framework?: string,
+  opts?: { byok?: boolean },
 ): Promise<Suggestion[]> {
+  // BYOK users don't get community suggestions
+  if (opts?.byok) return [];
+
   const creds = loadCredentials();
   if (!creds) return [];
 

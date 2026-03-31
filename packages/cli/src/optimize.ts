@@ -83,6 +83,11 @@ export async function tryOptimize(
     env = {};
   }
 
+  // Inject BYOK key from aspectcode.json if set
+  if (config?.apiKey && !env['ASPECTCODE_LLM_KEY']) {
+    env['ASPECTCODE_LLM_KEY'] = config.apiKey;
+  }
+
   // Pass CLI token so the aspectcode hosted provider can authenticate
   const creds = loadCredentials();
   if (creds && !env['ASPECTCODE_CLI_TOKEN']) {

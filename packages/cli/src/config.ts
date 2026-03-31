@@ -19,6 +19,9 @@ export interface AspectCodeConfig {
   /** AGENTS.md ownership: 'full' overwrites the file, 'section' uses markers. */
   ownership?: 'full' | 'section';
 
+  /** API key for Bring Your Own Key mode. Overrides hosted proxy. */
+  apiKey?: string;
+
   /** @deprecated Use `platforms` instead. Kept for backward compat. */
   platform?: string;
 

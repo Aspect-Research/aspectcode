@@ -43,7 +43,7 @@ import { deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
 import { autoResolveAssessment } from './autoResolve';
 import { renderAgentsMd } from './agentsMdRenderer';
 import { withUsageTracking } from './usageTracker';
-import { loadCredentials, startBackgroundLogin } from './auth';
+import { loadCredentials, updateCredentials, startBackgroundLogin, WEB_APP_URL } from './auth';
 import type { ManagedFile } from './ui/store';
 import { resolveProvider, loadEnvFile } from '@aspectcode/optimizer';
 
@@ -367,9 +367,19 @@ async function runOnce(
 
     store.setPhase('optimizing');
     // No static scoped rules — the dream cycle is the sole author of rules
-    const optimizeResult = await tryOptimize(
-      ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, [],
-    );
+    let optimizeResult;
+    try {
+      optimizeResult = await tryOptimize(
+        ctx, kbContent, toolInstructions, config, baseContent, probeAndRefine, preferences, userSettings, [],
+      );
+    } catch (err: any) {
+      if (err?.tierExhausted) {
+        store.setTierExhausted();
+        optimizeResult = { content: baseContent, reasoning: [], scopedRules: [], deleteSlugs: [] };
+      } else {
+        throw err;
+      }
+    }
     finalContent = optimizeResult.content;
 
     store.setPhase('writing');
@@ -610,7 +620,7 @@ export async function resolvePlatforms(root: string): Promise<string[]> {
 // ── Assessment action handler ────────────────────────────────
 
 export interface AssessmentAction {
-  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions';
+  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions' | 'open-pricing';
   assessment?: ChangeAssessment;
   suggestions?: any[];
 }
@@ -685,6 +695,42 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const creds = loadCredentials();
   store.setUserEmail(creds?.email ?? '');
 
+  // ── Detect tier ──────────────────────────────────────────
+  const projectConfig = loadConfig(root);
+  const hasByokKey = !!(projectConfig?.apiKey || process.env.ASPECTCODE_LLM_KEY);
+
+  if (hasByokKey) {
+    store.setTierInfo('byok', 0, 0);
+  } else if (creds) {
+    // Fetch tier + usage from verify endpoint
+    try {
+      const res = await fetch(`${WEB_APP_URL}/api/cli/verify`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${creds.token}` },
+      });
+      if (res.ok) {
+        const data = (await res.json()) as {
+          tier?: string;
+          usage?: { tokensUsed?: number; tokensCap?: number; resetAt?: string | null };
+        };
+        const tier = (data.tier === 'PRO' ? 'pro' : 'free') as 'free' | 'pro';
+        const used = data.usage?.tokensUsed ?? creds.tierTokensUsed ?? 0;
+        const cap = data.usage?.tokensCap ?? creds.tierTokensCap ?? 100_000;
+        const resetAt = data.usage?.resetAt ?? '';
+        store.setTierInfo(tier, used, cap, resetAt || undefined);
+        updateCredentials({ tier, tierTokensUsed: used, tierTokensCap: cap });
+      } else if (creds.tier) {
+        // Offline fallback — use cached tier
+        store.setTierInfo(creds.tier, creds.tierTokensUsed ?? 0, creds.tierTokensCap ?? 100_000);
+      }
+    } catch {
+      // Offline — use cached tier if available
+      if (creds.tier) {
+        store.setTierInfo(creds.tier, creds.tierTokensUsed ?? 0, creds.tierTokensCap ?? 100_000);
+      }
+    }
+  }
+
   // ── Load user settings from cloud ─────────────────────────
   const userSettings = await loadUserSettings();
   // Stash for Dashboard settings panel access
@@ -706,8 +752,9 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let watchProvider: import('@aspectcode/optimizer').LlmProvider | undefined;
   try {
     const env = loadEnvFile(root);
-    const creds = loadCredentials();
-    if (creds) env['ASPECTCODE_CLI_TOKEN'] = creds.token;
+    const watchCreds = loadCredentials();
+    if (watchCreds) env['ASPECTCODE_CLI_TOKEN'] = watchCreds.token;
+    if (projectConfig?.apiKey && !env['ASPECTCODE_LLM_KEY']) env['ASPECTCODE_LLM_KEY'] = projectConfig.apiKey;
     watchProvider = withUsageTracking(resolveProvider(env));
   } catch { /* no LLM — assessments go to user as before */ }
 
@@ -914,7 +961,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
               a.llmRecommendation = { decision: result.decision, confidence: result.confidence, reasoning: result.reasoning };
               forwarded.push(a);
             }
-          } catch {
+          } catch (err: any) {
+            if (err?.tierExhausted) { store.setTierExhausted(); }
             forwarded.push(a); // LLM failed — forward to user
           }
         }
@@ -967,6 +1015,14 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       return;
     }
     // Dream cycle is autonomous — no manual trigger
+    if (action.type === 'open-pricing') {
+      const { exec } = require('child_process');
+      const url = 'https://aspectcode.com/pricing';
+      const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open';
+      exec(`${cmd} "${url}"`);
+      store.setLearnedMessage('opened pricing page');
+      return;
+    }
     if (action.type === 'login') {
       store.setLearnedMessage('opening browser…');
       void startBackgroundLogin().then((email) => {

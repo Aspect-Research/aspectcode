@@ -23,6 +23,9 @@ interface Credentials {
   token: string;
   email?: string;
   createdAt: string;
+  tier?: 'free' | 'pro';
+  tierTokensUsed?: number;
+  tierTokensCap?: number;
 }
 
 // ── Credentials helpers ─────────────────────────────────────
@@ -43,6 +46,12 @@ function saveCredentials(creds: Credentials): void {
   fs.writeFileSync(CREDENTIALS_FILE, JSON.stringify(creds, null, 2) + '\n', {
     mode: 0o600,
   });
+}
+
+export function updateCredentials(update: Partial<Credentials>): void {
+  const existing = loadCredentials();
+  if (!existing) return;
+  saveCredentials({ ...existing, ...update });
 }
 
 function clearCredentials(): void {
@@ -328,5 +337,81 @@ export async function whoamiCommand(): Promise<void> {
     }
   } catch (err) {
     console.error('Failed to verify credentials:', (err as Error).message);
+  }
+}
+
+// ── Upgrade command ────────────────────────────────────────
+
+export async function upgradeCommand(): Promise<void> {
+  const creds = loadCredentials();
+  if (!creds) {
+    console.log(`Not logged in. Run ${fmt.bold('aspectcode login')} first.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  const url = `${WEB_APP_URL}/pricing`;
+  console.log(`Opening ${fmt.bold(url)}…`);
+  await openBrowser(url);
+}
+
+// ── Usage command ──────────────────────────────────────────
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+export async function usageCommand(): Promise<void> {
+  const creds = loadCredentials();
+  if (!creds) {
+    console.log(`Not logged in. Run ${fmt.bold('aspectcode login')} first.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  try {
+    const res = await fetch(`${WEB_APP_URL}/api/cli/usage`, {
+      headers: { Authorization: `Bearer ${creds.token}` },
+    });
+
+    if (!res.ok) {
+      console.error('Failed to fetch usage:', res.status);
+      process.exitCode = 1;
+      return;
+    }
+
+    const data = (await res.json()) as {
+      tier: string;
+      tokensUsed: number;
+      tokensCap: number;
+      tokensRemaining: number;
+      resetAt: string | null;
+      period: string;
+    };
+
+    const pct = Math.round((data.tokensUsed / data.tokensCap) * 100);
+    const bar = '█'.repeat(Math.round(pct / 5)) + '░'.repeat(20 - Math.round(pct / 5));
+
+    console.log();
+    console.log(`  ${fmt.bold('Plan:')}  ${data.tier === 'PRO' ? 'Pro ($8/mo)' : 'Free'}`);
+    console.log(`  ${fmt.bold('Used:')}  ${formatTokens(data.tokensUsed)} / ${formatTokens(data.tokensCap)} ${data.period} tokens`);
+    console.log(`  ${bar} ${pct}%`);
+    console.log(`  ${fmt.dim(`${formatTokens(data.tokensRemaining)} remaining`)}`);
+    if (data.resetAt) {
+      const d = new Date(data.resetAt);
+      console.log(`  ${fmt.dim(`Resets ${d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`)}`);
+    }
+    console.log();
+
+    if (data.tier === 'FREE' && data.tokensRemaining === 0) {
+      console.log(`  Run ${fmt.bold('aspectcode upgrade')} to switch to Pro, or add your own key:`);
+      console.log(`  ${fmt.dim('ASPECTCODE_LLM_KEY=sk-...')}`);
+      console.log();
+    }
+  } catch (err) {
+    console.error('Failed to fetch usage:', (err as Error).message);
+    process.exitCode = 1;
   }
 }

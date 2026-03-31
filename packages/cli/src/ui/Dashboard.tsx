@@ -16,7 +16,7 @@ import MemoryMap from './MemoryMap';
 import SettingsPanel from './SettingsPanel';
 import type { UserSettings, AspectCodeConfig } from '../config';
 import { loadConfig, saveConfig, saveUserSettings } from '../config';
-import { estimateCost, formatTokens } from '../usageTracker';
+import { formatTokens } from '../usageTracker';
 
 // ── Spinner ──────────────────────────────────────────────────
 
@@ -216,6 +216,18 @@ const Dashboard: React.FC = () => {
     if (!handler) return;
 
     const current = store.state.currentAssessment;
+
+    // Tier exhaustion actions
+    if (store.state.tierExhausted) {
+      if (input === 'u') {
+        handler({ type: 'open-pricing' });
+        return;
+      }
+      if (input === 'k') {
+        process.stderr.write(`\n  Add your API key to aspectcode.json:\n  { "apiKey": "sk-..." }\n\n  Or set ASPECTCODE_LLM_KEY in your environment.\n\n`);
+        return;
+      }
+    }
 
     if (input === 'r') { handler({ type: 'probe-and-refine' }); return; }
     if (input === 'l' && !store.state.userEmail) {
@@ -534,10 +546,25 @@ const Dashboard: React.FC = () => {
         </Text>
       )}
 
+      {/* ── Tier exhaustion prompt ────────────── */}
+      {s.tierExhausted && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={COLORS.primary} bold>
+            {`Token limit reached (${formatTokens(s.tierTokensCap)} ${s.userTier === 'free' ? 'lifetime' : 'weekly'} tokens used).`}
+          </Text>
+          <Text color={COLORS.gray}>{''}</Text>
+          <Text color={COLORS.primaryDim}>{'  [u] Upgrade to Pro ($8/mo — 1M tokens/week)'}</Text>
+          <Text color={COLORS.primaryDim}>{'  [k] Add your own API key: ASPECTCODE_LLM_KEY=sk-...'}</Text>
+        </Box>
+      )}
+
       {/* ── Usage tracker (always visible) ────────────── */}
       {s.sessionUsage.calls > 0 && (
         <Text color={COLORS.gray} dimColor>
-          {`${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · $${estimateCost(s.sessionUsage.inputTokens, s.sessionUsage.outputTokens).toFixed(4)} · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}`}
+          {s.userTier === 'byok'
+            ? `${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}  (BYOK)`
+            : `${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} ${s.userTier === 'free' ? 'lifetime' : 'weekly'} tokens · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}${s.userTier === 'pro' && s.tierResetAt ? `  (resets ${new Date(s.tierResetAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})` : ''}`
+          }
         </Text>
       )}
     </Box>

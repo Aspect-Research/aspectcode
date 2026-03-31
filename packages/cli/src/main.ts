@@ -19,7 +19,7 @@ import { runPipeline, resolveRunMode } from './pipeline';
 import { createDashboardLogger, createDashboardSpinner } from './ui/inkLogger';
 import { store } from './ui/store';
 import type { PipelinePhase } from './ui/store';
-import { loginCommand, logoutCommand, whoamiCommand, loadCredentials } from './auth';
+import { loginCommand, logoutCommand, whoamiCommand, upgradeCommand, usageCommand, loadCredentials } from './auth';
 
 // ── Build lookup tables from FLAG_DEFS ───────────────────────
 
@@ -104,6 +104,8 @@ ${fmt.bold('COMMANDS')}
   login                           ${fmt.dim('# Authenticate via browser (Google OAuth)')}
   logout                          ${fmt.dim('# Clear stored credentials')}
   whoami                          ${fmt.dim('# Show current logged-in user')}
+  upgrade                         ${fmt.dim('# Open Pro upgrade page in browser')}
+  usage                           ${fmt.dim('# Show current tier and token usage')}
 
 ${fmt.bold('OPTIONS')}
 ${optionLines.join('\n')}
@@ -193,6 +195,8 @@ async function main(): Promise<void> {
   const firstArg = process.argv[2];
   if (firstArg === 'logout') { await logoutCommand(); return; }
   if (firstArg === 'whoami') { await whoamiCommand(); return; }
+  if (firstArg === 'upgrade') { await upgradeCommand(); return; }
+  if (firstArg === 'usage') { await usageCommand(); return; }
 
   // Login then continue to pipeline
   if (firstArg === 'login') {

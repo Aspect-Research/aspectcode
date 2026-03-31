@@ -31,6 +31,8 @@ export interface ChatUsage {
 export interface ChatResult {
   content: string;
   usage?: ChatUsage;
+  /** Provider-specific metadata (e.g. tier usage from hosted proxy). */
+  meta?: Record<string, unknown>;
 }
 
 /**

@@ -6,15 +6,6 @@
 import type { LlmProvider, ChatMessage, ChatResult, ChatOptions, ChatUsage } from '@aspectcode/optimizer';
 import { store } from './ui/store';
 
-// Haiku 4.5 pricing (per 1M tokens)
-const COST_PER_M_INPUT = 1.00;
-const COST_PER_M_OUTPUT = 5.00;
-
-export function estimateCost(inputTokens: number, outputTokens: number): number {
-  return (inputTokens / 1_000_000) * COST_PER_M_INPUT
-       + (outputTokens / 1_000_000) * COST_PER_M_OUTPUT;
-}
-
 export function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
@@ -26,7 +17,7 @@ export function formatTokens(n: number): string {
  * in the dashboard store and displayed in the terminal.
  */
 export function withUsageTracking(provider: LlmProvider): LlmProvider {
-  function recordUsage(usage: ChatUsage | undefined): void {
+  function recordUsage(usage: ChatUsage | undefined, meta?: Record<string, unknown>): void {
     if (!usage) return;
     const prev = store.state.sessionUsage;
     store.setSessionUsage({
@@ -34,6 +25,19 @@ export function withUsageTracking(provider: LlmProvider): LlmProvider {
       outputTokens: prev.outputTokens + usage.outputTokens,
       calls: prev.calls + 1,
     });
+
+    // Update tier progress (for free/pro, server is authoritative but this gives instant feedback)
+    if (store.state.userTier !== 'byok') {
+      // If server returned authoritative tier usage, use that
+      if (meta?.tierUsage) {
+        const tu = meta.tierUsage as { tokensUsed: number; tokensCap: number; tier: string };
+        const tier = (tu.tier === 'PRO' ? 'pro' : 'free') as 'free' | 'pro';
+        store.setTierInfo(tier, tu.tokensUsed, tu.tokensCap);
+      } else {
+        // Fall back to local estimation
+        store.addTierTokens(usage.inputTokens + usage.outputTokens);
+      }
+    }
   }
 
   return {
@@ -43,7 +47,7 @@ export function withUsageTracking(provider: LlmProvider): LlmProvider {
       // Try chatWithUsage first to capture token counts
       if (provider.chatWithUsage) {
         const result = await provider.chatWithUsage(messages);
-        recordUsage(result.usage);
+        recordUsage(result.usage, result.meta);
         return result.content;
       }
       const content = await provider.chat(messages);
@@ -56,7 +60,7 @@ export function withUsageTracking(provider: LlmProvider): LlmProvider {
     async chatWithUsage(messages: ChatMessage[]): Promise<ChatResult> {
       if (provider.chatWithUsage) {
         const result = await provider.chatWithUsage(messages);
-        recordUsage(result.usage);
+        recordUsage(result.usage, result.meta);
         return result;
       }
       const content = await provider.chat(messages);
@@ -70,7 +74,7 @@ export function withUsageTracking(provider: LlmProvider): LlmProvider {
       // chatWithOptions typically doesn't return usage, but try chatWithUsage first
       if (provider.chatWithUsage) {
         const result = await provider.chatWithUsage(messages);
-        recordUsage(result.usage);
+        recordUsage(result.usage, result.meta);
         return result.content;
       }
       const content = provider.chatWithOptions
