@@ -1,6 +1,6 @@
 {
   "name": "@aspectcode/evaluator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Evidence-based evaluation for Aspect Code",
   "license": "MIT",
@@ -24,8 +24,8 @@
     "test": "mocha --require ts-node/register test/**/*.test.ts"
   },
   "dependencies": {
-    "@aspectcode/core": "1.0.0",
-    "@aspectcode/optimizer": "1.0.0"
+    "@aspectcode/core": "1.0.1",
+    "@aspectcode/optimizer": "1.0.1"
   },
   "optionalDependencies": {
     "better-sqlite3": "^11.0.0"

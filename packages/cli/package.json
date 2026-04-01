@@ -1,6 +1,6 @@
 {
   "name": "aspectcode",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
   "license": "MIT",
   "main": "dist/main.js",
@@ -50,10 +50,10 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
-    "@aspectcode/core": "1.0.0",
-    "@aspectcode/emitters": "1.0.0",
-    "@aspectcode/evaluator": "1.0.0",
-    "@aspectcode/optimizer": "1.0.0",
+    "@aspectcode/core": "1.0.1",
+    "@aspectcode/emitters": "1.0.1",
+    "@aspectcode/evaluator": "1.0.1",
+    "@aspectcode/optimizer": "1.0.1",
     "dotenv": "^16.4.0",
     "ink": "3.2.0",
     "openai": "^4.70.0",

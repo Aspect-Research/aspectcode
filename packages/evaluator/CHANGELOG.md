@@ -1,5 +1,15 @@
 # @aspectcode/evaluator
 
+## 1.0.1
+
+### Patch Changes
+
+- [#37](https://github.com/Aspect-Code-Labs/aspectcode/pull/37) [`6c02094`](https://github.com/Aspect-Code-Labs/aspectcode/commit/6c02094a369de2daba5c7e7dbfa40b6270f196d4) Thanks [@asashepard](https://github.com/asashepard)! - Fix global install on macOS: bundle web-tree-sitter in the CLI tarball so the tree-sitter parser loads correctly, and use os.homedir() for reliable home directory resolution across platforms.
+
+- Updated dependencies [[`6c02094`](https://github.com/Aspect-Code-Labs/aspectcode/commit/6c02094a369de2daba5c7e7dbfa40b6270f196d4)]:
+  - @aspectcode/core@1.0.1
+  - @aspectcode/optimizer@1.0.1
+
 ## 1.0.0
 
 ### Major Changes
