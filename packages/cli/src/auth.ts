@@ -8,15 +8,13 @@
 
 import * as http from 'http';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { fmt } from './logger';
 
 export const WEB_APP_URL = process.env.ASPECTCODE_WEB_URL ?? 'https://aspectcode.com';
-const CREDENTIALS_DIR = path.join(
-  process.env.HOME ?? process.env.USERPROFILE ?? '~',
-  '.aspectcode',
-);
+const CREDENTIALS_DIR = path.join(os.homedir(), '.aspectcode');
 const CREDENTIALS_FILE = path.join(CREDENTIALS_DIR, 'credentials.json');
 
 interface Credentials {
