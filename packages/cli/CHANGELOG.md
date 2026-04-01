@@ -1,5 +1,21 @@
 # aspectcode
 
+## 1.0.0
+
+### Major Changes
+
+- [#24](https://github.com/Aspect-Code-Labs/aspectcode/pull/24) [`e8e8c53`](https://github.com/Aspect-Code-Labs/aspectcode/commit/e8e8c5328c85cf55a74008fb8f53bd74b4651351) Thanks [@asashepard](https://github.com/asashepard)! - v1.0.0 — First major release.
+
+  Dream cycle, auto-resolve, scoped rules, multi-platform support, memory map dashboard, probe-and-refine improvements, community preferences/suggestions, auto-update, 11 tree-sitter languages.
+
+### Patch Changes
+
+- Updated dependencies [[`e8e8c53`](https://github.com/Aspect-Code-Labs/aspectcode/commit/e8e8c5328c85cf55a74008fb8f53bd74b4651351)]:
+  - @aspectcode/core@1.0.0
+  - @aspectcode/emitters@1.0.0
+  - @aspectcode/evaluator@1.0.0
+  - @aspectcode/optimizer@1.0.0
+
 ## 0.4.1
 
 ### Patch Changes

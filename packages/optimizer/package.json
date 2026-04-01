@@ -1,6 +1,6 @@
 {
   "name": "@aspectcode/optimizer",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "description": "LLM-powered instruction generator for Aspect Code",
   "license": "MIT",
