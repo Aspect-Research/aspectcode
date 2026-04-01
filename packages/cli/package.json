@@ -45,7 +45,8 @@
     "@aspectcode/core",
     "@aspectcode/emitters",
     "@aspectcode/evaluator",
-    "@aspectcode/optimizer"
+    "@aspectcode/optimizer",
+    "web-tree-sitter"
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
