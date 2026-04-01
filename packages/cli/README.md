@@ -8,6 +8,6 @@ aspectcode              # watch mode
 aspectcode --once       # single run
 ```
 
-**Docs & source:** [github.com/asashepard/aspectcode](https://github.com/asashepard/aspectcode)
+**Docs & source:** [github.com/Aspect-Code-Labs/aspectcode](https://github.com/Aspect-Code-Labs/aspectcode)
 
-**Website:** [aspectcode.dev](https://aspectcode.dev)
+**Website:** [aspectcode.com](https://aspectcode.com)

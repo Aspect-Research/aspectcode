@@ -50,8 +50,8 @@ describe('resolveProvider', () => {
     assert.throws(
       () => resolveProvider({}),
       (err: Error) => {
-        assert.ok(err.message.includes('No LLM API key found'));
-        assert.ok(err.message.includes('OPENAI_API_KEY'));
+        assert.ok(err.message.includes('No LLM available'));
+        assert.ok(err.message.includes('aspectcode login'));
         return true;
       },
     );

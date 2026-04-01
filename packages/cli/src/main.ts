@@ -1,11 +1,15 @@
 /**
  * aspectcode CLI — main entry point.
  *
- * No subcommands. `aspectcode [flags]` runs the pipeline:
+ * Subcommands: login, logout, whoami.
+ * Default (no subcommand): `aspectcode [flags]` runs the pipeline:
  *   analyze → build KB → ingest tool files → optimize → write AGENTS.md → watch
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
+import * as os from 'os';
+import { spawn } from 'child_process';
 import type { CliFlags } from './cli';
 import { ExitCode, FLAG_DEFS, flagPropName } from './cli';
 import type { SpinnerFactory } from './cli';
@@ -15,6 +19,7 @@ import { runPipeline, resolveRunMode } from './pipeline';
 import { createDashboardLogger, createDashboardSpinner } from './ui/inkLogger';
 import { store } from './ui/store';
 import type { PipelinePhase } from './ui/store';
+import { loginCommand, logoutCommand, whoamiCommand, upgradeCommand, usageCommand, loadCredentials } from './auth';
 
 // ── Build lookup tables from FLAG_DEFS ───────────────────────
 
@@ -33,11 +38,11 @@ export function parseArgs(argv: string[]): CliFlags {
     version: false,
     verbose: false,
     quiet: false,
-    kb: false,
     dryRun: false,
     once: false,
     noColor: false,
     compact: false,
+    background: false,
   };
 
   const args = argv.slice(2); // skip node + script
@@ -89,18 +94,26 @@ ${fmt.bold('aspectcode')} — generate AGENTS.md for your codebase
 
 ${fmt.bold('USAGE')}
   aspectcode [options]
+  aspectcode <command>
 
   Analyzes your codebase, builds a knowledge base, reads existing AI tool
   instruction files for context, generates AGENTS.md via LLM (when API key
   is available), and watches for changes.
+
+${fmt.bold('COMMANDS')}
+  login                           ${fmt.dim('# Authenticate via browser (Google OAuth)')}
+  logout                          ${fmt.dim('# Clear stored credentials')}
+  whoami                          ${fmt.dim('# Show current logged-in user')}
+  upgrade                         ${fmt.dim('# Open Pro upgrade page in browser')}
+  usage                           ${fmt.dim('# Show current tier and token usage')}
 
 ${fmt.bold('OPTIONS')}
 ${optionLines.join('\n')}
 
 ${fmt.bold('EXAMPLES')}
   aspectcode                      ${fmt.dim('# watch & auto-update AGENTS.md')}
+  aspectcode login                ${fmt.dim('# authenticate with your account')}
   aspectcode --once               ${fmt.dim('# run once then exit')}
-  aspectcode --once --kb          ${fmt.dim('# also write kb.md')}
   aspectcode --once --dry-run     ${fmt.dim('# preview without writing')}
   aspectcode --provider openai    ${fmt.dim('# force specific LLM provider')}
   aspectcode --compact            ${fmt.dim('# minimal dashboard layout')}
@@ -115,9 +128,84 @@ function parseFloatFlag(value: unknown, min: number, max: number): number | unde
   return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
 }
 
+// ── Background: spawn in a new terminal ──────────────────────
+
+/** Spawn aspectcode in a new terminal window. Returns true if successful. */
+function spawnInTerminal(): boolean {
+  const binPath = path.resolve(__dirname, '..', 'bin', 'aspectcode.js');
+  const forwardedArgs = process.argv.slice(2).filter((a) => a !== '--background');
+  const nodeExe = process.execPath;
+
+  try {
+    let child;
+
+    if (process.platform === 'win32') {
+      // Write a temp .bat file to avoid quoting hell with spaces in paths.
+      // cmd /k + start can't reliably handle "C:\Program Files\..." nesting.
+      const batPath = path.join(os.tmpdir(), `aspectcode-bg-${Date.now()}.bat`);
+      const argsStr = forwardedArgs.length > 0 ? ' ' + forwardedArgs.join(' ') : '';
+      fs.writeFileSync(batPath, `@echo off\r\n"${nodeExe}" "${binPath}"${argsStr}\r\n`);
+
+      child = spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', batPath], {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      // Clean up bat file after a delay (the new terminal has already read it)
+      setTimeout(() => { try { fs.unlinkSync(batPath); } catch { /* ignore */ } }, 5000);
+
+    } else if (process.platform === 'darwin') {
+      const escaped = [nodeExe, binPath, ...forwardedArgs]
+        .map((a) => a.replace(/\\/g, '\\\\').replace(/"/g, '\\"'))
+        .join(' ');
+      child = spawn('osascript', ['-e', `tell app "Terminal" to do script "${escaped}"`], {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+    } else {
+      // Linux: try gnome-terminal, fall back to xterm
+      try {
+        child = spawn('gnome-terminal', ['--', nodeExe, binPath, ...forwardedArgs], {
+          detached: true,
+          stdio: 'ignore',
+        });
+      } catch {
+        child = spawn('xterm', ['-e', nodeExe, binPath, ...forwardedArgs], {
+          detached: true,
+          stdio: 'ignore',
+        });
+      }
+    }
+
+    child.unref();
+    console.log('◆ aspect code running in background');
+    process.exitCode = ExitCode.OK;
+    return true;
+  } catch {
+    console.log('◆ could not open terminal window — running headless');
+    return false;
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
+  // Handle subcommands
+  const firstArg = process.argv[2];
+  if (firstArg === 'logout') { await logoutCommand(); return; }
+  if (firstArg === 'whoami') { await whoamiCommand(); return; }
+  if (firstArg === 'upgrade') { await upgradeCommand(); return; }
+  if (firstArg === 'usage') { await usageCommand(); return; }
+
+  // Login then continue to pipeline
+  if (firstArg === 'login') {
+    await loginCommand(process.argv.slice(3));
+    if (process.exitCode) return; // login failed
+    // Strip 'login' (and optional code arg) from argv before parsing flags
+    process.argv = [process.argv[0], process.argv[1]];
+  }
+
   const flags = parseArgs(process.argv);
 
   // Global flags that exit early
@@ -133,6 +221,49 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Background mode: spawn in a new terminal window and exit immediately
+  if (flags.background) {
+    if (spawnInTerminal()) return;
+    // Spawn failed — fall through to run headless in this process
+    flags.background = false;
+  }
+
+  // Require login for the pipeline
+  if (!loadCredentials()) {
+    console.log(`${fmt.bold('Login required.')} Press any key to open browser login...`);
+    await new Promise<void>((resolve) => {
+      process.stdin.setRawMode?.(true);
+      process.stdin.resume();
+      process.stdin.once('data', () => {
+        process.stdin.setRawMode?.(false);
+        process.stdin.pause();
+        resolve();
+      });
+    });
+    await loginCommand([]);
+    if (!loadCredentials()) {
+      process.exitCode = ExitCode.ERROR;
+      return;
+    }
+  }
+
+  // Check for updates (non-blocking — runs sync but fast, 5s timeout)
+  try {
+    const { checkForUpdate } = await import('./updateChecker');
+    const updateResult = checkForUpdate();
+    if (updateResult) {
+      if (updateResult.updated) {
+        // Re-exec with the new version
+        console.log(`✓ ${updateResult.message} — restarting...`);
+        const { execSync } = await import('child_process');
+        execSync(`aspectcode ${process.argv.slice(2).join(' ')}`, { stdio: 'inherit' });
+        return;
+      }
+      // Store message for dashboard display
+      (globalThis as any).__updateMessage = updateResult.message;
+    }
+  } catch { /* update check is best-effort */ }
+
   if (flags.noColor) {
     disableColor();
   }
@@ -144,11 +275,13 @@ async function main(): Promise<void> {
 
   const root = path.resolve(flags.root ?? process.cwd());
 
-  // Resolve ownership + generate mode BEFORE mounting the ink dashboard.
-  // selectPrompt uses raw stdin which conflicts with ink's useInput.
+  // Resolve ownership + platforms BEFORE mounting the ink dashboard.
+  // selectPrompt / multiSelectPrompt use raw stdin which conflicts with ink's useInput.
   const { ownership, generate } = await resolveRunMode(root);
+  const { resolvePlatforms } = await import('./pipeline');
+  const activePlatforms = await resolvePlatforms(root);
 
-  const useDashboard = !flags.quiet && !flags.noColor && process.stdout.isTTY === true;
+  const useDashboard = !flags.quiet && !flags.noColor && !flags.background && process.stdout.isTTY === true;
 
   let log;
   let spin: SpinnerFactory;
@@ -188,7 +321,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate });
+    process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate, platforms: activePlatforms });
   } finally {
     if (unmount) unmount();
   }

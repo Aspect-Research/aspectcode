@@ -1,338 +1,181 @@
 /**
  * Tests for the evaluator package.
  *
- * Covers probe generation, KB section parsing, behaviour evaluation parsing,
+ * Covers deterministic edit application (apply.ts), probe deduplication,
  * and diagnosis response parsing — all pure functions, no LLM calls.
  */
 
 import * as assert from 'node:assert/strict';
-import {
-  generateProbes,
-  extractSection,
-  parseHubs,
-  parseEntryPoints,
-  parseConventions,
-  parseDiffFiles,
-} from '../src/probes';
-import { buildDiagnosisPrompt, parseDiagnosisResponse } from '../src/diagnosis';
-import type { ProbeResult, HarvestedPrompt } from '../src/types';
+import { applyEdits, AGENTS_MD_CHAR_BUDGET } from '../src/apply';
+import type { AgentsEdit } from '../src/types';
 
 // ── Fixtures ────────────────────────────────────────────────
 
-const SAMPLE_KB = `# Architecture
+const SAMPLE_AGENTS_MD = `# AGENTS.md — TestProject
 
-## High-Risk Architectural Hubs
+## Operating Mode
+- Verify repo priors with targeted reads before editing.
+- Localize, trace deps, then apply minimal scoped edit.
+- Run the smallest relevant test first, broaden only if needed.
 
-| File | In | Out |
-|------|-----|-----|
-| \`src/core/db.ts\` | 12 | 3 |
-| \`src/core/auth.ts\` | 8 | 5 |
+## Procedural Standards
+- Reproduce the failure before editing when possible.
+- Read target files and nearby callers before patching.
 
-## Entry Points
-
-| File | Kind |
-|------|------|
-| \`src/routes/api.ts\` | HTTP handler |
-| \`src/cli/main.ts\` | CLI command |
-
----
-
-# Map
-
-## Data Models
-
-User, Session, Token
-
-## Conventions
-
-- Use camelCase for functions and variables
-- Use PascalCase for classes and interfaces
-- Suffix test files with .test.ts
-- Prefix private methods with underscore
-
----
-
-# Context
-
-## Module Clusters
-
-src/core/db.ts, src/core/auth.ts, src/core/session.ts
-`;
-
-/** KB in the format the real emitters produce (emoji headings, 5-col table, bullet entry points). */
-const EMITTER_KB = `# Architecture
-
-## ⚠️ High-Risk Architectural Hubs
-
-> **These files are architectural load-bearing walls.**
-
-| Rank | File | Imports | Imported By | Risk |
-|------|------|---------|-------------|------|
-| 1 | \`backend/app/core/config.py\` | 2 | 9 | 🔴 High |
-| 2 | \`backend/app/models.py\` | 4 | 7 | 🟡 Medium |
+## High-Impact Hubs
+- \`src/core/db.ts\` — 12 dependents, high risk.
 
 ## Entry Points
+- \`src/routes/api.ts\` — HTTP handler.
 
-_Where code execution begins._
-
-### Runtime Entry Points
-
-- 🟢 \`backend/app/main.py\`: FastAPI application entry (uvicorn)
-- 🟡 \`backend/app/api/routes/private.py\`: API route handler
-
-### Runnable Scripts / Tooling
-
-- 🟢 \`scripts/migrate.py\`: Database migration CLI
-
----
-
-# Map
-
-## Data Models
-
-User, Role, Permission
-
-## Conventions
-
-_Naming patterns and styles._
-
-### File Naming
-
-| Pattern | Example | Count |
-|---------|---------|-------|
-| snake_case | \`user_service.py\` | 23 |
-| kebab-case | \`api-routes.ts\` | 5 |
-
-**Use:** snake_case for new files.
-
-### Function Naming
-
-- \`get_*\` → \`get_user\` (accessor pattern)
-- \`create_*\` → \`create_session\` (factory pattern)
-
----
-
-# Context
+## Guardrails
+- No speculative changes without evidence.
+- Every touched file must tie to the diagnosed path.
 `;
 
+// ── applyEdits ──────────────────────────────────────────────
 
-const SAMPLE_DIFF = `--- a/src/core/db.ts
-+++ b/src/core/db.ts
-@@ -10,6 +10,7 @@
- import { Pool } from 'pg';
-+import { Redis } from 'ioredis';
---- a/src/routes/api.ts
-+++ b/src/routes/api.ts
-@@ -5,3 +5,4 @@
- import { authenticate } from '../core/auth';
-+import { rateLimit } from '../middleware/rateLimit';
-`;
-
-// ── KB section parsing ──────────────────────────────────────
-
-describe('extractSection', () => {
-  it('extracts a named section up to the next separator', () => {
-    const arch = extractSection(SAMPLE_KB, '# Architecture');
-    assert.ok(arch.includes('High-Risk Architectural Hubs'));
-    assert.ok(arch.includes('Entry Points'));
-    assert.ok(!arch.includes('Data Models'), 'should not leak into Map section');
-  });
-
-  it('returns empty string for missing section', () => {
-    assert.equal(extractSection(SAMPLE_KB, '# NonExistent'), '');
-  });
-});
-
-describe('parseHubs', () => {
-  it('parses hub table rows', () => {
-    const arch = extractSection(SAMPLE_KB, '# Architecture');
-    const hubs = parseHubs(arch);
-    assert.equal(hubs.length, 2);
-    assert.equal(hubs[0].file, 'src/core/db.ts');
-    assert.equal(hubs[0].inDegree, 12);
-    assert.equal(hubs[0].outDegree, 3);
-    assert.equal(hubs[1].file, 'src/core/auth.ts');
-  });
-
-  it('returns empty array when no hubs section exists', () => {
-    assert.deepEqual(parseHubs('no hubs here'), []);
-  });
-});
-
-describe('parseEntryPoints', () => {
-  it('parses entry point table rows', () => {
-    const arch = extractSection(SAMPLE_KB, '# Architecture');
-    const entries = parseEntryPoints(arch);
-    assert.equal(entries.length, 2);
-    assert.equal(entries[0].file, 'src/routes/api.ts');
-    assert.equal(entries[0].kind, 'HTTP handler');
-    assert.equal(entries[1].file, 'src/cli/main.ts');
-    assert.equal(entries[1].kind, 'CLI command');
-  });
-});
-
-describe('parseConventions', () => {
-  it('parses bullet-list conventions', () => {
-    const mapSection = extractSection(SAMPLE_KB, '# Map');
-    const conventions = parseConventions(mapSection);
-    assert.ok(conventions.length >= 3);
-    assert.ok(conventions.some((c) => c.includes('camelCase')));
-    assert.ok(conventions.some((c) => c.includes('PascalCase')));
-  });
-});
-
-describe('parseDiffFiles', () => {
-  it('extracts file paths from unified diff', () => {
-    const files = parseDiffFiles(SAMPLE_DIFF);
-    assert.ok(files.includes('src/core/db.ts'));
-    assert.ok(files.includes('src/routes/api.ts'));
-  });
-});
-
-// ── Probe generation ────────────────────────────────────────
-
-describe('generateProbes', () => {
-  it('generates hub safety probes from KB', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB });
-    const hubProbes = probes.filter((p) => p.category === 'hub-safety');
-    assert.ok(hubProbes.length >= 1, 'should generate hub probes');
-    assert.ok(hubProbes[0].id.includes('src-core-db'));
-    assert.ok(hubProbes[0].contextFiles.includes('src/core/db.ts'));
-    assert.ok(hubProbes[0].expectedBehaviors.length > 0);
-  });
-
-  it('generates entry point probes from KB', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB });
-    const entryProbes = probes.filter((p) => p.category === 'entry-point');
-    assert.ok(entryProbes.length >= 1, 'should generate entry point probes');
-  });
-
-  it('generates naming convention probes from KB', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB });
-    const namingProbes = probes.filter((p) => p.category === 'naming');
-    assert.ok(namingProbes.length >= 1, 'should generate naming probes');
-  });
-
-  it('prioritises diff-scoped probes when diff is provided', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB, kbDiff: SAMPLE_DIFF });
-    // Diff probes should be first
-    assert.equal(probes[0].category, 'architecture');
-    assert.ok(probes[0].id.includes('diff-area'));
-  });
-
-  it('includes harvested prompt probes', () => {
-    const harvested: HarvestedPrompt[] = [{
-      source: 'claude-code',
-      userPrompt: 'How do I add a new route?',
-      assistantResponse: 'Add it in src/routes/api.ts...',
-      filesReferenced: ['src/routes/api.ts'],
+describe('applyEdits', () => {
+  it('adds a bullet to an existing section', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Operating Mode',
+      action: 'add',
+      content: 'Always check test output before committing.',
     }];
-    const probes = generateProbes({ kb: SAMPLE_KB, harvestedPrompts: harvested });
-    const harvestedProbes = probes.filter((p) => p.category === 'harvested');
-    assert.ok(harvestedProbes.length >= 1, 'should generate harvested probes');
-    assert.ok(harvestedProbes[0].contextFiles.includes('src/routes/api.ts'));
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.ok(result.content.includes('Always check test output'));
+    assert.equal(result.applied, 1);
   });
 
-  it('respects maxProbes cap', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB, maxProbes: 3 });
-    assert.ok(probes.length <= 3, `expected <= 3 probes, got ${probes.length}`);
-  });
-
-  it('deduplicates probes by id', () => {
-    const probes = generateProbes({ kb: SAMPLE_KB });
-    const ids = probes.map((p) => p.id);
-    assert.equal(ids.length, new Set(ids).size, 'probe ids should be unique');
-  });
-
-  it('returns empty array when KB is empty', () => {
-    const probes = generateProbes({ kb: '' });
-    assert.equal(probes.length, 0);
-  });
-
-  // Tests for real emitter KB format
-  it('parses hubs from emitter 5-column table with emoji heading', () => {
-    const probes = generateProbes({ kb: EMITTER_KB });
-    const hubProbes = probes.filter((p) => p.category === 'hub-safety');
-    assert.ok(hubProbes.length >= 1, 'should generate hub probes from emitter format');
-    assert.ok(hubProbes[0].contextFiles.includes('backend/app/core/config.py'));
-  });
-
-  it('parses entry points from emitter bullet-list format', () => {
-    const probes = generateProbes({ kb: EMITTER_KB });
-    const entryProbes = probes.filter((p) => p.category === 'entry-point');
-    assert.ok(entryProbes.length >= 1, 'should generate entry point probes from bullet format');
-  });
-
-  it('parses conventions from emitter structured format', () => {
-    const probes = generateProbes({ kb: EMITTER_KB });
-    const namingProbes = probes.filter((p) => p.category === 'naming');
-    assert.ok(namingProbes.length >= 1, 'should generate naming probes from emitter format');
-  });
-});
-
-// ── Diagnosis parsing ───────────────────────────────────────
-
-describe('parseDiagnosisResponse', () => {
-  it('parses a well-formed diagnosis response', () => {
-    const response = `SUMMARY: The AGENTS.md lacks hub-safety guidance for db.ts.
-
-EDIT_1:
-SECTION: Golden Rules
-ACTION: add
-CONTENT: Always check db.ts dependents before modifying exports
-MOTIVATED_BY: hub-safety-src-core-db
-
-EDIT_2:
-SECTION: Architecture
-ACTION: strengthen
-CONTENT: Mark db.ts as a critical hub — changes require updating all 12 dependents
-MOTIVATED_BY: hub-safety-src-core-db, entry-point-src-routes-api`;
-
-    const result = parseDiagnosisResponse(response, 2);
-    assert.equal(result.summary, 'The AGENTS.md lacks hub-safety guidance for db.ts.');
-    assert.equal(result.edits.length, 2);
-    assert.equal(result.edits[0].section, 'Golden Rules');
-    assert.equal(result.edits[0].action, 'add');
-    assert.ok(result.edits[0].content.includes('db.ts'));
-    assert.deepEqual(result.edits[0].motivatedBy, ['hub-safety-src-core-db']);
-    assert.equal(result.edits[1].action, 'strengthen');
-    assert.equal(result.edits[1].motivatedBy.length, 2);
-    assert.equal(result.failureCount, 2);
-  });
-
-  it('returns empty edits when response is unparseable', () => {
-    const result = parseDiagnosisResponse('This is just free text with no structure.', 1);
-    assert.equal(result.edits.length, 0);
-    assert.equal(result.failureCount, 1);
-  });
-});
-
-describe('buildDiagnosisPrompt', () => {
-  it('includes failure details and AGENTS.md content', () => {
-    const failures: ProbeResult[] = [{
-      probeId: 'hub-safety-db',
-      passed: false,
-      response: 'Just modify the file directly.',
-      shortcomings: ['Did not mention dependents', 'Did not warn about breaking changes'],
-      behaviorResults: [],
+  it('does not add duplicate bullets', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Operating Mode',
+      action: 'add',
+      content: 'Verify repo priors with targeted reads before editing.',
     }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.equal(result.applied, 0);
+  });
 
-    const prompt = buildDiagnosisPrompt(failures, '## Rules\n1. Be careful.');
-    assert.ok(prompt.includes('hub-safety-db'));
-    assert.ok(prompt.includes('Did not mention dependents'));
-    assert.ok(prompt.includes('## Rules'));
-    assert.ok(prompt.includes('EDIT_1:'));
+  it('removes a matching bullet', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Guardrails',
+      action: 'remove',
+      content: 'speculative changes',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.ok(!result.content.includes('No speculative changes'));
+    assert.equal(result.applied, 1);
+  });
+
+  it('canonicalizes section aliases', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Testing',
+      action: 'add',
+      content: 'Run pytest with -v flag.',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    // "Testing" should map to "Validation" and create the section
+    assert.ok(result.content.includes('Run pytest with -v flag'));
+    assert.equal(result.applied, 1);
+  });
+
+  it('creates a new section when adding to non-existent canonical section', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Conventions',
+      action: 'add',
+      content: 'Use camelCase for functions.',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.ok(result.content.includes('## Conventions'));
+    assert.ok(result.content.includes('Use camelCase for functions'));
+  });
+
+  it('rejects non-canonical sections', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Completely Made Up Section',
+      action: 'add',
+      content: 'This should be ignored.',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.equal(result.applied, 0);
+    assert.ok(!result.content.includes('This should be ignored'));
+  });
+
+  it('rejects boilerplate edits', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Operating Mode',
+      action: 'add',
+      content: 'runner_status: success, patch_len: 42',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.equal(result.applied, 0);
+  });
+
+  it('enforces character budget with trimming', () => {
+    // Add many long bullets to blow past the budget
+    const edits: AgentsEdit[] = [];
+    for (let i = 0; i < 50; i++) {
+      edits.push({
+        section: 'Operating Mode',
+        action: 'add',
+        content: `Rule number ${i}: This is a long operational guideline that adds significant characters to the document. Follow it carefully when working on complex multi-file changes.`,
+      });
+    }
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits, 8000);
+    assert.ok(result.content.length <= 8000, `Expected <= 8000 chars, got ${result.content.length}`);
+    assert.ok(result.trimmed > 0, 'Should have trimmed some bullets');
+  });
+
+  it('preserves repo-specific sections over generic ones during trimming', () => {
+    // Make a document that's over budget with content in both generic and specific sections
+    const edits: AgentsEdit[] = [];
+    // Add long bullets to generic sections (priority 2 — shed first)
+    for (let i = 0; i < 20; i++) {
+      edits.push({
+        section: 'Procedural Standards',
+        action: 'add',
+        content: `Generic procedural rule ${i} that is fairly long and takes up space in the document.`,
+      });
+    }
+    // Add a bullet to a specific section (priority 0 — keep)
+    edits.push({
+      section: 'High-Impact Hubs',
+      action: 'add',
+      content: 'Critical hub: src/core/auth.ts has 8 dependents.',
+    });
+
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits, 2500);
+    // The repo-specific content should be preserved while generic is shed
+    assert.ok(result.content.includes('Critical hub'), 'Should preserve repo-specific content');
+    assert.ok(result.content.length <= 2500);
+  });
+
+  it('handles strengthen action same as add', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Guardrails',
+      action: 'strengthen',
+      content: 'Never fabricate test output.',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.ok(result.content.includes('Never fabricate test output'));
+    assert.equal(result.applied, 1);
+  });
+
+  it('handles modify action same as add', () => {
+    const edits: AgentsEdit[] = [{
+      section: 'Guardrails',
+      action: 'modify',
+      content: 'Show actual command output, not summaries.',
+    }];
+    const result = applyEdits(SAMPLE_AGENTS_MD, edits);
+    assert.ok(result.content.includes('Show actual command output'));
+    assert.equal(result.applied, 1);
   });
 });
 
-// ── Diagnose edge case ──────────────────────────────────────
-
-describe('diagnose', () => {
-  it('returns no edits when passed empty failures', async () => {
-    // Import the actual function (no LLM call for empty failures)
-    const { diagnose } = await import('../src/diagnosis');
-    const result = await diagnose([], '## Rules', null as any);
-    assert.equal(result.edits.length, 0);
-    assert.equal(result.summary, 'All probes passed.');
+describe('AGENTS_MD_CHAR_BUDGET', () => {
+  it('is 8000', () => {
+    assert.equal(AGENTS_MD_CHAR_BUDGET, 8000);
   });
 });

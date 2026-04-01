@@ -4,17 +4,13 @@
  */
 
 import { strict as assert } from 'node:assert';
-import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
-import { describe, it, afterEach } from 'mocha';
-import type { AnalysisModel, DependencyLink } from '@aspectcode/core';
+import { describe, it } from 'mocha';
+import type { DependencyLink } from '@aspectcode/core';
 import { buildArchitectureContent } from '../src/kb/architectureEmitter';
 import { buildMapContent } from '../src/kb/mapEmitter';
 import { buildContextContent } from '../src/kb/contextEmitter';
-import { createKBEmitter } from '../src/kb/kbEmitter';
 import { buildDepStats } from '../src/kb/depData';
-import { createNodeEmitterHost } from '../src/host';
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -79,40 +75,6 @@ describe('App', () => { it('starts', () => { new App().start(); }); });
   const depData = buildDepStats(files, allLinks);
 
   return { files, fileContentCache, allLinks, depData };
-}
-
-function makeModel(): AnalysisModel {
-  return {
-    schemaVersion: '0.1',
-    generatedAt: FIXED_TIMESTAMP,
-    repo: { root: WORKSPACE },
-    files: [
-      { relativePath: 'src/app.ts', language: 'typescript', lineCount: 50, exports: ['App'], imports: ['./utils', './db'] },
-      { relativePath: 'src/utils.ts', language: 'typescript', lineCount: 30, exports: ['format', 'validate'], imports: [] },
-      { relativePath: 'src/db.ts', language: 'typescript', lineCount: 20, exports: ['query'], imports: ['pg'] },
-      { relativePath: 'src/auth/login.ts', language: 'typescript', lineCount: 15, exports: ['login'], imports: ['./session'] },
-      { relativePath: 'src/auth/session.ts', language: 'typescript', lineCount: 10, exports: ['session'], imports: [] },
-      { relativePath: 'test/app.test.ts', language: 'typescript', lineCount: 8, exports: [], imports: ['../src/app'] },
-    ],
-    symbols: [],
-    graph: {
-      nodes: [
-        { id: 'src/app.ts', path: 'src/app.ts', language: 'typescript' },
-        { id: 'src/utils.ts', path: 'src/utils.ts', language: 'typescript' },
-        { id: 'src/db.ts', path: 'src/db.ts', language: 'typescript' },
-        { id: 'src/auth/login.ts', path: 'src/auth/login.ts', language: 'typescript' },
-        { id: 'src/auth/session.ts', path: 'src/auth/session.ts', language: 'typescript' },
-        { id: 'test/app.test.ts', path: 'test/app.test.ts', language: 'typescript' },
-      ],
-      edges: [
-        { source: 'src/app.ts', target: 'src/utils.ts', type: 'import', strength: 1, symbols: ['format'], lines: [1], bidirectional: false },
-        { source: 'src/app.ts', target: 'src/db.ts', type: 'import', strength: 1, symbols: ['query'], lines: [2], bidirectional: false },
-        { source: 'src/auth/login.ts', target: 'src/auth/session.ts', type: 'import', strength: 1, symbols: ['session'], lines: [1], bidirectional: false },
-        { source: 'test/app.test.ts', target: 'src/app.ts', type: 'import', strength: 1, symbols: ['App'], lines: [1], bidirectional: false },
-      ],
-    },
-    metrics: { hubs: [] },
-  };
 }
 
 // ── buildArchitectureContent ─────────────────────────────────
@@ -307,117 +269,6 @@ describe('buildContextContent', () => {
   });
 });
 
-// ── createKBEmitter (orchestrator) ───────────────────────────
-
-describe('createKBEmitter', () => {
-  let tmpDir: string;
-
-  afterEach(() => {
-    if (tmpDir) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('has name "aspect-kb"', () => {
-    const emitter = createKBEmitter();
-    assert.equal(emitter.name, 'aspect-kb');
-  });
-
-  it('writes a single kb.md file', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-kb-test-'));
-    const host = createNodeEmitterHost();
-    const model = makeModel();
-
-    // Pre-load file contents for the model
-    const fileContents = new Map<string, string>();
-    const testData = makeTestData();
-    for (const [absPath, content] of testData.fileContentCache) {
-      fileContents.set(absPath.replace(WORKSPACE, tmpDir), content);
-    }
-
-    // Adjust model to use tmpDir
-    const localModel: AnalysisModel = {
-      ...model,
-      repo: { root: tmpDir },
-      graph: {
-        ...model.graph,
-        edges: model.graph.edges.map((e) => ({
-          ...e,
-          source: e.source,
-          target: e.target,
-        })),
-      },
-    };
-
-    const emitter = createKBEmitter();
-    const result = await emitter.emit(localModel, host, {
-      workspaceRoot: tmpDir,
-      generatedAt: FIXED_TIMESTAMP,
-      fileContents,
-    });
-
-    assert.equal(result.filesWritten.length, 1, 'Should write 1 file');
-
-    // Verify kb.md exists on disk
-    const kbPath = path.join(tmpDir, 'kb.md');
-
-    assert.ok(fs.existsSync(kbPath), 'kb.md should exist');
-
-    // Verify content contains all sections
-    const kbContent = fs.readFileSync(kbPath, 'utf-8');
-
-    assert.ok(kbContent.includes('# Architecture'), 'Should contain Architecture section');
-    assert.ok(kbContent.includes('# Map'), 'Should contain Map section');
-    assert.ok(kbContent.includes('# Context'), 'Should contain Context section');
-  });
-
-  it('is deterministic across runs', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-kb-test-'));
-    const host = createNodeEmitterHost();
-    const model = makeModel();
-
-    const localModel: AnalysisModel = {
-      ...model,
-      repo: { root: tmpDir },
-    };
-
-    const emitter = createKBEmitter();
-    const opts = {
-      workspaceRoot: tmpDir,
-      generatedAt: FIXED_TIMESTAMP,
-      fileContents: new Map<string, string>(),
-    };
-
-    await emitter.emit(localModel, host, opts);
-    const kbContent1 = fs.readFileSync(path.join(tmpDir, 'kb.md'), 'utf-8');
-
-    // Run again
-    await emitter.emit(localModel, host, opts);
-    const kbContent2 = fs.readFileSync(path.join(tmpDir, 'kb.md'), 'utf-8');
-
-    assert.equal(kbContent1, kbContent2, 'kb.md should be deterministic');
-  });
-
-  it('creates kb.md at workspace root', async () => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aspect-kb-test-'));
-    const host = createNodeEmitterHost();
-    const model = makeModel();
-
-    const localModel: AnalysisModel = {
-      ...model,
-      repo: { root: tmpDir },
-    };
-
-    const emitter = createKBEmitter();
-    await emitter.emit(localModel, host, {
-      workspaceRoot: tmpDir,
-      generatedAt: FIXED_TIMESTAMP,
-      fileContents: new Map<string, string>(),
-    });
-
-    assert.ok(fs.existsSync(path.join(tmpDir, 'kb.md')), 'kb.md should exist');
-  });
-});
 
 // ── analyzeTestOrganization ──────────────────────────────────
 

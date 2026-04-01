@@ -13,6 +13,14 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Per-call overrides for temperature and max tokens. */
+export interface ChatOptions {
+  /** Sampling temperature override for this specific call. */
+  temperature?: number;
+  /** Max tokens override for this specific call. */
+  maxTokens?: number;
+}
+
 /** Token usage from a single LLM call. */
 export interface ChatUsage {
   inputTokens: number;
@@ -23,6 +31,8 @@ export interface ChatUsage {
 export interface ChatResult {
   content: string;
   usage?: ChatUsage;
+  /** Provider-specific metadata (e.g. tier usage from hosted proxy). */
+  meta?: Record<string, unknown>;
 }
 
 /**
@@ -43,6 +53,12 @@ export interface LlmProvider {
    * Optional — providers that don't implement this fall back to `chat()`.
    */
   chatWithUsage?(messages: ChatMessage[]): Promise<ChatResult>;
+
+  /**
+   * Send a chat completion request with per-call overrides (temperature, maxTokens).
+   * Optional — callers should fall back to `chat()` if not implemented.
+   */
+  chatWithOptions?(messages: ChatMessage[], options: ChatOptions): Promise<string>;
 }
 
 /** Options passed to provider factory functions. */

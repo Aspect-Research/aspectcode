@@ -1,9 +1,7 @@
 /**
  * @aspectcode/core — public API surface
  *
- * This package contains pure-logic code with ZERO dependency on the `vscode`
- * module. Everything here must be usable from a CLI, a test harness, or the
- * VS Code extension equally.
+ * Pure-logic code analysis engine with no external runtime dependencies.
  */
 
 // ── Re-exports: types ────────────────────────────────────────

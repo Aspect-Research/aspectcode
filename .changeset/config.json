@@ -1,11 +1,11 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@3.1.2/schema.json",
-  "changelog": ["@changesets/changelog-github", { "repo": "asashepard/aspectcode" }],
+  "changelog": ["@changesets/changelog-github", { "repo": "Aspect-Code-Labs/aspectcode" }],
   "commit": false,
   "fixed": [],
   "linked": [["@aspectcode/core", "@aspectcode/emitters", "@aspectcode/evaluator", "@aspectcode/optimizer", "aspectcode"]],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["aspectcode-vscode"]
+  "ignore": []
 }

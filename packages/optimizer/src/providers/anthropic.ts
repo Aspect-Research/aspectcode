@@ -9,7 +9,7 @@
  * - Proper system prompt handling (Anthropic uses a separate `system` field)
  */
 
-import type { ChatMessage, ChatResult, LlmProvider, ProviderOptions } from '../types';
+import type { ChatMessage, ChatOptions, ChatResult, LlmProvider, ProviderOptions } from '../types';
 import { withRetry } from './retry';
 
 const DEFAULT_MODEL = 'claude-3-5-haiku-20241022';
@@ -115,6 +115,55 @@ export function createAnthropicProvider(apiKey: string, options?: ProviderOption
             ? { inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens }
             : undefined,
         };
+      });
+    },
+
+    async chatWithOptions(messages: ChatMessage[], opts: ChatOptions): Promise<string> {
+      return withRetry(async () => {
+        const client = await getClient();
+        const callTemp = opts.temperature ?? temperature;
+        const callMaxTokens = opts.maxTokens ?? maxTokens;
+
+        let systemPrompt: string | undefined;
+        const anthropicMessages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+
+        for (const msg of messages) {
+          if (msg.role === 'system') {
+            systemPrompt = systemPrompt
+              ? `${systemPrompt}\n\n${msg.content}`
+              : msg.content;
+          } else {
+            anthropicMessages.push({ role: msg.role, content: msg.content });
+          }
+        }
+
+        if (anthropicMessages.length === 0) {
+          throw new Error('Anthropic requires at least one user message');
+        }
+
+        const requestParams: Record<string, unknown> = {
+          model: modelId,
+          messages: anthropicMessages,
+          temperature: callTemp,
+          max_tokens: callMaxTokens,
+        };
+        if (systemPrompt) {
+          requestParams.system = systemPrompt;
+        }
+
+        const response = await client.messages.create(requestParams);
+
+        const textBlocks = response.content?.filter(
+          (block: { type: string }) => block.type === 'text',
+        );
+        const content = textBlocks
+          ?.map((block: { text: string }) => block.text)
+          .join('');
+
+        if (!content) {
+          throw new Error('Anthropic returned an empty response');
+        }
+        return content;
       });
     },
   };

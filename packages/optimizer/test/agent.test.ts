@@ -7,28 +7,7 @@
 import * as assert from 'node:assert/strict';
 import type { LlmProvider, ChatMessage, OptimizeOptions } from '../src/types';
 import { runGenerateAgent } from '../src/agent';
-
-/** Create a fake provider that returns canned responses in order. */
-function fakeProvider(responses: string[]): LlmProvider {
-  let callIndex = 0;
-  return {
-    name: 'fake',
-    async chat(_messages: ChatMessage[]): Promise<string> {
-      if (callIndex >= responses.length) {
-        throw new Error(`Unexpected call #${callIndex + 1} (only ${responses.length} responses provided)`);
-      }
-      return responses[callIndex++];
-    },
-  };
-}
-
-/** Quiet logger that swallows all output. */
-const quietLog = {
-  info(_msg: string) { /* noop */ },
-  warn(_msg: string) { /* noop */ },
-  error(_msg: string) { /* noop */ },
-  debug(_msg: string) { /* noop */ },
-};
+import { fakeProvider, quietLog } from './helpers';
 
 function makeOptions(overrides: Partial<OptimizeOptions> & { provider: LlmProvider }): OptimizeOptions {
   return {

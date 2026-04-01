@@ -36,7 +36,6 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'verbose',          short: 'v', type: 'boolean', description: 'Show debug output' },
   { name: 'quiet',            short: 'q', type: 'boolean', description: 'Suppress non-error output' },
   { name: 'root',             short: 'r', type: 'string',  description: 'Workspace root (default: cwd)' },
-  { name: 'kb',                           type: 'boolean', description: 'Also write kb.md to disk' },
   { name: 'dry-run',                      type: 'boolean', description: 'Print output without writing', prop: 'dryRun' },
   { name: 'once',                         type: 'boolean', description: 'Run once then exit (no watch)' },
   { name: 'no-color',                     type: 'boolean', description: 'Disable colored output', prop: 'noColor' },
@@ -44,6 +43,7 @@ export const FLAG_DEFS: readonly FlagDef[] = [
   { name: 'model',            short: 'm', type: 'string',  description: 'LLM model override' },
   { name: 'temperature',                  type: 'string',  description: 'Sampling temperature (0–2)' },
   { name: 'compact',                       type: 'boolean', description: 'Compact dashboard (no banner)' },
+  { name: 'background',                   type: 'boolean', description: 'Run headless (no dashboard UI)' },
 ] as const;
 
 // ── Parsed structures ────────────────────────────────────────
@@ -55,7 +55,6 @@ export interface CliFlags {
   verbose: boolean;
   quiet: boolean;
   root?: string;
-  kb: boolean;
   dryRun: boolean;
   once: boolean;
   noColor: boolean;
@@ -63,6 +62,7 @@ export interface CliFlags {
   model?: string;
   temperature?: number;
   compact: boolean;
+  background: boolean;
 }
 
 /** Exit codes. */
@@ -100,6 +100,8 @@ export interface RunContext {
   ownership: 'full' | 'section';
   /** Whether to run LLM generation (false = KB-custom only). */
   generate: boolean;
+  /** Active platforms resolved before dashboard mount. */
+  platforms: string[];
 }
 
 // ── Flag-def helpers ─────────────────────────────────────────

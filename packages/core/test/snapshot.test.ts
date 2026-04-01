@@ -79,7 +79,7 @@ function toComparableSnapshot(model: AnalysisModel) {
 
 const FIXTURE_DIR = path.resolve(
   __dirname,
-  '../../../extension/test/fixtures/mini-repo',
+  'fixtures/mini-repo',
 );
 const EXPECTED_PATH = path.resolve(__dirname, 'fixtures/mini-repo-expected.json');
 const UPDATE_FLAG = process.argv.includes('--update');

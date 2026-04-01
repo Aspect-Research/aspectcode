@@ -1,6 +1,5 @@
 /**
- * In-memory KB builder — constructs the knowledge base content string
- * without writing to disk (unless --kb flag is used).
+ * In-memory KB builder — constructs the knowledge base content string.
  *
  * Combines architecture + map + context emitter outputs into a single
  * KB string that can be fed to the optimizer.

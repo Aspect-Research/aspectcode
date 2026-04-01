@@ -55,28 +55,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Sync extension version to CLI
-        if: steps.changesets.outputs.published == 'true'
-        run: |
-          CLI_VERSION=$(echo '${{ steps.changesets.outputs.publishedPackages }}' | jq -r '.[] | select(.name == "aspectcode") | .version')
-          if [ -n "$CLI_VERSION" ]; then
-            cd extension
-            node -e "
-              const fs = require('fs');
-              const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-              pkg.version = '$CLI_VERSION';
-              fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-            "
-            echo "Extension version synced to $CLI_VERSION"
-          fi
-
-      - name: Build VSIX
-        if: steps.changesets.outputs.published == 'true'
-        run: |
-          npm run build --workspace=extension
-          cd extension && npx @vscode/vsce package --no-dependencies
-
-      - name: Create GitHub Release with VSIX
+      - name: Create GitHub Release
         if: steps.changesets.outputs.published == 'true'
         run: |
           CLI_VERSION=$(echo '${{ steps.changesets.outputs.publishedPackages }}' | jq -r '.[] | select(.name == "aspectcode") | .version')
@@ -85,8 +64,7 @@ jobs:
             gh release create "$TAG" \
               --title "aspectcode v${CLI_VERSION}" \
               --generate-notes \
-              --target "${{ github.sha }}" \
-              extension/*.vsix
+              --target "${{ github.sha }}"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

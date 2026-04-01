@@ -1,12 +1,10 @@
 /**
- * File writer — writes AGENTS.md and optionally kb.md.
+ * File writer — writes AGENTS.md.
  *
  * Supports two ownership modes:
  * - 'full'    — overwrites the entire file (default)
  * - 'section' — wraps content in HTML comment markers and preserves
  *               the rest of the file.
- *
- * kb.md is optional (--kb flag) and always full-ownership.
  */
 
 import type { EmitterHost } from '@aspectcode/emitters';
@@ -67,16 +65,4 @@ export async function writeAgentsMd(
   } else {
     await host.writeFile(filePath, content);
   }
-}
-
-/**
- * Write kb.md to the workspace root (optional, --kb flag).
- */
-export async function writeKbMd(
-  host: EmitterHost,
-  workspaceRoot: string,
-  kbContent: string,
-): Promise<void> {
-  const filePath = host.join(workspaceRoot, 'kb.md');
-  await host.writeFile(filePath, kbContent);
 }

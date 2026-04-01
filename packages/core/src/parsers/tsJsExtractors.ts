@@ -38,7 +38,10 @@ export function extractTSJSImports(lang: Parser.Language, code: string): string[
     if (n.type === 'call_expression') {
       const callee = n.child(0);
       if (callee && callee.type === 'identifier' && textFor(code, callee) === 'require') {
-        const arg = n.namedChildren.find(
+        // The string argument is inside the `arguments` node, not a direct child
+        const argsNode = n.namedChildren.find((ch) => ch.type === 'arguments');
+        const searchIn = argsNode ? argsNode.namedChildren : n.namedChildren;
+        const arg = searchIn.find(
           (ch) => ch.type === 'string' || ch.type === 'string_literal',
         );
         if (arg) {

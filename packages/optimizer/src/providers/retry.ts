@@ -32,7 +32,7 @@ export interface RetryOptions {
  * - HTTP 400 (bad request)
  * - Other client errors
  */
-function isTransientError(err: unknown): boolean {
+export function isTransientError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
 
   const msg = err.message.toLowerCase();

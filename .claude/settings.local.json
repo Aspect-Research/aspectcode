@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(git add:*)",
+      "Bash(npm test:*)",
+      "Bash(node:*)",
+      "Bash(npm ls:*)",
+      "Bash(git commit:*)",
+      "Bash(npx mocha:*)",
+      "Read(//c/code/fightclub/**)",
+      "Read(//c/code/fightclub/.claude/**)",
+      "Read(//c/code/fightclub/.aspectcode/**)",
+      "Read(//c/Users/asash/.claude/**)",
+      "Read(//c/Users/asash/.claude/projects/**)",
+      "WebSearch",
+      "Bash(while read:*)",
+      "Bash(do echo:*)",
+      "Read(//c/code/aspectcode/**)",
+      "Bash(done)",
+      "Bash(npx tree-sitter:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

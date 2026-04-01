@@ -1,7 +1,6 @@
 {
   "private": true,
   "workspaces": [
-    "extension",
     "packages/*"
   ],
   "scripts": {
@@ -9,8 +8,7 @@
     "changeset:version": "changeset version && npm install --package-lock-only",
     "changeset:publish": "changeset publish",
     "changeset:status": "changeset status",
-    "check:parsers": "node scripts/check-parser-parity.mjs",
-    "test:checklist": "powershell -ExecutionPolicy Bypass -File ./scripts/test-aspectcode.ps1",
+"test:checklist": "powershell -ExecutionPolicy Bypass -File ./scripts/test-aspectcode.ps1",
     "test:checklist:fast": "powershell -ExecutionPolicy Bypass -File ./scripts/test-aspectcode.ps1 -SkipInstall -SkipBuild",
     "test:cli": "powershell -ExecutionPolicy Bypass -File ./scripts/test-cli-sandbox.ps1",
     "test:cli:fast": "powershell -ExecutionPolicy Bypass -File ./scripts/test-cli-sandbox.ps1 -SkipBuild",

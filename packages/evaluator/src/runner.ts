@@ -2,225 +2,73 @@
  * Probe runner — simulates AI responses to probes using AGENTS.md as context.
  *
  * For each probe, constructs a chat where:
- * - System prompt = current AGENTS.md + relevant file contents
+ * - System prompt = current AGENTS.md
  * - User prompt = the probe's task
- * Then sends it to the LLM and collects the response.
+ * Then sends it to the LLM (temperature 0.0) and returns the raw response.
+ *
+ * Judging/evaluation is handled separately by the judge module.
  */
 
-import type { LlmProvider, ChatMessage, OptLogger } from '@aspectcode/optimizer';
-import type { Probe, ProbeResult, BehaviorResult } from './types';
-
-/** Maximum file content characters to include per probe. */
-const MAX_CONTEXT_CHARS = 20_000;
+import type { ChatMessage } from '@aspectcode/optimizer';
+import type {
+  Probe,
+  SimulationResult,
+  LlmProvider,
+  OptLogger,
+  ProbeProgressCallback,
+} from './types';
+import { chatWithTemp } from './llmUtil';
 
 /**
- * Build the system prompt for a probe run.
- * Includes the AGENTS.md instructions and relevant file contents.
+ * Run a single probe simulation.
+ * Returns the raw AI response without evaluation.
  */
-function buildProbeSystemPrompt(
-  agentsContent: string,
-  probe: Probe,
-  fileContents?: ReadonlyMap<string, string>,
-): string {
-  let prompt = `You are an AI coding assistant. Follow these project instructions:\n\n${agentsContent}`;
-
-  if (fileContents && probe.contextFiles.length > 0) {
-    let contextChars = 0;
-    const fileSections: string[] = [];
-
-    for (const filePath of probe.contextFiles) {
-      const content = fileContents.get(filePath);
-      if (!content) continue;
-      if (contextChars + content.length > MAX_CONTEXT_CHARS) break;
-      fileSections.push(`### ${filePath}\n\`\`\`\n${content}\n\`\`\``);
-      contextChars += content.length;
-    }
-
-    if (fileSections.length > 0) {
-      prompt += `\n\n## Relevant Files\n\n${fileSections.join('\n\n')}`;
-    }
-  }
-
-  return prompt;
-}
-
-/**
- * Build the evaluation prompt that scores a probe response
- * against expected behaviours.
- */
-function buildBehaviorEvalPrompt(
-  probe: Probe,
-  response: string,
-): string {
-  const behaviors = probe.expectedBehaviors
-    .map((b, i) => `${i + 1}. ${b}`)
-    .join('\n');
-
-  return `You are evaluating an AI coding assistant's response to a specific task.
-
-## Task Given
-${probe.task}
-
-## Expected Behaviours
-The response should exhibit ALL of these behaviours:
-${behaviors}
-
-## AI Response
-${response}
-
-## Instructions
-For EACH expected behaviour, determine if the response exhibits it.
-Respond in EXACTLY this format (one line per behaviour):
-
-BEHAVIOR_1: PASS|FAIL — <brief explanation>
-BEHAVIOR_2: PASS|FAIL — <brief explanation>
-...
-
-Then a final line:
-OVERALL: PASS|FAIL`;
-}
-
-/** Parse the structured behaviour evaluation response. */
-function parseBehaviorEval(
-  response: string,
-  expectedBehaviors: string[],
-): { results: BehaviorResult[]; allPassed: boolean } {
-  const results: BehaviorResult[] = [];
-  const lines = response.split('\n');
-
-  for (let i = 0; i < expectedBehaviors.length; i++) {
-    const pattern = new RegExp(`BEHAVIOR_${i + 1}:\\s*(PASS|FAIL)\\s*[—-]\\s*(.*)`, 'i');
-    const match = lines.find((l) => pattern.test(l));
-    const parsed = match ? pattern.exec(match) : null;
-
-    results.push({
-      behavior: expectedBehaviors[i],
-      passed: parsed ? parsed[1].toUpperCase() === 'PASS' : false,
-      explanation: parsed ? parsed[2].trim() : 'Could not parse evaluation result',
-    });
-  }
-
-  const allPassed = results.every((r) => r.passed);
-  return { results, allPassed };
-}
-
-/**
- * Run a single probe: simulate the AI response, then evaluate it.
- */
-async function runSingleProbe(
+async function simulateProbe(
   probe: Probe,
   agentsContent: string,
   provider: LlmProvider,
-  fileContents?: ReadonlyMap<string, string>,
   log?: OptLogger,
   signal?: AbortSignal,
-): Promise<ProbeResult> {
+): Promise<SimulationResult> {
   if (signal?.aborted) {
-    return {
-      probeId: probe.id,
-      passed: false,
-      response: '',
-      shortcomings: ['Cancelled'],
-      behaviorResults: [],
-    };
+    return { probeId: probe.id, task: probe.task, response: '' };
   }
 
-  // Step 1: Simulate the AI response using AGENTS.md as context
-  log?.debug(`Running probe: ${probe.id}`);
+  log?.debug(`Simulating probe: ${probe.id}`);
 
-  const systemPrompt = buildProbeSystemPrompt(agentsContent, probe, fileContents);
-  const simMessages: ChatMessage[] = [
+  const systemPrompt = `You are an AI coding assistant. Follow these project instructions:\n\n${agentsContent}`;
+  const messages: ChatMessage[] = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: probe.task },
   ];
 
   let response: string;
   try {
-    response = await provider.chat(simMessages);
+    response = await chatWithTemp(provider, messages, 0.0, signal);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log?.warn(`Probe ${probe.id} simulation failed: ${msg}`);
-    return {
-      probeId: probe.id,
-      passed: false,
-      response: '',
-      shortcomings: [`LLM error during simulation: ${msg}`],
-      behaviorResults: [],
-    };
+    return { probeId: probe.id, task: probe.task, response: '' };
   }
 
-  if (signal?.aborted) {
-    return {
-      probeId: probe.id,
-      passed: false,
-      response,
-      shortcomings: ['Cancelled during evaluation'],
-      behaviorResults: [],
-    };
-  }
-
-  // Step 2: Evaluate the response against expected behaviours
-  log?.debug(`Evaluating probe: ${probe.id}`);
-
-  const evalPrompt = buildBehaviorEvalPrompt(probe, response);
-  const evalMessages: ChatMessage[] = [
-    { role: 'user', content: evalPrompt },
-  ];
-
-  let evalResponse: string;
-  try {
-    evalResponse = await provider.chat(evalMessages);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    log?.warn(`Probe ${probe.id} evaluation failed: ${msg}`);
-    return {
-      probeId: probe.id,
-      passed: false,
-      response,
-      shortcomings: [`LLM error during evaluation: ${msg}`],
-      behaviorResults: [],
-    };
-  }
-
-  const { results: behaviorResults, allPassed } = parseBehaviorEval(
-    evalResponse,
-    probe.expectedBehaviors,
-  );
-
-  const shortcomings = behaviorResults
-    .filter((r) => !r.passed)
-    .map((r) => `${r.behavior}: ${r.explanation}`);
-
-  return {
-    probeId: probe.id,
-    passed: allPassed,
-    response,
-    shortcomings,
-    behaviorResults,
-  };
-}
-
-/** Callback invoked before/after each probe for live progress updates. */
-export interface ProbeProgressCallback {
-  (info: { probeIndex: number; total: number; probeId: string; phase: 'starting' | 'done'; passed?: boolean }): void;
+  return { probeId: probe.id, task: probe.task, response };
 }
 
 /**
  * Run all probes against the current AGENTS.md.
  *
  * Each probe is run sequentially (to respect rate limits).
- * Returns results for all probes.
+ * Returns simulation results (raw responses, no evaluation).
  */
 export async function runProbes(
   agentsContent: string,
   probes: Probe[],
   provider: LlmProvider,
-  fileContents?: ReadonlyMap<string, string>,
   log?: OptLogger,
   signal?: AbortSignal,
   onProbeProgress?: ProbeProgressCallback,
-): Promise<ProbeResult[]> {
-  const results: ProbeResult[] = [];
+): Promise<SimulationResult[]> {
+  const results: SimulationResult[] = [];
 
   for (let idx = 0; idx < probes.length; idx++) {
     const probe = probes[idx];
@@ -228,22 +76,13 @@ export async function runProbes(
 
     onProbeProgress?.({ probeIndex: idx, total: probes.length, probeId: probe.id, phase: 'starting' });
 
-    const result = await runSingleProbe(
-      probe,
-      agentsContent,
-      provider,
-      fileContents,
-      log,
-      signal,
-    );
+    const result = await simulateProbe(probe, agentsContent, provider, log, signal);
     results.push(result);
 
-    onProbeProgress?.({ probeIndex: idx, total: probes.length, probeId: probe.id, phase: 'done', passed: result.passed });
-    log?.info(`  ${result.passed ? '✔' : '✖'} ${probe.id}`);
+    const hasResponse = result.response.length > 0;
+    onProbeProgress?.({ probeIndex: idx, total: probes.length, probeId: probe.id, phase: 'done', passed: hasResponse });
+    log?.info(`  ${hasResponse ? '✔' : '✖'} ${probe.id}`);
   }
 
   return results;
 }
-
-// Exported for testing
-export { buildProbeSystemPrompt, buildBehaviorEvalPrompt, parseBehaviorEval };

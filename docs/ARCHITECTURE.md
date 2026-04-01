@@ -1,6 +1,6 @@
 # Architecture
 
-> Extension-specific layering rules, file size limits, and conventions.
+> Package layering rules, file size limits, and conventions.
 > For the full system architecture (all packages), see
 > [SYSTEM-ARCHITECTURE.md](SYSTEM-ARCHITECTURE.md).
 
@@ -9,28 +9,13 @@
 Aspect Code is a multi-package TypeScript monorepo. Pure analysis and
 generation logic lives in `packages/core` and `packages/emitters`. The
 optimizer (`packages/optimizer`) handles LLM-based AGENTS.md improvement.
-The CLI (`packages/cli`) orchestrates the full pipeline. The VS Code
-extension (`extension/`) is an ultra-thin launcher that spawns the CLI
-as a subprocess.
-
-The extension contains a single source file:
-
-```
-extension/src/
-└── extension.ts    — VS Code activate/deactivate, CLI subprocess management
-```
-
-It resolvesCLI binary location, spawns `aspectcode` as a long-running
-child process (watch mode), and exposes Start/Stop commands in the
-Command Palette.
+The evaluator (`packages/evaluator`) runs probe-based quality assessment.
+The CLI (`packages/cli`) orchestrates the full pipeline.
 
 ## Current Architecture (multi-package)
 
 ```
 ┌──────────────────────────────────────────────────┐
-│  extension/  (VS Code thin launcher)             │
-│  Start/Stop commands, status bar, CLI subprocess  │──▶ aspectcode (subprocess)
-├──────────────────────────────────────────────────┤
 │  packages/cli/  (aspectcode)                     │
 │  Single command: analyze → emit → optimize →     │──▶ @aspectcode/core
 │  watch. No subcommands.                          │──▶ @aspectcode/emitters
@@ -70,12 +55,11 @@ These rules are checked by `npm run check:boundaries`:
 
 ### Cross-package Rules (enforced structurally)
 
-- `packages/core/` has no `vscode` dependency — cannot import it.
-- `packages/emitters/` depends only on `core` — no `vscode`.
-- `packages/optimizer/` depends on `core` + `emitters` — no `vscode`.
-- `packages/evaluator/` depends on `core` + `optimizer` — no `vscode`.
-- `packages/cli/` depends on `core` + `emitters` + `evaluator` + `optimizer` — no `vscode`.
-- `extension/` spawns the CLI as a subprocess. No direct package imports.
+- `packages/core/` — no external runtime deps beyond tree-sitter.
+- `packages/emitters/` depends only on `core`.
+- `packages/optimizer/` has LLM SDKs (openai, anthropic).
+- `packages/evaluator/` depends on `core` + `optimizer`.
+- `packages/cli/` depends on all four.
 
 ## Naming Conventions
 
@@ -100,12 +84,11 @@ Enforced by `npm run check:filesize`:
 
 | You're adding… | Put it in… |
 |----------------|-----------|
-| Pure analysis logic (no vscode) | `packages/core/src/` |
+| Pure analysis logic | `packages/core/src/` |
 | Artifact generation / content builders | `packages/emitters/src/` |
 | LLM optimization logic | `packages/optimizer/src/` |
 | Evidence-based evaluation (probes, diagnosis) | `packages/evaluator/src/` |
 | CLI pipeline changes | `packages/cli/src/` |
-| Extension lifecycle / commands | `extension/src/extension.ts` |
 | Shared TypeScript types | `packages/core/src/` |
 
 ## Testing
@@ -122,15 +105,9 @@ All tests run offline. No network access required.
 
 Run all: `npm test --workspaces`
 
-### Fixture repo
-
-`extension/test/fixtures/mini-repo/` contains a small, deterministic
-project (4 TS files + 1 Python file) used for snapshot testing. Do not
-modify it casually — changes will require updating the expected snapshot.
-
 ### Snapshot tests
 
-`packages/core/test/snapshot.test.ts` runs `analyzeRepo()` against the
+`packages/core/test/snapshot.test.ts` runs `analyzeRepo()` against a
 fixture repo and compares the JSON output to a committed snapshot at
 `packages/core/test/fixtures/mini-repo-expected.json`.
 
@@ -144,6 +121,5 @@ fixture repo and compares the JSON output to a committed snapshot at
 2. Create a branch from `main`.
 3. Write the implementation. Keep each new file under 400 lines.
 4. Add or update tests.
-5. Run `npm run check:all` locally (in `extension/`) — fix any failures.
-6. Open a PR. CI will run lint, typecheck, format, size, and boundary checks.
-7. Get a review and merge.
+5. Open a PR. CI will run lint, typecheck, format, and boundary checks.
+6. Get a review and merge.

@@ -8,7 +8,7 @@
  * - Truncation detection (warns when finish_reason is 'length')
  */
 
-import type { ChatMessage, ChatResult, LlmProvider, ProviderOptions } from '../types';
+import type { ChatMessage, ChatOptions, ChatResult, LlmProvider, ProviderOptions } from '../types';
 import { withRetry } from './retry';
 
 const DEFAULT_MODEL = 'gpt-4o-mini';
@@ -79,6 +79,31 @@ export function createOpenAiProvider(apiKey: string, options?: ProviderOptions):
             ? { inputTokens: response.usage.prompt_tokens, outputTokens: response.usage.completion_tokens }
             : undefined,
         };
+      });
+    },
+
+    async chatWithOptions(messages: ChatMessage[], opts: ChatOptions): Promise<string> {
+      return withRetry(async () => {
+        const client = await getClient();
+        const callTemp = opts.temperature ?? temperature;
+        const callMaxTokens = opts.maxTokens ?? maxTokens;
+
+        const response = await client.chat.completions.create({
+          model: modelId,
+          messages: messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          temperature: callTemp,
+          max_tokens: callMaxTokens,
+        });
+
+        const choice = response.choices[0];
+        const content = choice?.message?.content;
+        if (!content) {
+          throw new Error('OpenAI returned an empty response');
+        }
+        return content;
       });
     },
   };

@@ -1,8 +1,7 @@
 /**
  * @aspectcode/emitters — public API surface.
  *
- * Artifact emitters that consume an AnalysisModel and write KB files,
- * instruction files, and manifests. No vscode dependency.
+ * KB content builders, AI platform formats, and host abstraction.
  */
 
 // ── Host ─────────────────────────────────────────────────────
@@ -10,110 +9,11 @@
 export type { EmitterHost } from './host';
 export { createNodeEmitterHost } from './host';
 
-// ── Emitter interface ────────────────────────────────────────
-
-export type {
-  Emitter,
-  EmitResult,
-  EmitOptions,
-  InstructionsMode,
-} from './emitter';
-
-export type { EmitReport } from './report';
-
-// ── Manifest ─────────────────────────────────────────────────
-
-export type { Manifest, ManifestStats } from './manifest';
-export { buildManifest } from './manifest';
-
 // ── KB helpers ───────────────────────────────────────────────
 
 export * from './kb';
 
-// ── Instructions ────────────────────────────────────────────
-
-export {
-  generateCanonicalContentForMode,
-  generateCanonicalContentSafe,
-  generateCanonicalContentPermissive,
-  generateKbCustomContent,
-} from './instructions/content';
-
-export { createInstructionsEmitter } from './instructions/instructionsEmitter';
+// ── Formats ─────────────────────────────────────────────────
 
 export type { AiToolId } from './instructions/formats';
 export { AI_TOOL_DETECTION_PATHS } from './instructions/formats';
-
-// ── runEmitters ──────────────────────────────────────────────
-
-import type { AnalysisModel } from '@aspectcode/core';
-import { computeModelStats } from '@aspectcode/core';
-import type { EmitterHost } from './host';
-import type { EmitOptions } from './emitter';
-import type { EmitReport } from './report';
-import { GenerationTransaction } from './transaction';
-
-/**
- * Run all built-in emitters in sequence.
- * Returns the combined list of files written.
- */
-export async function runEmitters(
-  model: AnalysisModel,
-  host: EmitterHost,
-  options: EmitOptions,
-): Promise<EmitReport> {
-  const _generatedAt =
-    options.generatedAt ?? new Date().toISOString();
-  const outDir = options.outDir ?? options.workspaceRoot;
-  const opts: EmitOptions = { ...options, generatedAt: _generatedAt, outDir };
-
-  const wrote: Array<{ path: string; bytes: number }> = [];
-  const skipped: Array<{ id: string; reason: string }> = [];
-
-  // ── KB generation (opt-in) ────────────────────────────
-  if (opts.generateKb) {
-    const tx = new GenerationTransaction(host);
-    const txHost = tx.host;
-
-    const { createKBEmitter } = await import('./kb/kbEmitter');
-    const kb = createKBEmitter();
-    await kb.emit(model, txHost, opts);
-
-    await tx.commit();
-    wrote.push(...tx.getWrites().map((w) => ({ path: w.finalPath, bytes: w.bytes })));
-  } else {
-    skipped.push({ id: 'kb', reason: 'KB generation not enabled (use --kb)' });
-  }
-
-  // ── Instructions (AGENTS.md — full file ownership) ─────────
-  if (opts.instructionsMode !== 'off') {
-    const { createInstructionsEmitter } = await import('./instructions/instructionsEmitter');
-    const instructions = createInstructionsEmitter();
-
-    const recordingHost: EmitterHost = {
-      ...host,
-      writeFile: async (filePath: string, content: string) => {
-        const bytes = Buffer.byteLength(content, 'utf8');
-        await host.writeFile(filePath, content);
-        wrote.push({ path: filePath, bytes });
-      },
-    };
-
-    await instructions.emit(model, recordingHost, opts);
-  } else {
-    skipped.push({ id: 'instructions', reason: 'Instructions mode is off' });
-  }
-
-  const stats = computeModelStats(model, 10);
-
-  return {
-    schemaVersion: model.schemaVersion,
-    wrote,
-    skipped: skipped.length > 0 ? skipped : undefined,
-    stats: {
-      files: stats.fileCount,
-      edges: stats.edgeCount,
-      hubsTop: stats.topHubs,
-    },
-  };
-}

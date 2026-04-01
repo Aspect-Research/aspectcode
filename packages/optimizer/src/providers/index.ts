@@ -73,9 +73,10 @@ const PROVIDER_FACTORIES: Record<
  * Resolve an LlmProvider from environment variables.
  *
  * Resolution order:
- * 1. If `LLM_PROVIDER` is set, use that provider (error if key missing).
- * 2. Otherwise try providers in order: openai → anthropic.
- * 3. If no key is found, throw with setup instructions.
+ * 1. ASPECTCODE_LLM_KEY — explicit opt-in to use a personal API key
+ * 2. LLM_PROVIDER explicitly set + matching standard API key
+ * 3. Logged in → hosted proxy (default for authenticated users)
+ * 4. Legacy fallback: standard env var names (only if NOT logged in)
  *
  * @param env - Merged environment (from .env + process.env)
  * @param providerOptions - Optional model/temperature/maxTokens overrides
@@ -84,13 +85,24 @@ export function resolveProvider(
   env: Record<string, string>,
   providerOptions?: ProviderOptions,
 ): LlmProvider {
-  const forcedProvider = env[LLM_PROVIDER_ENV] as ProviderName | undefined;
   const model = providerOptions?.model ?? env['LLM_MODEL'];
   const opts: ProviderOptions = {
     ...providerOptions,
     model,
   };
 
+  // 1. Explicit opt-in: ASPECTCODE_LLM_KEY
+  const explicitKey = env['ASPECTCODE_LLM_KEY'];
+  if (explicitKey) {
+    const forcedProvider = env[LLM_PROVIDER_ENV] as ProviderName | undefined;
+    // Auto-detect provider from key format if not explicitly set
+    const provider = forcedProvider
+      ?? (explicitKey.startsWith('sk-ant-') ? 'anthropic' : 'openai');
+    return PROVIDER_FACTORIES[provider](explicitKey, opts);
+  }
+
+  // 2. LLM_PROVIDER explicitly set with matching standard key
+  const forcedProvider = env[LLM_PROVIDER_ENV] as ProviderName | undefined;
   if (forcedProvider) {
     const envKey = PROVIDER_ENV_KEYS[forcedProvider];
     if (!envKey) {
@@ -102,13 +114,20 @@ export function resolveProvider(
     if (!apiKey) {
       throw new Error(
         `LLM_PROVIDER is set to "${forcedProvider}" but ${envKey} is not defined.\n` +
-        `Add ${envKey}=sk-... to your .env file.`,
+        `Add ${envKey}=sk-... or ASPECTCODE_LLM_KEY=sk-... to your .env file.`,
       );
     }
     return PROVIDER_FACTORIES[forcedProvider](apiKey, opts);
   }
 
-  // Auto-detect: try each provider in order
+  // 3. Logged in → hosted proxy (preferred for authenticated users)
+  const cliToken = env['ASPECTCODE_CLI_TOKEN'];
+  if (cliToken) {
+    const { createAspectCodeProvider } = require('./aspectcode');
+    return createAspectCodeProvider(cliToken, opts) as LlmProvider;
+  }
+
+  // 4. Legacy fallback: standard env var names (only if NOT logged in)
   const providerOrder: ProviderName[] = ['openai', 'anthropic'];
   for (const name of providerOrder) {
     const envKey = PROVIDER_ENV_KEYS[name];
@@ -119,9 +138,6 @@ export function resolveProvider(
   }
 
   throw new Error(
-    'No LLM API key found. To use `aspectcode optimize`, add one of:\n' +
-    '  OPENAI_API_KEY=sk-...\n' +
-    '  ANTHROPIC_API_KEY=sk-ant-...\n' +
-    'to a .env file in your workspace root.',
+    'No LLM available. Log in with `aspectcode login` or set ASPECTCODE_LLM_KEY in your .env file.',
   );
 }

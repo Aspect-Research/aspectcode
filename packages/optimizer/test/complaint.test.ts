@@ -3,30 +3,10 @@
  */
 
 import * as assert from 'node:assert/strict';
-import type { LlmProvider, ChatMessage } from '../src/types';
+import type { LlmProvider } from '../src/types';
 import { runComplaintAgent } from '../src/agent';
 import { buildComplaintPrompt, parseComplaintResponse } from '../src/prompts';
-
-/** Create a fake provider that returns canned responses in order. */
-function fakeProvider(responses: string[]): LlmProvider {
-  let callIndex = 0;
-  return {
-    name: 'fake',
-    async chat(_messages: ChatMessage[]): Promise<string> {
-      if (callIndex >= responses.length) {
-        throw new Error(`Unexpected call #${callIndex + 1}`);
-      }
-      return responses[callIndex++];
-    },
-  };
-}
-
-const quietLog = {
-  info(_msg: string) { /* noop */ },
-  warn(_msg: string) { /* noop */ },
-  error(_msg: string) { /* noop */ },
-  debug(_msg: string) { /* noop */ },
-};
+import { fakeProvider, quietLog } from './helpers';
 
 describe('buildComplaintPrompt', () => {
   it('includes all complaints numbered', () => {
