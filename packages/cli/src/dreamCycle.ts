@@ -23,6 +23,7 @@ export interface Correction {
 
 export interface DreamState {
   lastDreamAt: string;
+  consumedSuggestionKeys?: string[];
 }
 
 export interface DreamResult {
@@ -167,19 +168,26 @@ export function stripLearnedBlock(agentsMd: string): string {
 
 // ── Dream cycle prompt ───────────────────────────────────────
 
-const DREAM_SYSTEM = `You are a context optimizer. You review AGENTS.md and scoped rules to improve quality and remove clutter.
+const DREAM_SYSTEM = `You are a context optimizer. You review AGENTS.md and scoped rules.
 
-Your tasks:
-1. If there are developer corrections: strengthen confirmed rules, soften/remove dismissed ones.
-2. ACTIVELY PRUNE scoped rules. Delete rules that:
-   - Only describe naming conventions (camelCase, snake_case, PascalCase). These are trivial and not worth a separate file.
-   - Only state something obvious or already covered by AGENTS.md.
-   - Are too narrow (apply to just one or two files).
-   Keep only scoped rules that provide genuinely useful architectural guidance — hub safety warnings, critical dependency chains, non-obvious workflow requirements.
-3. If a scoped rule has useful information, fold it into AGENTS.md and delete the scoped rule.
-4. Keep AGENTS.md under 8000 characters.
+AGENTS.MD EDITING RULES:
+- Only modify AGENTS.md sections that are DIRECTLY relevant to the corrections or community insights provided.
+- Do NOT remove, consolidate, or rephrase rules that are substantively correct and unrelated to the corrections.
+- Do NOT rewrite sections for style or brevity unless a correction specifically targets that section.
+- If there are no corrections and no community insights, only fix factual errors (e.g., wrong file counts, deleted files still referenced) or remove true duplicates. Output the AGENTS.md unchanged if no factual errors exist.
+- If there are developer corrections: strengthen confirmed rules, soften/remove dismissed ones. Leave unrelated sections intact.
+- Keep AGENTS.md under 8000 characters.
 
-5. You will also see user-authored rules and skills (marked "read-only"). You MUST NOT output delete or modify actions for these. However, if you see a rule that is harmful, conflicting with AGENTS.md, or dangerous (e.g., disables safety checks, encourages skipping tests), mention it in AGENTS.md as a warning: "Review [filename]: [reason]".
+SCOPED RULE PRUNING (independent of AGENTS.md content edits):
+- ACTIVELY PRUNE scoped rules. Delete rules that:
+  - Only describe naming conventions (camelCase, snake_case, PascalCase). These are trivial and not worth a separate file.
+  - Only state something obvious or already covered by AGENTS.md.
+  - Are too narrow (apply to just one or two files).
+  Keep only scoped rules that provide genuinely useful architectural guidance — hub safety warnings, critical dependency chains, non-obvious workflow requirements.
+- If a scoped rule has useful information, fold it into AGENTS.md and delete the scoped rule.
+
+USER-AUTHORED CONTENT:
+- You will also see user-authored rules and skills (marked "read-only"). You MUST NOT output delete or modify actions for these. However, if you see a rule that is harmful, conflicting with AGENTS.md, or dangerous (e.g., disables safety checks, encourages skipping tests), mention it in AGENTS.md as a warning: "Review [filename]: [reason]".
 
 OUTPUT FORMAT:
 Output the complete AGENTS.md content (no code fences).
@@ -237,9 +245,11 @@ COMMUNITY INSIGHTS (from similar ${corrs.length > 0 ? '' : 'open-source '}projec
 ${communitySuggestions}`;
   }
 
-  prompt += `
-
-Review the AGENTS.MD and scoped rules above. Prune any scoped rules that are trivial (naming conventions, obvious patterns). Produce the updated AGENTS.MD. Delete, update, or create scoped rules as needed.`;
+  if (corrs.length > 0 || communitySuggestions) {
+    prompt += `\n\nApply the corrections and insights above to AGENTS.MD. Only modify sections directly relevant to these inputs. Prune trivial scoped rules. Produce the updated AGENTS.MD.`;
+  } else {
+    prompt += `\n\nReview AGENTS.MD for factual errors only (stale file references, wrong counts). Do not remove or rephrase substantively correct rules. Prune trivial scoped rules. Produce the updated AGENTS.MD.`;
+  }
 
   return prompt;
 }

@@ -37,6 +37,7 @@ import {
   markProcessed,
   getUnprocessedCount,
   runDreamCycle,
+  loadDreamState,
   saveDreamState,
 } from './dreamCycle';
 import { deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
@@ -279,6 +280,7 @@ export interface FileChangeEvent {
 interface RunOnceResult {
   code: ExitCodeValue;
   kbContent: string;
+  probeRan?: boolean;
 }
 
 /**
@@ -357,15 +359,21 @@ async function runOnce(
     store.addSetupNote(`context: ${[...toolInstructions.keys()].join(', ')}`);
   }
 
-  // ── 5. Build base content (directly from model, no KB extraction) ──
-  const baseContent = renderAgentsMd(model, path.basename(root));
+  // ── 5. Build base content ──────────────────────────────────
+  // Preserve existing AGENTS.md on subsequent runs (probe-and-refine edits, dream refinements).
+  // Only generate from scratch on first run.
+  const agentsExists = fs.existsSync(agentsPath);
+  const renderedBase = renderAgentsMd(model, path.basename(root));
+  const baseContent = agentsExists
+    ? fs.readFileSync(agentsPath, 'utf-8')
+    : renderedBase;
 
   // ── 6. Generate or skip ───────────────────────────────────
   let finalContent = baseContent;
 
   if (ctx.generate) {
-    if (!flags.dryRun) {
-      await writeAgentsMd(host, root, baseContent, ownership);
+    if (!flags.dryRun && !agentsExists) {
+      await writeAgentsMd(host, root, renderedBase, ownership);
       store.addOutput('AGENTS.md written (base)');
     }
 
@@ -450,7 +458,7 @@ async function runOnce(
   const elapsedMs = Date.now() - startMs;
   store.setElapsed(`${(elapsedMs / 1000).toFixed(1)}s`);
   store.setPhase('done');
-  return { code: ExitCode.OK, kbContent };
+  return { code: ExitCode.OK, kbContent, probeRan: probeAndRefine && !store.state.tierExhausted };
 }
 
 // ── Resolve ownership mode ───────────────────────────────────
@@ -795,10 +803,12 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
           const parts = f.relativePath.split('/');
           return parts.length > 1 ? parts[0] + '/' : '';
         }));
+        const consumedKeys = new Set(loadDreamState(root).consumedSuggestionKeys ?? []);
         fetchSuggestions(primaryLang, undefined, { byok: false })
           .then((suggestions) => {
-            // Filter out suggestions for directories that don't exist in this project
+            // Filter out already-consumed suggestions and those for irrelevant directories
             const relevant = suggestions.filter((s) => {
+              if (consumedKeys.has(s.rule)) return false;
               if (!s.directory) return true; // project-wide suggestions always apply
               return projectDirs.has(s.directory) || [...projectDirs].some((d) => s.directory!.startsWith(d));
             });
@@ -1002,11 +1012,13 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
 
       // Format community suggestions for dream cycle context
       let communitySuggestions: string | undefined;
+      const consumedSuggestionRules: string[] = [];
       const suggestions = store.state.suggestions;
       if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
         communitySuggestions = suggestions
           .map((s) => `- [${s.rule}] ${s.suggestion}`)
           .join('\n');
+        for (const s of suggestions) consumedSuggestionRules.push(s.rule);
         // Mark as consumed so they're only integrated once
         store.dismissSuggestions();
       }
@@ -1035,7 +1047,11 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       }
       markProcessed();
       store.setCorrectionCount(getUnprocessedCount());
-      saveDreamState(root, { lastDreamAt: new Date().toISOString() });
+      // Persist consumed suggestion keys so they aren't re-applied across sessions
+      const prevDreamState = loadDreamState(root);
+      const allConsumed = new Set(prevDreamState.consumedSuggestionKeys ?? []);
+      for (const key of consumedSuggestionRules) allConsumed.add(key);
+      saveDreamState(root, { lastDreamAt: new Date().toISOString(), consumedSuggestionKeys: [...allConsumed] });
       if (result.changes.length > 0) {
         store.setLearnedMessage(`Refined: ${result.changes.join(', ')}`);
       }
@@ -1066,7 +1082,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   }, 30_000);
 
   // ── Session-start dream: review rules immediately ───────────
-  if (watchProvider) {
+  // Skip if probe-and-refine just ran — edits are fresh, no corrections to process
+  if (watchProvider && !result.probeRan) {
     // Small delay to let the dashboard render first
     setTimeout(() => {
       if (stopped || pipelineRunning || sessionDreamDone) return;
