@@ -1,6 +1,6 @@
 {
   "name": "aspectcode",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "CLI for Aspect Code — generate knowledge-base artifacts from the command line",
   "license": "MIT",
   "main": "dist/main.js",

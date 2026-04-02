@@ -1,5 +1,11 @@
 # aspectcode
 
+## 1.0.2
+
+### Patch Changes
+
+- [#39](https://github.com/Aspect-Code-Labs/aspectcode/pull/39) [`f4cd798`](https://github.com/Aspect-Code-Labs/aspectcode/commit/f4cd79850a140d183028d9f7349195f1a2044ae6) Thanks [@asashepard](https://github.com/asashepard)! - Fix dream cycle reverting probe-and-refine edits: preserve existing AGENTS.md on subsequent runs, skip session-start dream after probe-and-refine, persist suggestion dismissal across sessions, constrain dream prompt to only modify sections justified by corrections.
+
 ## 1.0.1
 
 ### Patch Changes
