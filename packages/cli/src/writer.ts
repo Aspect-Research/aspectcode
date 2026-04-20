@@ -1,5 +1,5 @@
 /**
- * File writer — writes AGENTS.md.
+ * File writer — writes AGENTS.md, CLAUDE.md directive, and Claude Code hooks.
  *
  * Supports two ownership modes:
  * - 'full'    — overwrites the entire file (default)
@@ -7,6 +7,8 @@
  *               the rest of the file.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { EmitterHost } from '@aspectcode/emitters';
 
 /** Markers used to delimit the AspectCode-owned section. */
@@ -65,4 +67,79 @@ export async function writeAgentsMd(
   } else {
     await host.writeFile(filePath, content);
   }
+}
+
+const CLAUDE_MD_DIRECTIVE = 'IMPORTANT: You MUST read AGENTS.md in this repository before every task. It contains critical project architecture, conventions, and dependency guidance that directly affects code quality.';
+
+/**
+ * Write a directive into CLAUDE.md telling Claude Code to read AGENTS.md.
+ * Uses section markers to preserve user content.
+ */
+export async function writeClaudeMdDirective(
+  host: EmitterHost,
+  workspaceRoot: string,
+): Promise<void> {
+  const filePath = host.join(workspaceRoot, 'CLAUDE.md');
+
+  let existing = '';
+  try {
+    existing = await host.readFile(filePath);
+  } catch {
+    // File doesn't exist yet
+  }
+
+  await host.writeFile(filePath, applySectionContent(existing, CLAUDE_MD_DIRECTIVE));
+}
+
+/**
+ * Install a Claude Code SessionStart hook that auto-launches aspectcode --background.
+ * Uses the resolved binary path so the hook always invokes the same version that
+ * created the lockfile — preventing double-starts even across version mismatches.
+ * Merges into existing .claude/settings.local.json without clobbering user config.
+ */
+export function installClaudeCodeHook(workspaceRoot: string): void {
+  const settingsDir = path.join(workspaceRoot, '.claude');
+  const settingsPath = path.join(settingsDir, 'settings.local.json');
+
+  let settings: Record<string, any> = {};
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch { /* malformed — start fresh */ }
+
+  const binPath = path.resolve(__dirname, '..', 'bin', 'aspectcode.js');
+  const nodeExe = process.execPath;
+  const hookCommand = `"${nodeExe}" "${binPath}" --background`;
+
+  // Remove any existing aspectcode hooks (may have stale paths)
+  const sessionStartHooks: any[] = settings.hooks?.SessionStart ?? [];
+  const filtered = sessionStartHooks.filter((entry: any) =>
+    !entry.hooks?.some((h: any) => h.command?.includes('aspectcode')),
+  );
+
+  // Check if exact command is already there
+  const alreadyInstalled = sessionStartHooks.some((entry: any) =>
+    entry.hooks?.some((h: any) => h.command === hookCommand),
+  );
+  if (alreadyInstalled) return;
+
+  // Add the hook with resolved path
+  filtered.push({
+    matcher: '',
+    hooks: [
+      {
+        type: 'command',
+        command: hookCommand,
+        timeout: 10,
+      },
+    ],
+  });
+
+  if (!settings.hooks) settings.hooks = {};
+  settings.hooks.SessionStart = filtered;
+
+  // Write back
+  if (!fs.existsSync(settingsDir)) fs.mkdirSync(settingsDir, { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n');
 }

@@ -128,6 +128,41 @@ function parseFloatFlag(value: unknown, min: number, max: number): number | unde
   return Number.isFinite(n) && n >= min && n <= max ? n : undefined;
 }
 
+// ── Lockfile — prevents double-start ────────────────────────
+
+const LOCK_FILE = '.aspectcode/aspectcode.lock';
+
+function getLockPath(root: string): string {
+  return path.join(root, LOCK_FILE);
+}
+
+function isAlreadyRunning(root: string): boolean {
+  const lockPath = getLockPath(root);
+  try {
+    if (!fs.existsSync(lockPath)) return false;
+    const pid = parseInt(fs.readFileSync(lockPath, 'utf-8').trim(), 10);
+    if (isNaN(pid)) return false;
+    // Check if process is still alive
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    // Process not running or lock stale — clean up
+    try { fs.unlinkSync(lockPath); } catch { /* ignore */ }
+    return false;
+  }
+}
+
+function acquireLock(root: string): void {
+  const lockPath = getLockPath(root);
+  const dir = path.dirname(lockPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(lockPath, String(process.pid));
+}
+
+function releaseLock(root: string): void {
+  try { fs.unlinkSync(getLockPath(root)); } catch { /* ignore */ }
+}
+
 // ── Background: spawn in a new terminal ──────────────────────
 
 /** Spawn aspectcode in a new terminal window. Returns true if successful. */
@@ -140,18 +175,13 @@ function spawnInTerminal(): boolean {
     let child;
 
     if (process.platform === 'win32') {
-      // Write a temp .bat file to avoid quoting hell with spaces in paths.
-      // cmd /k + start can't reliably handle "C:\Program Files\..." nesting.
       const batPath = path.join(os.tmpdir(), `aspectcode-bg-${Date.now()}.bat`);
       const argsStr = forwardedArgs.length > 0 ? ' ' + forwardedArgs.join(' ') : '';
       fs.writeFileSync(batPath, `@echo off\r\n"${nodeExe}" "${binPath}"${argsStr}\r\n`);
-
       child = spawn('cmd.exe', ['/c', 'start', 'cmd.exe', '/k', batPath], {
         detached: true,
         stdio: 'ignore',
       });
-
-      // Clean up bat file after a delay (the new terminal has already read it)
       setTimeout(() => { try { fs.unlinkSync(batPath); } catch { /* ignore */ } }, 5000);
 
     } else if (process.platform === 'darwin') {
@@ -164,7 +194,6 @@ function spawnInTerminal(): boolean {
       });
 
     } else {
-      // Linux: try gnome-terminal, fall back to xterm
       try {
         child = spawn('gnome-terminal', ['--', nodeExe, binPath, ...forwardedArgs], {
           detached: true,
@@ -179,13 +208,17 @@ function spawnInTerminal(): boolean {
     }
 
     child.unref();
-    console.log('◆ aspect code running in background');
-    process.exitCode = ExitCode.OK;
     return true;
   } catch {
-    console.log('◆ could not open terminal window — running headless');
     return false;
   }
+}
+
+/** Get the full command to invoke this binary (for hooks). */
+export function getInvokeCommand(): string {
+  const binPath = path.resolve(__dirname, '..', 'bin', 'aspectcode.js');
+  const nodeExe = process.execPath;
+  return `"${nodeExe}" "${binPath}"`;
 }
 
 // ── Main ─────────────────────────────────────────────────────
@@ -221,9 +254,17 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Background mode: spawn in a new terminal window and exit immediately
+  // Background mode: spawn in terminal and exit, or run headless if spawn fails
   if (flags.background) {
-    if (spawnInTerminal()) return;
+    const bgRoot = path.resolve(flags.root ?? process.cwd());
+    if (isAlreadyRunning(bgRoot)) {
+      process.exitCode = ExitCode.OK;
+      return;
+    }
+    if (spawnInTerminal()) {
+      process.exitCode = ExitCode.OK;
+      return;
+    }
     // Spawn failed — fall through to run headless in this process
     flags.background = false;
   }
@@ -250,18 +291,8 @@ async function main(): Promise<void> {
   // Check for updates (non-blocking — runs sync but fast, 5s timeout)
   try {
     const { checkForUpdate } = await import('./updateChecker');
-    const updateResult = checkForUpdate();
-    if (updateResult) {
-      if (updateResult.updated) {
-        // Re-exec with the new version
-        console.log(`✓ ${updateResult.message} — restarting...`);
-        const { execSync } = await import('child_process');
-        execSync(`aspectcode ${process.argv.slice(2).join(' ')}`, { stdio: 'inherit' });
-        return;
-      }
-      // Store message for dashboard display
-      (globalThis as any).__updateMessage = updateResult.message;
-    }
+    const msg = checkForUpdate();
+    if (msg) (globalThis as any).__updateMessage = msg;
   } catch { /* update check is best-effort */ }
 
   if (flags.noColor) {
@@ -320,9 +351,19 @@ async function main(): Promise<void> {
     spin = (msg: string) => createSpinner(msg, { quiet: flags.quiet });
   }
 
+  // Acquire lock so other instances know we're running
+  if (isAlreadyRunning(root)) {
+    log.info('aspectcode is already running in this workspace.');
+    process.exitCode = ExitCode.OK;
+    if (unmount) unmount();
+    return;
+  }
+  acquireLock(root);
+
   try {
     process.exitCode = await runPipeline({ root, flags, log, spin, ownership, generate, platforms: activePlatforms });
   } finally {
+    releaseLock(root);
     if (unmount) unmount();
   }
 }

@@ -1,15 +1,11 @@
 /**
- * Auto-update checker — checks npm for newer version on startup.
- * If a newer version exists, updates in-place via `npm install -g`.
+ * Update checker — checks npm for newer version on startup.
+ * Returns a passive notification string for the dashboard header.
  */
 
 import { execSync } from 'child_process';
 import { getVersion } from './version';
 
-/**
- * Compare two semver strings. Returns:
- *  1 if a > b, -1 if a < b, 0 if equal.
- */
 function compareSemver(a: string, b: string): number {
   const pa = a.split('.').map(Number);
   const pb = b.split('.').map(Number);
@@ -20,10 +16,6 @@ function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-/**
- * Fetch the latest version from npm registry.
- * Returns null if the check fails (offline, timeout, etc.).
- */
 function fetchLatestVersion(): string | null {
   try {
     const raw = execSync('npm view aspectcode version', {
@@ -38,25 +30,15 @@ function fetchLatestVersion(): string | null {
 }
 
 /**
- * Check for updates and auto-install if available.
- * Returns a status message for the dashboard, or null if up-to-date.
+ * Check for a newer version on npm.
+ * Returns a notification message, or null if up-to-date/offline.
  */
-export function checkForUpdate(): { updated: boolean; message: string } | null {
+export function checkForUpdate(): string | null {
   const current = getVersion();
   const latest = fetchLatestVersion();
 
-  if (!latest) return null; // offline or check failed
-  if (compareSemver(latest, current) <= 0) return null; // up to date
+  if (!latest) return null;
+  if (compareSemver(latest, current) <= 0) return null;
 
-  // Newer version available — update in place
-  try {
-    execSync(`npm install -g aspectcode@${latest}`, {
-      encoding: 'utf-8',
-      timeout: 30000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
-    return { updated: true, message: `Updated to v${latest}` };
-  } catch {
-    return { updated: false, message: `v${latest} available — run: npm i -g aspectcode` };
-  }
+  return `v${latest} available — run: npm i -g aspectcode`;
 }

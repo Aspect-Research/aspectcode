@@ -273,69 +273,21 @@ describe('stripLearnedBlock', () => {
 // ── Response parsing ─────────────────────────────────────────
 
 describe('parseDreamResponse', () => {
-  it('parses response with only AGENTS.md content', () => {
+  it('parses plain AGENTS.md content', () => {
     const result = parseDreamResponse('## Rules\n- Rule 1\n');
-    assert.equal(result.agentsMd, '## Rules\n- Rule 1\n');
-    assert.deepEqual(result.scopedRules, []);
+    assert.equal(result, '## Rules\n- Rule 1\n');
   });
 
-  it('parses response with AGENTS.md and scoped rules', () => {
-    const response = [
-      '## Rules',
-      '- Broad rule',
-      '',
-      '---SCOPED_RULES---',
-      '[{"slug":"hub-src-core","description":"Hub safety","globs":["src/core/**"],"content":"- Check dependents"}]',
-    ].join('\n');
-    const result = parseDreamResponse(response);
-    assert.ok(result.agentsMd.includes('Broad rule'));
-    assert.ok(!result.agentsMd.includes('SCOPED_RULES'));
-    assert.equal(result.scopedRules.length, 1);
-    assert.equal(result.scopedRules[0].slug, 'hub-src-core');
-    assert.deepEqual(result.scopedRules[0].globs, ['src/core/**']);
-    assert.equal(result.scopedRules[0].source, 'dream');
-  });
-
-  it('strips code fences from AGENTS.md part', () => {
+  it('strips code fences', () => {
     const response = '```markdown\n## Rules\n- Rule 1\n```';
     const result = parseDreamResponse(response);
-    assert.ok(!result.agentsMd.includes('```'));
-    assert.ok(result.agentsMd.includes('Rule 1'));
+    assert.ok(!result.includes('```'));
+    assert.ok(result.includes('Rule 1'));
   });
 
-  it('handles malformed scoped rules JSON gracefully', () => {
-    const response = '## Rules\n---SCOPED_RULES---\n{not valid json}';
-    const result = parseDreamResponse(response);
-    assert.ok(result.agentsMd.includes('Rules'));
-    assert.deepEqual(result.scopedRules, []);
-  });
-
-  it('filters scoped rules with missing required fields', () => {
-    const response = [
-      '## Rules',
-      '---SCOPED_RULES---',
-      '[{"slug":"good","description":"d","globs":["**"],"content":"c"},{"slug":"bad"}]',
-    ].join('\n');
-    const result = parseDreamResponse(response);
-    assert.equal(result.scopedRules.length, 1);
-    assert.equal(result.scopedRules[0].slug, 'good');
-  });
-
-  it('handles code-fenced JSON in scoped rules section', () => {
-    const response = [
-      '## Rules',
-      '---SCOPED_RULES---',
-      '```json',
-      '[{"slug":"x","description":"d","globs":["a/**"],"content":"c"}]',
-      '```',
-    ].join('\n');
-    const result = parseDreamResponse(response);
-    assert.equal(result.scopedRules.length, 1);
-  });
-
-  it('ensures AGENTS.md ends with newline', () => {
+  it('ensures content ends with newline', () => {
     const result = parseDreamResponse('## Rules');
-    assert.ok(result.agentsMd.endsWith('\n'));
+    assert.ok(result.endsWith('\n'));
   });
 });
 
@@ -359,7 +311,6 @@ describe('runDreamCycle', () => {
     });
     assert.equal(result.updatedAgentsMd, '## Rules\n- Rule 1\n');
     assert.deepEqual(result.changes, []);
-    assert.deepEqual(result.scopedRules, []);
   });
 
   it('calls LLM and returns updated content', async () => {
@@ -419,27 +370,7 @@ describe('runDreamCycle', () => {
     assert.ok(result.changes.includes('1 dismissed'));
   });
 
-  it('returns scoped rules when LLM includes them', async () => {
-    const response = [
-      '## Rules\n- Updated rule',
-      '---SCOPED_RULES---',
-      '[{"slug":"hub-src","description":"Hub safety","globs":["src/**"],"content":"- Check deps"}]',
-    ].join('\n');
-    const provider = { name: 'fake', async chat() { return response; } };
-    const result = await runDreamCycle({
-      currentAgentsMd: '## Rules\n',
-      corrections: [
-        { timestamp: Date.now(), action: 'confirm', assessment: makeAssessment() },
-      ],
-      provider,
-      log: quietLog,
-    });
-    assert.equal(result.scopedRules.length, 1);
-    assert.equal(result.scopedRules[0].slug, 'hub-src');
-    assert.ok(result.changes.some((c) => c.includes('scoped')));
-  });
-
-  it('returns empty scopedRules when LLM omits them', async () => {
+  it('returns content without scoped rule delimiters', async () => {
     const provider = { name: 'fake', async chat() { return '## Rules\n- Just broad\n'; } };
     const result = await runDreamCycle({
       currentAgentsMd: '## Rules\n',
@@ -449,7 +380,7 @@ describe('runDreamCycle', () => {
       provider,
       log: quietLog,
     });
-    assert.deepEqual(result.scopedRules, []);
+    assert.ok(result.updatedAgentsMd.includes('Just broad'));
   });
 
   it('includes assessment details in LLM prompt', async () => {
