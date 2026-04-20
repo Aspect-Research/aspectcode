@@ -1,5 +1,16 @@
 # aspectcode
 
+## 1.0.3
+
+### Patch Changes
+
+- [#41](https://github.com/Aspect-Research/aspectcode/pull/41) [`5ad4b95`](https://github.com/Aspect-Research/aspectcode/commit/5ad4b954e1def323e9f87e1aeb1cb738b98f1353) Thanks [@asashepard](https://github.com/asashepard)! - Passive update notification (no auto-install), write CLAUDE.md directive for Claude Code, install SessionStart hook for auto-launch with lockfile guard, stop writing scoped rules to disk, simplify dream cycle to AGENTS.md-only output, exclude .wrangler/ from analysis.
+
+- Updated dependencies [[`5ad4b95`](https://github.com/Aspect-Research/aspectcode/commit/5ad4b954e1def323e9f87e1aeb1cb738b98f1353)]:
+  - @aspectcode/core@1.0.3
+  - @aspectcode/emitters@1.0.3
+  - @aspectcode/evaluator@1.0.3
+
 ## 1.0.2
 
 ### Patch Changes
