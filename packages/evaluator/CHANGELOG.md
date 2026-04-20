@@ -1,5 +1,12 @@
 # @aspectcode/evaluator
 
+## 1.0.3
+
+### Patch Changes
+
+- Updated dependencies [[`5ad4b95`](https://github.com/Aspect-Research/aspectcode/commit/5ad4b954e1def323e9f87e1aeb1cb738b98f1353)]:
+  - @aspectcode/core@1.0.3
+
 ## 1.0.1
 
 ### Patch Changes
