@@ -36,6 +36,7 @@ export const BUILD_OUTPUT_DIRS: readonly string[] = [
   '.parcel-cache',
   '.webpack',
   '.rollup.cache',
+  '.wrangler',
 ];
 
 export const VENV_DIRS: readonly string[] = [

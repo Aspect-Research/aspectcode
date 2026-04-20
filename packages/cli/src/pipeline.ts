@@ -19,7 +19,7 @@ import { fmt } from './logger';
 import { loadWorkspaceFiles } from './workspace';
 import { buildKbContent } from './kbBuilder';
 import { readToolInstructions } from './toolIngestion';
-import { writeAgentsMd, hasMarkers } from './writer';
+import { writeAgentsMd, writeClaudeMdDirective, installClaudeCodeHook, hasMarkers } from './writer';
 import type { OwnershipMode } from './writer';
 import { tryOptimize } from './optimize';
 import { selectPrompt } from './ui/prompts';
@@ -40,7 +40,6 @@ import {
   loadDreamState,
   saveDreamState,
 } from './dreamCycle';
-import { deleteScopedRules, writeRulesForPlatforms } from './scopedRules';
 import { autoResolveBatch, matchExistingPreference } from './autoResolve';
 import { renderAgentsMd } from './agentsMdRenderer';
 import { withUsageTracking } from './usageTracker';
@@ -60,7 +59,7 @@ const IGNORED_SEGMENTS = [
   '/node_modules/', '/.git/', '/dist/', '/build/', '/target/',
   '/coverage/', '/.next/', '/__pycache__/', '/.venv/', '/venv/',
   '/.pytest_cache/', '/.mypy_cache/', '/.tox/', '/htmlcov/',
-  '/.aspectcode/',
+  '/.aspectcode/', '/.wrangler/',
 ];
 
 export function isIgnoredPath(filePath: string): boolean {
@@ -96,7 +95,7 @@ function buildManagedFiles(
   if (platforms.includes('claude')) {
     const claudeMdAbs = path.join(root, 'CLAUDE.md');
     if (fs.existsSync(claudeMdAbs)) {
-      files.push({ path: 'CLAUDE.md', annotation: '○ user', updatedAt: fileMtime(claudeMdAbs), category: 'workspace-config', scope: 'workspace', owner: 'user' });
+      files.push({ path: 'CLAUDE.md', annotation: '● managed', updatedAt: fileMtime(claudeMdAbs), category: 'workspace-config', scope: 'workspace', owner: 'aspectcode' });
     }
   }
   if (platforms.includes('cursor')) {
@@ -388,7 +387,7 @@ async function runOnce(
     } catch (err: any) {
       if (err?.tierExhausted) {
         store.setTierExhausted();
-        optimizeResult = { content: baseContent, reasoning: [], scopedRules: [], deleteSlugs: [] };
+        optimizeResult = { content: baseContent, reasoning: [] };
       } else {
         throw err;
       }
@@ -417,6 +416,12 @@ async function runOnce(
         store.setDiffSummary(diffSummary(previousContent, finalContent));
       }
       store.setSummary(summarizeContent(finalContent));
+
+      if (activePlatforms.includes('claude') && !flags.dryRun) {
+        await writeClaudeMdDirective(host, root);
+        installClaudeCodeHook(root);
+        store.addOutput('CLAUDE.md updated');
+      }
     }
   } else {
     store.setPhase('writing');
@@ -428,9 +433,13 @@ async function runOnce(
       await writeAgentsMd(host, root, baseContent, ownership);
       store.addOutput('AGENTS.md written (KB-custom)');
       store.setSummary(summarizeContent(baseContent));
+
+      if (activePlatforms.includes('claude')) {
+        await writeClaudeMdDirective(host, root);
+        installClaudeCodeHook(root);
+        store.addOutput('CLAUDE.md updated');
+      }
     }
-    // No LLM available — use static extraction for scoped rules
-    // No static rules in non-LLM path — dream cycle handles rules
   }
 
   // ── 7. Persist runtime state ───────────────────────────────
@@ -482,8 +491,8 @@ export async function resolveRunMode(root: string): Promise<RunMode> {
   try {
     const hasExisting = existingContent !== null;
     const options = hasExisting
-      ? ['Full control (replace entire file)', 'Section control (preserve your content)', 'Preview current AGENTS.md']
-      : ['Full control (replace entire file)', 'Section control (preserve your content)'];
+      ? ['Full control — recommended (replace entire file)', 'Section control (preserve your content)', 'Preview current AGENTS.md']
+      : ['Full control — recommended (replace entire file)', 'Section control (preserve your content)'];
 
     // eslint-disable-next-line no-constant-condition
     while (true) {
@@ -621,13 +630,15 @@ export async function resolvePlatforms(root: string): Promise<string[]> {
 
   try {
     const { multiSelectPrompt } = await import('./ui/prompts');
+    const claudeIdx = ALL_PLATFORMS.findIndex((p) => p.id === 'claude');
+    const defaultSelected = preselected.length > 0 ? preselected : [claudeIdx];
     const labels = ALL_PLATFORMS.map((p) => {
       const det = detected.includes(p.id) ? ' (detected)' : '';
       return `${p.label}${det}`;
     });
-    const indices = await multiSelectPrompt('Which editors do you use?', labels, preselected);
+    const indices = await multiSelectPrompt('Which coding agents do you use?', labels, defaultSelected);
     const selected = indices.map((i) => ALL_PLATFORMS[i].id);
-    const platforms = selected.length > 0 ? selected : ['claude']; // default to Claude Code
+    const platforms = selected.length > 0 ? selected : ['claude'];
     saveConfig(root, { platforms });
     return platforms;
   } catch {
@@ -1035,16 +1046,6 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       const host = createNodeEmitterHost();
       await writeAgentsMd(host, root, result.updatedAgentsMd, ownership);
       updateRuntimeState({ agentsContent: result.updatedAgentsMd });
-      // Write any scoped rules from the dream cycle
-      if ((result.scopedRules.length > 0 || result.deleteSlugs.length > 0) && activePlatforms.length > 0) {
-        // Delete rules the dream cycle marked for removal
-        if (result.deleteSlugs.length > 0) {
-          await deleteScopedRules(host, root, result.deleteSlugs);
-        }
-        if (result.scopedRules.length > 0) {
-          await writeRulesForPlatforms(host, root, result.scopedRules, activePlatforms);
-        }
-      }
       markProcessed();
       store.setCorrectionCount(getUnprocessedCount());
       // Persist consumed suggestion keys so they aren't re-applied across sessions

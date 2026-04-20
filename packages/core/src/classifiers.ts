@@ -19,14 +19,14 @@ const THIRD_PARTY_PATTERNS = [
   '/.venv/', '/venv/', '/env/', '/.tox/', '/site-packages/',
   '/node_modules/', '/__pycache__/', '/.pytest_cache/', '/.mypy_cache/',
   '/dist/', '/build/', '/.next/', '/.turbo/', '/coverage/',
-  '/.cache/', '/dist-packages/', '/.git/', '/.hg/',
+  '/.cache/', '/dist-packages/', '/.git/', '/.hg/', '/.wrangler/',
 ];
 
 const THIRD_PARTY_PREFIXES = [
   '.venv/', 'venv/', 'env/', '.tox/', 'site-packages/',
   'node_modules/', '__pycache__/', '.pytest_cache/', '.mypy_cache/',
   'dist/', 'build/', '.next/', '.turbo/', 'coverage/',
-  '.cache/', 'dist-packages/', '.git/', '.hg/',
+  '.cache/', 'dist-packages/', '.git/', '.hg/', '.wrangler/',
 ];
 
 // ── Public API ───────────────────────────────────────────────

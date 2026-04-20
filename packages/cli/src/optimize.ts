@@ -41,10 +41,6 @@ export interface OptimizeOutput {
   content: string;
   reasoning: string[];
   tokenUsage?: ChatUsage;
-  /** LLM-consolidated scoped rules (empty if no LLM available). */
-  scopedRules: ScopedRule[];
-  /** Slugs of scoped rules to delete. */
-  deleteSlugs: string[];
 }
 
 /**
@@ -119,7 +115,7 @@ export async function tryOptimize(
     store.addSetupNote('no LLM available — using static content');
     const errMsg = providerErr instanceof Error ? providerErr.message : String(providerErr);
     log.warn(`LLM failed: ${errMsg}`);
-    return { content: _baseContent, reasoning: [], scopedRules: [], deleteSlugs: [] };
+    return { content: _baseContent, reasoning: [] };
   }
 
   const providerLabel = model ? `${provider.name} (${model})` : provider.name;
@@ -589,5 +585,5 @@ export async function tryOptimize(
     } catch { /* best-effort — don't break the pipeline */ }
   }
 
-  return { content: finalContent, reasoning: [], scopedRules: finalRules, deleteSlugs: scopedRuleDeletes };
+  return { content: finalContent, reasoning: [] };
 }
