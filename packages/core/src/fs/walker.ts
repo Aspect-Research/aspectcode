@@ -39,7 +39,7 @@ export async function discoverFiles(
   const extSet = new Set(
     (options?.extensions ?? SUPPORTED_EXTENSIONS).map((e) => e.toLowerCase()),
   );
-  const maxFiles = options?.maxFiles ?? 0;
+  const maxFiles = options?.maxFiles ?? 10_000;
 
   const result: string[] = [];
 

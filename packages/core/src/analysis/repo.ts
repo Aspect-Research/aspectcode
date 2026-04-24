@@ -156,13 +156,11 @@ export function analyzeRepo(
  *
  * @param rootDir            Absolute path to the workspace root
  * @param relativeFiles      Map of relative-path → file content
- * @param absoluteFiles      Map of absolute-path → file content (for dependency analysis)
  * @param host               Optional CoreHost for file I/O and WASM paths
  */
 export async function analyzeRepoWithDependencies(
   rootDir: string,
   relativeFiles: Map<string, string>,
-  absoluteFiles: Map<string, string>,
   host?: CoreHost,
 ): Promise<AnalysisModel> {
   const resolvedHost = host ?? createNodeHostForWorkspace(rootDir);
@@ -180,8 +178,14 @@ export async function analyzeRepoWithDependencies(
 
   const model = analyzeRepo(rootDir, relativeFiles, grammars);
 
-  if (absoluteFiles.size === 0) {
+  if (relativeFiles.size === 0) {
     return model;
+  }
+
+  // Build absolute-keyed map for DependencyAnalyzer (avoids caller needing two maps)
+  const absoluteFiles = new Map<string, string>();
+  for (const [rel, content] of relativeFiles) {
+    absoluteFiles.set(path.join(rootDir, rel), content);
   }
 
   // Pre-seed adapters so DependencyAnalyzer skips redundant grammar loading
