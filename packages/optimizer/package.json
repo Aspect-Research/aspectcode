@@ -24,7 +24,7 @@
     "test": "mocha --require ts-node/register 'test/**/*.test.ts'"
   },
   "dependencies": {
-    "openai": "^4.70.0",
+    "openai": "^6.33.0",
     "@anthropic-ai/sdk": "^0.39.0",
     "dotenv": "^16.4.0"
   },
