@@ -51,7 +51,7 @@ export class DependencyAnalyzer {
    * Call this before analyzeDependencies if you already have the content.
    */
   setFileContentsCache(cache: Map<string, string>): void {
-    this.workspaceFiles = new Map(cache);
+    this.workspaceFiles = cache;
   }
 
   /**

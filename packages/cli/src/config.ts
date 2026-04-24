@@ -16,6 +16,9 @@ export interface AspectCodeConfig {
   /** Extra directories to exclude from analysis. */
   exclude?: string[];
 
+  /** LLM-generated exclusions (cached from first-run analysis). */
+  smartExclude?: string[];
+
   /** AGENTS.md ownership: 'full' overwrites the file, 'section' uses markers. */
   ownership?: 'full' | 'section';
 

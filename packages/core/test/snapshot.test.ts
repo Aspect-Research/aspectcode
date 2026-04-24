@@ -137,22 +137,15 @@ describe('analyzeRepo determinism', () => {
 });
 
 describe('analyzeRepoWithDependencies', () => {
-  it('adds dependency edges and hub metrics from absolute file map', async () => {
+  it('adds dependency edges and hub metrics from relative file map', async () => {
     const root = path.resolve('C:/tmp/aspect-core-test');
-    const absMain = path.join(root, 'src', 'main.ts');
-    const absUtil = path.join(root, 'src', 'util.ts');
 
     const relativeFiles = new Map<string, string>([
       ['src/main.ts', "import { format } from './util';\nexport const run = () => format('x');\n"],
       ['src/util.ts', "export function format(v: string){ return v.toUpperCase(); }\n"],
     ]);
 
-    const absoluteFiles = new Map<string, string>([
-      [absMain, relativeFiles.get('src/main.ts')!],
-      [absUtil, relativeFiles.get('src/util.ts')!],
-    ]);
-
-    const model = await analyzeRepoWithDependencies(root, relativeFiles, absoluteFiles);
+    const model = await analyzeRepoWithDependencies(root, relativeFiles);
 
     assert.ok(model.graph.edges.length > 0, 'expected dependency edges to be present');
     assert.ok(
