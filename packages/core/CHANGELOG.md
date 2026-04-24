@@ -1,5 +1,11 @@
 # @aspectcode/core
 
+## 1.0.4
+
+### Patch Changes
+
+- [#43](https://github.com/Aspect-Research/aspectcode/pull/43) [`e3c4d8b`](https://github.com/Aspect-Research/aspectcode/commit/e3c4d8b9bfe03a374891eae5757ab79dd834d141) Thanks [@asashepard](https://github.com/asashepard)! - Fix OOM on large repos: LLM-powered smart ignore on first run (>5K files), 10K file cap with warning, remove duplicate file content maps, detect foreign AGENTS.md.
+
 ## 1.0.3
 
 ### Patch Changes
