@@ -49,7 +49,7 @@
     "web-tree-sitter"
   ],
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
+    "@anthropic-ai/sdk": "^0.91.0",
     "@aspectcode/core": "1.0.4",
     "@aspectcode/emitters": "1.0.4",
     "@aspectcode/evaluator": "1.0.4",
@@ -58,7 +58,7 @@
     "ink": "3.2.0",
     "openai": "^4.70.0",
     "react": "17.0.2",
-    "web-tree-sitter": "^0.21.0"
+    "web-tree-sitter": "^0.26.8"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",

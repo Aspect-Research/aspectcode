@@ -26,7 +26,7 @@
     "test:snapshot": "mocha --require ts-node/register 'test/snapshot.test.ts'"
   },
   "dependencies": {
-    "web-tree-sitter": "^0.21.0"
+    "web-tree-sitter": "^0.26.8"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.0",
