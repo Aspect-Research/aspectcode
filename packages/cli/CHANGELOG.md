@@ -1,5 +1,15 @@
 # aspectcode
 
+## 1.0.5
+
+### Patch Changes
+
+- [#45](https://github.com/Aspect-Research/aspectcode/pull/45) [`aa4eb62`](https://github.com/Aspect-Research/aspectcode/commit/aa4eb6233303872f39120043fb44a1d6a2544107) Thanks [@asashepard](https://github.com/asashepard)! - Remove paid Pro tier and force BYOK on hosted exhaustion; community suggestions now run for all users regardless of tier; graceful handling of BYOK key exhaustion (OpenAI insufficient_quota, Anthropic credit balance, invalid keys) with dedicated dashboard prompt and skipped retries; BYOK usage display shows session counts only with no `remaining` messaging; smart-ignore propagates BYOK exhaustion to the dashboard at startup instead of silently swallowing it.
+
+- Updated dependencies [[`aa4eb62`](https://github.com/Aspect-Research/aspectcode/commit/aa4eb6233303872f39120043fb44a1d6a2544107)]:
+  - @aspectcode/optimizer@1.0.5
+  - @aspectcode/evaluator@1.0.5
+
 ## 1.0.4
 
 ### Patch Changes
