@@ -26,13 +26,12 @@ export function withUsageTracking(provider: LlmProvider): LlmProvider {
       calls: prev.calls + 1,
     });
 
-    // Update tier progress (for free/pro, server is authoritative but this gives instant feedback)
+    // Update tier progress (for hosted users, server is authoritative but this gives instant feedback)
     if (store.state.userTier !== 'byok') {
       // If server returned authoritative tier usage, use that
       if (meta?.tierUsage) {
-        const tu = meta.tierUsage as { tokensUsed: number; tokensCap: number; tier: string };
-        const tier = (tu.tier === 'PRO' ? 'pro' : 'free') as 'free' | 'pro';
-        store.setTierInfo(tier, tu.tokensUsed, tu.tokensCap);
+        const tu = meta.tierUsage as { tokensUsed: number; tokensCap: number };
+        store.setTierInfo('hosted', tu.tokensUsed, tu.tokensCap);
       } else {
         // Fall back to local estimation
         store.addTierTokens(usage.inputTokens + usage.outputTokens);

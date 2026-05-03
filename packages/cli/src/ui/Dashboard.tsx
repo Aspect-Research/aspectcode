@@ -220,10 +220,6 @@ const Dashboard: React.FC = () => {
 
     // Tier exhaustion actions
     if (store.state.tierExhausted) {
-      if (input === 'u') {
-        handler({ type: 'open-pricing' });
-        return;
-      }
       if (input === 'k') {
         store.setLearnedMessage('Add "apiKey": "sk-..." to aspectcode.json or ASPECTCODE_LLM_KEY to .env, then restart aspectcode');
         return;
@@ -552,10 +548,9 @@ const Dashboard: React.FC = () => {
       {s.tierExhausted && (
         <Box flexDirection="column" marginTop={1}>
           <Text color={COLORS.red} bold>
-            {`${s.userTier === 'free' ? 'Free' : 'Weekly'} limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
+            {`Token limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
           </Text>
           <Text>{''}</Text>
-          <Text color={COLORS.primaryDim}>{'  [u] Upgrade to Pro — $8/mo, 1M tokens/week'}</Text>
           <Text color={COLORS.gray} dimColor>{'  [k] Add your own key (restart required after adding)'}</Text>
         </Box>
       )}
@@ -567,13 +562,9 @@ const Dashboard: React.FC = () => {
             ? `${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}  (BYOK)`
             : 'BYOK — 0 calls'}
         </Text>
-      ) : s.userTier === 'pro' ? (
-        <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>
-          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} weekly tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}${s.tierResetAt ? `  (resets ${new Date(s.tierResetAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})` : ''}`}
-        </Text>
       ) : s.tierTokensUsed >= 75_000 ? (
         <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>
-          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} free tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
+          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
         </Text>
       ) : (
         s.sessionUsage.calls > 0 ? (

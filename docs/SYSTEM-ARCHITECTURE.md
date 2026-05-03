@@ -43,7 +43,7 @@ main.ts
   → loginCommand() (if not authenticated)
   → resolveRunMode() (ownership: full | section)
   → resolvePlatforms() (multi-select: claude, cursor, copilot, ...)
-  → detect tier (BYOK key? → byok | verify endpoint → free/pro)
+  → detect tier (BYOK key? → byok | else → hosted)
   → mount Ink dashboard
   → runPipeline()
       → runOnce()
@@ -136,13 +136,13 @@ The CLI communicates with `aspectcode.com` (or `ASPECTCODE_WEB_URL`) for auth, L
 
 | Endpoint | Method | Data sent | Data returned |
 |----------|--------|-----------|---------------|
-| `/api/cli/verify` | POST | Bearer token | `{ user, tier, usage: { tokensUsed, tokensCap, resetAt } }` |
+| `/api/cli/verify` | POST | Bearer token | `{ user, usage: { tokensUsed, tokensCap } }` |
 | `/api/cli/llm` | POST | `{ messages, temperature, maxTokens, model }` | `{ content, usage, tierUsage }` |
 | `/api/cli/preferences` | GET | Bearer token + project query | `{ preferences[] }` |
 | `/api/cli/preferences` | POST | `{ project, preferences[] }` | 200 OK |
 | `/api/cli/settings` | GET/PUT | Bearer token, optional settings body | `{ settings }` |
 | `/api/cli/suggestions` | GET | Bearer token + language query | `{ suggestions[] }` |
-| `/api/cli/usage` | GET | Bearer token | `{ tier, tokensUsed, tokensCap, tokensRemaining, resetAt }` |
+| `/api/cli/usage` | GET | Bearer token | `{ tokensUsed, tokensCap, tokensRemaining, resetAt }` |
 
 ### LLM Proxy (aspectcode provider)
 
@@ -151,8 +151,8 @@ File: `packages/optimizer/src/providers/aspectcode.ts`
 - Routes LLM calls through `aspectcode.com/api/cli/llm`
 - Server uses Haiku 4.5 by default, enforces tier token caps
 - Returns `tierUsage` in response body for real-time dashboard display
-- On exhaustion: returns 403 with `{ error: "token_limit_exceeded", message, tier, upgradeUrl }`
-- CLI catches 403, shows upgrade prompt with `[u]` and `[k]` options
+- On exhaustion: returns 403 with `{ error: "token_limit_exceeded", message, tokensUsed, tokensCap }`
+- CLI catches 403, shows BYOK prompt with `[k]` option
 
 ### Provider Resolution Order
 
@@ -195,7 +195,7 @@ File: `packages/optimizer/src/providers/index.ts`
 | File | Scope | Committed? | Purpose |
 |------|-------|------------|---------|
 | `aspectcode.json` | Project | Yes | Platforms, exclusions, evaluate settings, BYOK key |
-| `~/.aspectcode/credentials.json` | User | No | CLI auth token + cached tier |
+| `~/.aspectcode/credentials.json` | User | No | CLI auth token + cached usage |
 | `.aspectcode/scoped-rules.json` | Project | Optional | Rule file manifest |
 | `.aspectcode/dream-state.json` | Project | Optional | Dream cycle state |
 

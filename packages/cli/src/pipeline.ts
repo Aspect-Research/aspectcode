@@ -672,7 +672,7 @@ export async function resolvePlatforms(root: string): Promise<string[]> {
 // ── Assessment action handler ────────────────────────────────
 
 export interface AssessmentAction {
-  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions' | 'open-pricing';
+  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions';
   assessment?: ChangeAssessment;
   suggestions?: any[];
 }
@@ -762,7 +762,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   if (hasByokKey) {
     store.setTierInfo('byok', 0, 0);
   } else if (creds) {
-    // Fetch tier + usage from verify endpoint
+    // Fetch usage from verify endpoint
     try {
       const res = await fetch(`${WEB_APP_URL}/api/cli/verify`, {
         method: 'POST',
@@ -770,29 +770,26 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       });
       if (res.ok) {
         const data = (await res.json()) as {
-          tier?: string;
-          usage?: { tokensUsed?: number; tokensCap?: number; resetAt?: string | null };
+          usage?: { tokensUsed?: number; tokensCap?: number };
         };
-        const tier = (data.tier === 'PRO' ? 'pro' : 'free') as 'free' | 'pro';
         const used = data.usage?.tokensUsed ?? creds.tierTokensUsed ?? 0;
         const cap = data.usage?.tokensCap ?? creds.tierTokensCap ?? 100_000;
-        const resetAt = data.usage?.resetAt ?? '';
-        store.setTierInfo(tier, used, cap, resetAt || undefined);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
-        updateCredentials({ tier, tierTokensUsed: used, tierTokensCap: cap });
+        updateCredentials({ tier: 'hosted', tierTokensUsed: used, tierTokensCap: cap });
       } else if (creds.tier) {
-        // Offline fallback — use cached tier
+        // Offline fallback — use cached usage
         const used = creds.tierTokensUsed ?? 0;
         const cap = creds.tierTokensCap ?? 100_000;
-        store.setTierInfo(creds.tier, used, cap);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
       }
     } catch {
-      // Offline — use cached tier if available
+      // Offline — use cached usage if available
       if (creds.tier) {
         const used = creds.tierTokensUsed ?? 0;
         const cap = creds.tierTokensCap ?? 100_000;
-        store.setTierInfo(creds.tier, used, cap);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
       }
     }
@@ -853,10 +850,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
           })
           .catch(() => {});
 
-        // Pro users: refresh suggestions every 10 minutes (interval cleaned up in shutdown)
-        if (store.state.userTier === 'pro') {
-          (store as any)._suggestionsRefresh = { primaryLang };
-        }
+        // Stash for daily refresh (interval cleaned up in shutdown)
+        (store as any)._suggestionsRefresh = { primaryLang };
       }
     }
   }
@@ -886,7 +881,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let stopped = false;
   let pendingEvalEvents: FileChangeEvent[] = [];
 
-  // Pro: refresh suggestions once per day (checked every hour, skips if last fetch was <24h ago)
+  // Refresh suggestions once per day (checked every hour, skips if last fetch was <24h ago)
   const suggestionsRefreshInfo = (store as any)._suggestionsRefresh as { primaryLang: string } | undefined;
   let lastSuggestionsFetch = Date.now();
   const SUGGESTIONS_REFRESH_MS = 24 * 60 * 60 * 1000;
@@ -1132,7 +1127,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const doProbeAndRefine = async (): Promise<void> => {
     if (stopped || pipelineRunning) return;
     if (store.state.tierExhausted) {
-      store.setLearnedMessage('Token limit reached — upgrade or add your own key');
+      store.setLearnedMessage('Token limit reached — add your own key (ASPECTCODE_LLM_KEY) to continue');
       return;
     }
     // Run pending dream cycle before full probe-and-refine
@@ -1332,14 +1327,6 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       return;
     }
     // Dream cycle is autonomous — no manual trigger
-    if (action.type === 'open-pricing') {
-      const { exec } = require('child_process');
-      const url = 'https://aspectcode.com/pricing';
-      const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open';
-      exec(`${cmd} "${url}"`);
-      store.setLearnedMessage('opened pricing page');
-      return;
-    }
     if (action.type === 'login') {
       store.setLearnedMessage('opening browser…');
       void startBackgroundLogin().then((email) => {

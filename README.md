@@ -11,7 +11,7 @@ Aspect Code analyzes your codebase and generates `AGENTS.md` + scoped rules
 that AI coding assistants follow when making changes. It watches your project,
 learns from your corrections, and keeps instructions current.
 
-[Install](#install) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Tiers](#tiers) · [Contributing](#contributing)
+[Install](#install) · [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Plans](#plans) · [Contributing](#contributing)
 
 </div>
 
@@ -26,7 +26,7 @@ npm install -g aspectcode
 ## Quick Start
 
 ```bash
-aspectcode login            # authenticate (free: 100K lifetime tokens)
+aspectcode login            # authenticate (100K hosted tokens)
 aspectcode                  # analyze → generate → watch
 ```
 
@@ -40,8 +40,7 @@ On first run, Aspect Code will:
 # Other commands
 aspectcode --once           # single run, no watch mode
 aspectcode --once --dry-run # preview without writing files
-aspectcode usage            # show current tier and token usage
-aspectcode upgrade          # open Pro upgrade page
+aspectcode usage            # show token usage
 aspectcode whoami           # show logged-in account
 aspectcode logout           # clear credentials
 ```
@@ -80,13 +79,15 @@ your-project/
 
 Platform support: **Claude Code**, **Cursor**, **Copilot**, **Windsurf**, **Cline**, **Gemini**, **Aider**.
 
-## Tiers
+## Plans
 
-| | Free | Pro | BYOK |
-|---|---|---|---|
-| Tokens | 100K lifetime | 1M/week | Unlimited |
-| Price | $0 | $8/mo | $0 (your key) |
-| Community suggestions | Yes | Yes | No |
+| | Hosted | BYOK |
+|---|---|---|
+| Tokens | 100K lifetime | Unlimited |
+| Price | $0 | $0 (your key) |
+| Community suggestions | Yes | No |
+
+When the hosted token allowance is exhausted, switch to BYOK to keep going.
 
 **BYOK (Bring Your Own Key):** Add `"apiKey": "sk-..."` to `aspectcode.json` or set `ASPECTCODE_LLM_KEY` in your environment. Full functionality, no account required, no community suggestions.
 

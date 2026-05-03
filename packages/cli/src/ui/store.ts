@@ -200,14 +200,12 @@ export interface DashboardState {
   suggestionsDismissed: boolean;
 
   // ── Tier state ────────────────────────────────────────────
-  /** User's tier: 'free', 'pro', or 'byok'. */
-  userTier: 'free' | 'pro' | 'byok';
+  /** User's tier: 'hosted' (capped, server-allocated) or 'byok' (unlimited, user key). */
+  userTier: 'hosted' | 'byok';
   /** Tokens used toward the tier cap. */
   tierTokensUsed: number;
   /** Token cap for the tier (0 = unlimited/BYOK). */
   tierTokensCap: number;
-  /** ISO date of next monthly reset (Pro only, '' otherwise). */
-  tierResetAt: string;
   /** True when the tier token cap has been reached. */
   tierExhausted: boolean;
 }
@@ -258,10 +256,9 @@ class DashboardStore extends EventEmitter {
     sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
     suggestions: [],
     suggestionsDismissed: false,
-    userTier: 'free',
+    userTier: 'hosted',
     tierTokensUsed: 0,
     tierTokensCap: 100_000,
-    tierResetAt: '',
     tierExhausted: false,
   };
 
@@ -464,8 +461,8 @@ class DashboardStore extends EventEmitter {
     this.update({ suggestionsDismissed: true });
   }
 
-  setTierInfo(tier: DashboardState['userTier'], used: number, cap: number, resetAt?: string): void {
-    this.update({ userTier: tier, tierTokensUsed: used, tierTokensCap: cap, tierResetAt: resetAt ?? '' });
+  setTierInfo(tier: DashboardState['userTier'], used: number, cap: number): void {
+    this.update({ userTier: tier, tierTokensUsed: used, tierTokensCap: cap });
   }
 
   addTierTokens(tokens: number): void {
@@ -508,7 +505,7 @@ class DashboardStore extends EventEmitter {
       dreamPrompt: false,
       dreaming: false,
       // NOTE: tierExhausted is NOT reset here — it persists until CLI restart
-      // so the upgrade prompt stays visible across probe-and-refine runs.
+      // so the BYOK prompt stays visible across probe-and-refine runs.
     });
   }
 }
