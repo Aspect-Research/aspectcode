@@ -218,12 +218,9 @@ const Dashboard: React.FC = () => {
 
     const current = store.state.currentAssessment;
 
-    // Tier exhaustion actions
-    if (store.state.tierExhausted) {
-      if (input === 'u') {
-        handler({ type: 'open-pricing' });
-        return;
-      }
+    // Tier exhaustion actions — only the hosted prompt accepts a key. BYOK is
+    // already a key, so there's no [k] action; user must add credit / swap key.
+    if (store.state.tierExhausted && store.state.userTier !== 'byok') {
       if (input === 'k') {
         store.setLearnedMessage('Add "apiKey": "sk-..." to aspectcode.json or ASPECTCODE_LLM_KEY to .env, then restart aspectcode');
         return;
@@ -464,7 +461,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── Community suggestions (auto-applied via dream cycle) ────── */}
-      {isWatching && !s.suggestionsDismissed && s.suggestions.length > 0 && !current && !s.dreaming && (
+      {isWatching && s.suggestions.length > 0 && !current && !s.dreaming && (
         <Text color={COLORS.gray}>{`  ✦ ${s.suggestions.length} community insight${s.suggestions.length === 1 ? '' : 's'} — will refine on next dream cycle`}</Text>
       )}
 
@@ -549,13 +546,22 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── Tier exhaustion prompt ────────────── */}
-      {s.tierExhausted && (
+      {s.tierExhausted && s.userTier === 'byok' && (
         <Box flexDirection="column" marginTop={1}>
           <Text color={COLORS.red} bold>
-            {`${s.userTier === 'free' ? 'Free' : 'Weekly'} limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
+            {s.byokExhaustedReason || 'BYOK API key has no remaining credit, or is invalid.'}
           </Text>
           <Text>{''}</Text>
-          <Text color={COLORS.primaryDim}>{'  [u] Upgrade to Pro — $8/mo, 1M tokens/week'}</Text>
+          <Text color={COLORS.gray} dimColor>{'  Add credit at your provider (OpenAI / Anthropic) or use a different key.'}</Text>
+          <Text color={COLORS.gray} dimColor>{'  Or unset ASPECTCODE_LLM_KEY (and remove `apiKey` from aspectcode.json) to fall back to the hosted tier.'}</Text>
+        </Box>
+      )}
+      {s.tierExhausted && s.userTier !== 'byok' && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={COLORS.red} bold>
+            {`Token limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
+          </Text>
+          <Text>{''}</Text>
           <Text color={COLORS.gray} dimColor>{'  [k] Add your own key (restart required after adding)'}</Text>
         </Box>
       )}
@@ -564,16 +570,12 @@ const Dashboard: React.FC = () => {
       {s.userTier === 'byok' ? (
         <Text color={COLORS.gray} dimColor>
           {s.sessionUsage.calls > 0
-            ? `${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}  (BYOK)`
-            : 'BYOK — 0 calls'}
-        </Text>
-      ) : s.userTier === 'pro' ? (
-        <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>
-          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} weekly tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}${s.tierResetAt ? `  (resets ${new Date(s.tierResetAt).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })})` : ''}`}
+            ? `BYOK · ${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'} this session`
+            : 'BYOK · unlimited · 0 calls this session'}
         </Text>
       ) : s.tierTokensUsed >= 75_000 ? (
         <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>
-          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} free tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
+          {`${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens${s.sessionUsage.calls > 0 ? ` · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}` : ''}`}
         </Text>
       ) : (
         s.sessionUsage.calls > 0 ? (

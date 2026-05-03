@@ -25,6 +25,10 @@ export interface WorkspaceFiles {
   discoveredPaths: string[];
   /** Pre-built host for the workspace (undefined when WASM dir cannot be resolved) */
   host: CoreHost | undefined;
+  /** Set when the LLM-backed smart-ignore step detected hosted/BYOK exhaustion. */
+  tierExhausted?: boolean;
+  /** Reason string from a BYOK exhaustion (quota, balance, invalid key). */
+  byokReason?: string;
 }
 
 const SMART_IGNORE_THRESHOLD = 5000;
@@ -94,7 +98,7 @@ async function smartIgnore(
   relativePaths: string[],
   provider: LlmProvider,
   log: Logger,
-): Promise<{ dirs: string[]; succeeded: boolean }> {
+): Promise<{ dirs: string[]; succeeded: boolean; tierExhausted?: boolean; byokReason?: string }> {
   const messages: ChatMessage[] = [
     { role: 'system', content: SMART_IGNORE_SYSTEM },
     { role: 'user', content: buildSmartIgnorePrompt(relativePaths) },
@@ -109,6 +113,17 @@ async function smartIgnore(
     return { dirs, succeeded: true };
   } catch (err) {
     log.debug(`Smart ignore failed: ${err instanceof Error ? err.message : String(err)}`);
+    // Surface tier exhaustion so the caller can update the dashboard rather
+    // than silently skipping smart ignore for a permanent BYOK failure.
+    const exhausted = (err as { tierExhausted?: boolean }).tierExhausted;
+    if (exhausted) {
+      return {
+        dirs: [],
+        succeeded: false,
+        tierExhausted: true,
+        byokReason: (err as { byokReason?: string }).byokReason,
+      };
+    }
     return { dirs: [], succeeded: false };
   }
 }
@@ -142,11 +157,18 @@ export async function loadWorkspaceFiles(
   spin.stop(`Discovered ${discoveredPaths.length} files`);
 
   // Smart ignore: on first run with many files, ask LLM to filter
+  let smartIgnoreExhausted = false;
+  let smartIgnoreReason: string | undefined;
   if (!config?.smartExclude && discoveredPaths.length > SMART_IGNORE_THRESHOLD && opts?.provider) {
     const relativePaths = discoveredPaths.map((abs) => path.relative(root, abs).replace(/\\/g, '/'));
     const spinSmart = makeSpin('Analyzing file tree…', 'discovering');
-    const { dirs: newExclusions, succeeded } = await smartIgnore(relativePaths, opts.provider, log);
+    const { dirs: newExclusions, succeeded, tierExhausted, byokReason } = await smartIgnore(relativePaths, opts.provider, log);
     spinSmart.stop(newExclusions.length > 0 ? `Excluding ${newExclusions.length} directories` : 'No extra exclusions needed');
+
+    if (tierExhausted) {
+      smartIgnoreExhausted = true;
+      smartIgnoreReason = byokReason;
+    }
 
     // Only cache when the LLM actually responded (not on transient failures)
     if (succeeded) {
@@ -182,5 +204,7 @@ export async function loadWorkspaceFiles(
     relativeFiles,
     discoveredPaths,
     host: createNodeHostForWorkspace(root),
+    tierExhausted: smartIgnoreExhausted || undefined,
+    byokReason: smartIgnoreReason,
   };
 }

@@ -52,11 +52,8 @@ export function createAspectCodeProvider(
             if (parsed.error === 'token_limit_exceeded') {
               const err = new Error(parsed.message || 'TOKEN_LIMIT_EXCEEDED') as any;
               err.tierExhausted = true;
-              err.tier = parsed.tier;
               err.tokensUsed = parsed.tokensUsed;
               err.tokensCap = parsed.tokensCap;
-              err.upgradeUrl = parsed.upgradeUrl;
-              err.resetAt = parsed.resetAt;
               throw err;
             }
           } catch (e) {

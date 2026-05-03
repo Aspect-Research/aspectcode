@@ -87,7 +87,7 @@ Aspect Code has two parts: the **open-source CLI** (this repo) and the **closed-
 | Endpoint | Method | Purpose | Required? |
 |----------|--------|---------|-----------|
 | `/api/cli/auth` | GET (browser) | OAuth login flow | Yes (for login) |
-| `/api/cli/verify` | POST | Verify token, get tier + usage | No (cached offline) |
+| `/api/cli/verify` | POST | Verify token, get usage | No (cached offline) |
 | `/api/cli/llm` | POST | LLM proxy (Haiku 4.5) | No (BYOK bypasses) |
 | `/api/cli/preferences` | GET/POST | Sync learned preferences | No (empty offline) |
 | `/api/cli/settings` | GET/PUT | User settings sync | No (empty offline) |

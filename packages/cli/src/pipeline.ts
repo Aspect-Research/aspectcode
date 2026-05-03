@@ -338,6 +338,9 @@ async function runOnce(
     discoveryProvider = resolveProvider(env);
   } catch { /* no LLM — skip smart ignore */ }
   const workspace = await loadWorkspaceFiles(root, config, log, { quiet: flags.quiet, spin: ctx.spin, provider: discoveryProvider });
+  if (workspace.tierExhausted) {
+    store.setTierExhausted(workspace.byokReason);
+  }
   if (workspace.discoveredPaths.length === 0) {
     log.warn('No source files found.');
     return { code: ExitCode.ERROR, kbContent: '' };
@@ -407,7 +410,7 @@ async function runOnce(
       );
     } catch (err: any) {
       if (err?.tierExhausted) {
-        store.setTierExhausted();
+        store.setTierExhausted(err?.byokReason);
         optimizeResult = { content: baseContent, reasoning: [] };
       } else {
         throw err;
@@ -672,7 +675,7 @@ export async function resolvePlatforms(root: string): Promise<string[]> {
 // ── Assessment action handler ────────────────────────────────
 
 export interface AssessmentAction {
-  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions' | 'open-pricing';
+  type: 'dismiss' | 'confirm' | 'skip' | 'probe-and-refine' | 'login' | 'accept-ai' | 'apply-suggestions';
   assessment?: ChangeAssessment;
   suggestions?: any[];
 }
@@ -762,7 +765,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   if (hasByokKey) {
     store.setTierInfo('byok', 0, 0);
   } else if (creds) {
-    // Fetch tier + usage from verify endpoint
+    // Fetch usage from verify endpoint
     try {
       const res = await fetch(`${WEB_APP_URL}/api/cli/verify`, {
         method: 'POST',
@@ -770,29 +773,26 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       });
       if (res.ok) {
         const data = (await res.json()) as {
-          tier?: string;
-          usage?: { tokensUsed?: number; tokensCap?: number; resetAt?: string | null };
+          usage?: { tokensUsed?: number; tokensCap?: number };
         };
-        const tier = (data.tier === 'PRO' ? 'pro' : 'free') as 'free' | 'pro';
         const used = data.usage?.tokensUsed ?? creds.tierTokensUsed ?? 0;
         const cap = data.usage?.tokensCap ?? creds.tierTokensCap ?? 100_000;
-        const resetAt = data.usage?.resetAt ?? '';
-        store.setTierInfo(tier, used, cap, resetAt || undefined);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
-        updateCredentials({ tier, tierTokensUsed: used, tierTokensCap: cap });
+        updateCredentials({ tier: 'hosted', tierTokensUsed: used, tierTokensCap: cap });
       } else if (creds.tier) {
-        // Offline fallback — use cached tier
+        // Offline fallback — use cached usage
         const used = creds.tierTokensUsed ?? 0;
         const cap = creds.tierTokensCap ?? 100_000;
-        store.setTierInfo(creds.tier, used, cap);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
       }
     } catch {
-      // Offline — use cached tier if available
+      // Offline — use cached usage if available
       if (creds.tier) {
         const used = creds.tierTokensUsed ?? 0;
         const cap = creds.tierTokensCap ?? 100_000;
-        store.setTierInfo(creds.tier, used, cap);
+        store.setTierInfo('hosted', used, cap);
         if (used >= cap) store.setTierExhausted();
       }
     }
@@ -818,9 +818,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let prefs = await loadPreferences(root);
   store.setPreferenceCount(prefs.preferences.length);
 
-  // ── Fetch community suggestions ───────────────────────────
-  if (store.state.userTier !== 'byok') {
-    // Detect primary language from analysis model
+  // ── Fetch community suggestions (always on, regardless of tier) ──
+  {
     const state = getRuntimeState();
     if (state.model) {
       const langCounts = new Map<string, number>();
@@ -839,7 +838,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
           return parts.length > 1 ? parts[0] + '/' : '';
         }));
         const consumedKeys = new Set(loadDreamState(root).consumedSuggestionKeys ?? []);
-        fetchSuggestions(primaryLang, undefined, { byok: false })
+        fetchSuggestions(primaryLang)
           .then((suggestions) => {
             // Filter out already-consumed suggestions and those for irrelevant directories
             const relevant = suggestions.filter((s) => {
@@ -853,10 +852,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
           })
           .catch(() => {});
 
-        // Pro users: refresh suggestions every 10 minutes (interval cleaned up in shutdown)
-        if (store.state.userTier === 'pro') {
-          (store as any)._suggestionsRefresh = { primaryLang };
-        }
+        // Stash for daily refresh (interval cleaned up in shutdown)
+        (store as any)._suggestionsRefresh = { primaryLang };
       }
     }
   }
@@ -886,17 +883,17 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let stopped = false;
   let pendingEvalEvents: FileChangeEvent[] = [];
 
-  // Pro: refresh suggestions once per day (checked every hour, skips if last fetch was <24h ago)
+  // Refresh suggestions once per day (checked every hour, skips if last fetch was <24h ago)
   const suggestionsRefreshInfo = (store as any)._suggestionsRefresh as { primaryLang: string } | undefined;
   let lastSuggestionsFetch = Date.now();
   const SUGGESTIONS_REFRESH_MS = 24 * 60 * 60 * 1000;
   const suggestionsInterval = suggestionsRefreshInfo ? setInterval(() => {
     if (stopped) return;
     if (Date.now() - lastSuggestionsFetch < SUGGESTIONS_REFRESH_MS) return;
-    fetchSuggestions(suggestionsRefreshInfo.primaryLang, undefined, { byok: false })
+    fetchSuggestions(suggestionsRefreshInfo.primaryLang)
       .then((suggestions) => {
         lastSuggestionsFetch = Date.now();
-        if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
+        if (suggestions.length > 0) {
           store.setSuggestions(suggestions.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, suggestion: s.suggestion })));
         }
       })
@@ -950,7 +947,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         store.setPreferenceCount(prefs.preferences.length);
         if (forwarded.length > 0) store.pushAssessments(forwarded);
       } catch (err: any) {
-        if (err?.tierExhausted) store.setTierExhausted();
+        if (err?.tierExhausted) store.setTierExhausted(err?.byokReason);
         store.pushAssessments(surviving);
       }
     } else if (surviving.length > 0) {
@@ -1049,13 +1046,13 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       let communitySuggestions: string | undefined;
       const consumedSuggestionRules: string[] = [];
       const suggestions = store.state.suggestions;
-      if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
+      if (suggestions.length > 0) {
         communitySuggestions = suggestions
           .map((s) => `- [${s.rule}] ${s.suggestion}`)
           .join('\n');
         for (const s of suggestions) consumedSuggestionRules.push(s.rule);
-        // Mark as consumed so they're only integrated once
-        store.dismissSuggestions();
+        // Clear from store so they aren't re-integrated; persistent dedup via consumedSuggestionKeys.
+        store.setSuggestions([]);
       }
 
       const result = await runDreamCycle({
@@ -1084,7 +1081,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       store.setManagedFiles(buildManagedFiles(root, (await loadPreferences(root)).preferences.length, activePlatforms));
     } catch (err: any) {
       if (err?.tierExhausted) {
-        store.setTierExhausted();
+        store.setTierExhausted(err?.byokReason);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(`Dream cycle failed: ${msg}`);
@@ -1100,7 +1097,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const autoDreamTimer = setInterval(() => {
     if (stopped || pipelineRunning) return;
     const hasCorrections = getUnprocessedCount() > 0;
-    const hasSuggestions = store.state.suggestions.length > 0 && !store.state.suggestionsDismissed;
+    const hasSuggestions = store.state.suggestions.length > 0;
     if (!hasCorrections && !hasSuggestions) return;
     if (Date.now() - lastDreamAt < AUTO_DREAM_INTERVAL_MS) return;
     void doDreamCycle().then(() => { lastDreamAt = Date.now(); });
@@ -1132,7 +1129,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const doProbeAndRefine = async (): Promise<void> => {
     if (stopped || pipelineRunning) return;
     if (store.state.tierExhausted) {
-      store.setLearnedMessage('Token limit reached — upgrade or add your own key');
+      const msg = store.state.userTier === 'byok'
+        ? (store.state.byokExhaustedReason || 'BYOK key out of credit — add credit or use a different key')
+        : 'Token limit reached — add your own key (ASPECTCODE_LLM_KEY) to continue';
+      store.setLearnedMessage(msg);
       return;
     }
     // Run pending dream cycle before full probe-and-refine
@@ -1268,7 +1268,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
                 store.setLearnedMessage(`Auto-resolved ${autoCount} assessment${autoCount === 1 ? '' : 's'}`);
               }
             } catch (err: any) {
-              if (err?.tierExhausted) { store.setTierExhausted(); }
+              if (err?.tierExhausted) { store.setTierExhausted(err?.byokReason); }
               forwarded.push(...immediate);
             }
           } else if (cached.length > 0) {
@@ -1332,14 +1332,6 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       return;
     }
     // Dream cycle is autonomous — no manual trigger
-    if (action.type === 'open-pricing') {
-      const { exec } = require('child_process');
-      const url = 'https://aspectcode.com/pricing';
-      const cmd = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'start ""' : 'xdg-open';
-      exec(`${cmd} "${url}"`);
-      store.setLearnedMessage('opened pricing page');
-      return;
-    }
     if (action.type === 'login') {
       store.setLearnedMessage('opening browser…');
       void startBackgroundLogin().then((email) => {

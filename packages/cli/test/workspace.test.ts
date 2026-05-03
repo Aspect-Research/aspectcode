@@ -349,5 +349,64 @@ describe('loadWorkspaceFiles', () => {
     );
 
     assert.ok(result.relativeFiles.has('src/main.ts'));
+    assert.ok(!result.tierExhausted);
+  });
+
+  it('propagates BYOK exhaustion from smart-ignore via tierExhausted/byokReason', async () => {
+    // Create >5000 files to trigger smart ignore
+    const srcDir = path.join(tmpDir, 'src');
+    fs.mkdirSync(srcDir);
+    for (let i = 0; i < 5001; i++) {
+      fs.writeFileSync(path.join(srcDir, `f${i}.ts`), 'export const x = 1;\n');
+    }
+
+    const provider = {
+      name: 'exhausted-byok',
+      async chat() {
+        const err = Object.assign(new Error('You exceeded your current quota'), {
+          status: 429,
+          code: 'insufficient_quota',
+          tierExhausted: true,
+          byokExhausted: true,
+          byokReason: 'API key has no remaining credit (provider quota exceeded).',
+        });
+        throw err;
+      },
+    };
+
+    const result = await loadWorkspaceFiles(
+      tmpDir,
+      undefined,
+      quietLog,
+      { quiet: true, spin: quietSpin, provider },
+    );
+
+    assert.equal(result.tierExhausted, true);
+    assert.match(result.byokReason ?? '', /quota|credit/i);
+    // Should still return discovered files — exhaustion shouldn't block analysis
+    assert.ok(result.relativeFiles.size > 5000);
+  });
+
+  it('does not flag tierExhausted on non-exhaustion provider errors', async () => {
+    const srcDir = path.join(tmpDir, 'src');
+    fs.mkdirSync(srcDir);
+    for (let i = 0; i < 5001; i++) {
+      fs.writeFileSync(path.join(srcDir, `f${i}.ts`), 'export const x = 1;\n');
+    }
+
+    const provider = {
+      name: 'transient-fail',
+      async chat() { throw new Error('socket hang up'); },
+    };
+
+    const result = await loadWorkspaceFiles(
+      tmpDir,
+      undefined,
+      quietLog,
+      { quiet: true, spin: quietSpin, provider },
+    );
+
+    assert.ok(!result.tierExhausted);
+    assert.equal(result.byokReason, undefined);
   });
 });

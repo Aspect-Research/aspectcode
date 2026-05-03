@@ -510,7 +510,7 @@ export async function tryOptimize(
       // Clean up abort listener if we exit via exception
       store.removeListener('change', onStoreChange);
 
-      // Tier exhaustion — re-throw so pipeline can show upgrade prompt
+      // Tier exhaustion — re-throw so pipeline can show BYOK prompt
       if ((err as any)?.tierExhausted) throw err;
 
       // AbortError from cancel — not a real error

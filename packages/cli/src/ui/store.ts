@@ -196,20 +196,18 @@ export interface DashboardState {
   suggestions: Array<{ rule: string; disposition: string; directory: string | null; suggestion: string }>;
   /** Cumulative LLM usage for this session. */
   sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
-  /** Whether suggestions have been shown/dismissed. */
-  suggestionsDismissed: boolean;
 
   // ── Tier state ────────────────────────────────────────────
-  /** User's tier: 'free', 'pro', or 'byok'. */
-  userTier: 'free' | 'pro' | 'byok';
+  /** User's tier: 'hosted' (capped, server-allocated) or 'byok' (unlimited, user key). */
+  userTier: 'hosted' | 'byok';
   /** Tokens used toward the tier cap. */
   tierTokensUsed: number;
   /** Token cap for the tier (0 = unlimited/BYOK). */
   tierTokensCap: number;
-  /** ISO date of next monthly reset (Pro only, '' otherwise). */
-  tierResetAt: string;
-  /** True when the tier token cap has been reached. */
+  /** True when the tier token cap has been reached, or BYOK key has no credit / is invalid. */
   tierExhausted: boolean;
+  /** When BYOK exhaustion is detected, the specific reason (quota, balance, invalid key). */
+  byokExhaustedReason: string;
 }
 
 /**
@@ -257,12 +255,11 @@ class DashboardStore extends EventEmitter {
     lastSyncAt: 0,
     sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
     suggestions: [],
-    suggestionsDismissed: false,
-    userTier: 'free',
+    userTier: 'hosted',
     tierTokensUsed: 0,
     tierTokensCap: 100_000,
-    tierResetAt: '',
     tierExhausted: false,
+    byokExhaustedReason: '',
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -460,20 +457,16 @@ class DashboardStore extends EventEmitter {
     this.update({ suggestions });
   }
 
-  dismissSuggestions(): void {
-    this.update({ suggestionsDismissed: true });
-  }
-
-  setTierInfo(tier: DashboardState['userTier'], used: number, cap: number, resetAt?: string): void {
-    this.update({ userTier: tier, tierTokensUsed: used, tierTokensCap: cap, tierResetAt: resetAt ?? '' });
+  setTierInfo(tier: DashboardState['userTier'], used: number, cap: number): void {
+    this.update({ userTier: tier, tierTokensUsed: used, tierTokensCap: cap });
   }
 
   addTierTokens(tokens: number): void {
     this.update({ tierTokensUsed: this.state.tierTokensUsed + tokens });
   }
 
-  setTierExhausted(): void {
-    this.update({ tierExhausted: true });
+  setTierExhausted(reason?: string): void {
+    this.update({ tierExhausted: true, byokExhaustedReason: reason ?? this.state.byokExhaustedReason });
   }
 
   /** Update a single managed file's annotation or timestamp. */
@@ -508,7 +501,7 @@ class DashboardStore extends EventEmitter {
       dreamPrompt: false,
       dreaming: false,
       // NOTE: tierExhausted is NOT reset here — it persists until CLI restart
-      // so the upgrade prompt stays visible across probe-and-refine runs.
+      // so the BYOK prompt stays visible across probe-and-refine runs.
     });
   }
 }

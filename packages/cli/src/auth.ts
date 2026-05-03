@@ -21,7 +21,7 @@ interface Credentials {
   token: string;
   email?: string;
   createdAt: string;
-  tier?: 'free' | 'pro';
+  tier?: 'hosted';
   tierTokensUsed?: number;
   tierTokensCap?: number;
 }
@@ -31,7 +31,10 @@ interface Credentials {
 export function loadCredentials(): Credentials | null {
   try {
     if (!fs.existsSync(CREDENTIALS_FILE)) return null;
-    return JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf-8'));
+    const parsed = JSON.parse(fs.readFileSync(CREDENTIALS_FILE, 'utf-8')) as Credentials & { tier?: string };
+    // Normalize legacy tier values ('free' | 'pro') from older clients.
+    if (parsed.tier && parsed.tier !== 'hosted') parsed.tier = 'hosted';
+    return parsed as Credentials;
   } catch {
     return null;
   }
@@ -338,21 +341,6 @@ export async function whoamiCommand(): Promise<void> {
   }
 }
 
-// ── Upgrade command ────────────────────────────────────────
-
-export async function upgradeCommand(): Promise<void> {
-  const creds = loadCredentials();
-  if (!creds) {
-    console.log(`Not logged in. Run ${fmt.bold('aspectcode login')} first.`);
-    process.exitCode = 1;
-    return;
-  }
-
-  const url = `${WEB_APP_URL}/pricing`;
-  console.log(`Opening ${fmt.bold(url)}…`);
-  await openBrowser(url);
-}
-
 // ── Usage command ──────────────────────────────────────────
 
 function formatTokens(n: number): string {
@@ -361,7 +349,30 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+/** Detect BYOK from env var or current directory's aspectcode.json. */
+function detectByok(): boolean {
+  if (process.env.ASPECTCODE_LLM_KEY) return true;
+  try {
+    const cfgPath = path.join(process.cwd(), 'aspectcode.json');
+    if (!fs.existsSync(cfgPath)) return false;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as { apiKey?: string };
+    return Boolean(cfg.apiKey);
+  } catch {
+    return false;
+  }
+}
+
 export async function usageCommand(): Promise<void> {
+  // BYOK: no server-side token tracking. Show a clear message and exit.
+  if (detectByok()) {
+    console.log();
+    console.log(`  ${fmt.bold('Mode:')}  Bring Your Own Key (BYOK)`);
+    console.log(`  ${fmt.dim('Tokens are billed directly to your provider account (OpenAI / Anthropic).')}`);
+    console.log(`  ${fmt.dim('Aspect Code does not track or limit BYOK usage.')}`);
+    console.log();
+    return;
+  }
+
   const creds = loadCredentials();
   if (!creds) {
     console.log(`Not logged in. Run ${fmt.bold('aspectcode login')} first.`);
@@ -381,7 +392,6 @@ export async function usageCommand(): Promise<void> {
     }
 
     const data = (await res.json()) as {
-      tier: string;
       tokensUsed: number;
       tokensCap: number;
       tokensRemaining: number;
@@ -393,8 +403,7 @@ export async function usageCommand(): Promise<void> {
     const bar = '█'.repeat(Math.round(pct / 5)) + '░'.repeat(20 - Math.round(pct / 5));
 
     console.log();
-    console.log(`  ${fmt.bold('Plan:')}  ${data.tier === 'PRO' ? 'Pro ($8/mo)' : 'Free'}`);
-    console.log(`  ${fmt.bold('Used:')}  ${formatTokens(data.tokensUsed)} / ${formatTokens(data.tokensCap)} ${data.period} tokens`);
+    console.log(`  ${fmt.bold('Used:')}  ${formatTokens(data.tokensUsed)} / ${formatTokens(data.tokensCap)} tokens`);
     console.log(`  ${bar} ${pct}%`);
     console.log(`  ${fmt.dim(`${formatTokens(data.tokensRemaining)} remaining`)}`);
     if (data.resetAt) {
@@ -403,9 +412,9 @@ export async function usageCommand(): Promise<void> {
     }
     console.log();
 
-    if (data.tier === 'FREE' && data.tokensRemaining === 0) {
-      console.log(`  Run ${fmt.bold('aspectcode upgrade')} to switch to Pro, or add your own key:`);
-      console.log(`  ${fmt.dim('ASPECTCODE_LLM_KEY=sk-...')}`);
+    if (data.tokensRemaining === 0) {
+      console.log(`  Token limit reached. Add your own key to continue:`);
+      console.log(`  ${fmt.dim('ASPECTCODE_LLM_KEY=sk-...  (or "apiKey" in aspectcode.json)')}`);
       console.log();
     }
   } catch (err) {
