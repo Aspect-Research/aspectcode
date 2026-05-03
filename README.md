@@ -85,11 +85,11 @@ Platform support: **Claude Code**, **Cursor**, **Copilot**, **Windsurf**, **Clin
 |---|---|---|
 | Tokens | 100K lifetime | Unlimited |
 | Price | $0 | $0 (your key) |
-| Community suggestions | Yes | No |
+| Community suggestions | Yes | Yes |
 
 When the hosted token allowance is exhausted, switch to BYOK to keep going.
 
-**BYOK (Bring Your Own Key):** Add `"apiKey": "sk-..."` to `aspectcode.json` or set `ASPECTCODE_LLM_KEY` in your environment. Full functionality, no account required, no community suggestions.
+**BYOK (Bring Your Own Key):** Add `"apiKey": "sk-..."` to `aspectcode.json` or set `ASPECTCODE_LLM_KEY` in your environment. Full functionality, no account required.
 
 ## Configuration
 

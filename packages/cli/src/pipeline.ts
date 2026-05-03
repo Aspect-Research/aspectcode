@@ -815,9 +815,8 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   let prefs = await loadPreferences(root);
   store.setPreferenceCount(prefs.preferences.length);
 
-  // ── Fetch community suggestions ───────────────────────────
-  if (store.state.userTier !== 'byok') {
-    // Detect primary language from analysis model
+  // ── Fetch community suggestions (always on, regardless of tier) ──
+  {
     const state = getRuntimeState();
     if (state.model) {
       const langCounts = new Map<string, number>();
@@ -836,7 +835,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
           return parts.length > 1 ? parts[0] + '/' : '';
         }));
         const consumedKeys = new Set(loadDreamState(root).consumedSuggestionKeys ?? []);
-        fetchSuggestions(primaryLang, undefined, { byok: false })
+        fetchSuggestions(primaryLang)
           .then((suggestions) => {
             // Filter out already-consumed suggestions and those for irrelevant directories
             const relevant = suggestions.filter((s) => {
@@ -888,10 +887,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const suggestionsInterval = suggestionsRefreshInfo ? setInterval(() => {
     if (stopped) return;
     if (Date.now() - lastSuggestionsFetch < SUGGESTIONS_REFRESH_MS) return;
-    fetchSuggestions(suggestionsRefreshInfo.primaryLang, undefined, { byok: false })
+    fetchSuggestions(suggestionsRefreshInfo.primaryLang)
       .then((suggestions) => {
         lastSuggestionsFetch = Date.now();
-        if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
+        if (suggestions.length > 0) {
           store.setSuggestions(suggestions.map((s) => ({ rule: s.rule, disposition: s.disposition, directory: s.directory, suggestion: s.suggestion })));
         }
       })
@@ -1044,13 +1043,13 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       let communitySuggestions: string | undefined;
       const consumedSuggestionRules: string[] = [];
       const suggestions = store.state.suggestions;
-      if (suggestions.length > 0 && !store.state.suggestionsDismissed) {
+      if (suggestions.length > 0) {
         communitySuggestions = suggestions
           .map((s) => `- [${s.rule}] ${s.suggestion}`)
           .join('\n');
         for (const s of suggestions) consumedSuggestionRules.push(s.rule);
-        // Mark as consumed so they're only integrated once
-        store.dismissSuggestions();
+        // Clear from store so they aren't re-integrated; persistent dedup via consumedSuggestionKeys.
+        store.setSuggestions([]);
       }
 
       const result = await runDreamCycle({
@@ -1095,7 +1094,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const autoDreamTimer = setInterval(() => {
     if (stopped || pipelineRunning) return;
     const hasCorrections = getUnprocessedCount() > 0;
-    const hasSuggestions = store.state.suggestions.length > 0 && !store.state.suggestionsDismissed;
+    const hasSuggestions = store.state.suggestions.length > 0;
     if (!hasCorrections && !hasSuggestions) return;
     if (Date.now() - lastDreamAt < AUTO_DREAM_INTERVAL_MS) return;
     void doDreamCycle().then(() => { lastDreamAt = Date.now(); });

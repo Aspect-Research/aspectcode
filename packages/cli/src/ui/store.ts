@@ -196,8 +196,6 @@ export interface DashboardState {
   suggestions: Array<{ rule: string; disposition: string; directory: string | null; suggestion: string }>;
   /** Cumulative LLM usage for this session. */
   sessionUsage: { inputTokens: number; outputTokens: number; calls: number };
-  /** Whether suggestions have been shown/dismissed. */
-  suggestionsDismissed: boolean;
 
   // ── Tier state ────────────────────────────────────────────
   /** User's tier: 'hosted' (capped, server-allocated) or 'byok' (unlimited, user key). */
@@ -255,7 +253,6 @@ class DashboardStore extends EventEmitter {
     lastSyncAt: 0,
     sessionUsage: { inputTokens: 0, outputTokens: 0, calls: 0 },
     suggestions: [],
-    suggestionsDismissed: false,
     userTier: 'hosted',
     tierTokensUsed: 0,
     tierTokensCap: 100_000,
@@ -455,10 +452,6 @@ class DashboardStore extends EventEmitter {
 
   setSuggestions(suggestions: DashboardState['suggestions']): void {
     this.update({ suggestions });
-  }
-
-  dismissSuggestions(): void {
-    this.update({ suggestionsDismissed: true });
   }
 
   setTierInfo(tier: DashboardState['userTier'], used: number, cap: number): void {

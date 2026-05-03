@@ -460,7 +460,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── Community suggestions (auto-applied via dream cycle) ────── */}
-      {isWatching && !s.suggestionsDismissed && s.suggestions.length > 0 && !current && !s.dreaming && (
+      {isWatching && s.suggestions.length > 0 && !current && !s.dreaming && (
         <Text color={COLORS.gray}>{`  ✦ ${s.suggestions.length} community insight${s.suggestions.length === 1 ? '' : 's'} — will refine on next dream cycle`}</Text>
       )}
 
