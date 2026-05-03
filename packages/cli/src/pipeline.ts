@@ -338,6 +338,9 @@ async function runOnce(
     discoveryProvider = resolveProvider(env);
   } catch { /* no LLM — skip smart ignore */ }
   const workspace = await loadWorkspaceFiles(root, config, log, { quiet: flags.quiet, spin: ctx.spin, provider: discoveryProvider });
+  if (workspace.tierExhausted) {
+    store.setTierExhausted(workspace.byokReason);
+  }
   if (workspace.discoveredPaths.length === 0) {
     log.warn('No source files found.');
     return { code: ExitCode.ERROR, kbContent: '' };
@@ -1126,7 +1129,10 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
   const doProbeAndRefine = async (): Promise<void> => {
     if (stopped || pipelineRunning) return;
     if (store.state.tierExhausted) {
-      store.setLearnedMessage('Token limit reached — add your own key (ASPECTCODE_LLM_KEY) to continue');
+      const msg = store.state.userTier === 'byok'
+        ? (store.state.byokExhaustedReason || 'BYOK key out of credit — add credit or use a different key')
+        : 'Token limit reached — add your own key (ASPECTCODE_LLM_KEY) to continue';
+      store.setLearnedMessage(msg);
       return;
     }
     // Run pending dream cycle before full probe-and-refine
