@@ -3,7 +3,7 @@
  */
 
 import * as assert from 'node:assert/strict';
-import { isTransientError, withRetry } from '../src/providers/retry';
+import { isTransientError, withRetry, markIfByokExhausted } from '../src/providers/retry';
 
 describe('isTransientError', () => {
   it('true for 429 rate limit in message', () => {
@@ -74,6 +74,63 @@ describe('isTransientError', () => {
   it('false for generic Error with no status info', () => {
     assert.ok(!isTransientError(new Error('something went wrong')));
   });
+
+  it('false when error is marked tierExhausted (BYOK or hosted)', () => {
+    const err = Object.assign(new Error('rate limited'), { status: 429, tierExhausted: true });
+    assert.ok(!isTransientError(err));
+  });
+});
+
+describe('markIfByokExhausted', () => {
+  it('marks OpenAI insufficient_quota by code field', () => {
+    const err = Object.assign(new Error('You exceeded your current quota'), { status: 429, code: 'insufficient_quota' });
+    markIfByokExhausted(err);
+    assert.ok((err as any).tierExhausted);
+    assert.ok((err as any).byokExhausted);
+    assert.match((err as any).byokReason, /quota/i);
+  });
+
+  it('marks OpenAI quota by message text', () => {
+    const err = new Error('You exceeded your current quota, please check your plan and billing details.');
+    markIfByokExhausted(err);
+    assert.ok((err as any).tierExhausted);
+    assert.match((err as any).byokReason, /quota/i);
+  });
+
+  it('marks Anthropic credit balance error', () => {
+    const err = new Error('Your credit balance is too low to access the Anthropic API.');
+    markIfByokExhausted(err);
+    assert.ok((err as any).tierExhausted);
+    assert.ok((err as any).byokExhausted);
+    assert.match((err as any).byokReason, /balance/i);
+  });
+
+  it('marks 401 invalid key as exhausted (key needs replacement)', () => {
+    const err = Object.assign(new Error('Unauthorized'), { status: 401 });
+    markIfByokExhausted(err);
+    assert.ok((err as any).tierExhausted);
+    assert.match((err as any).byokReason, /invalid|revoked/i);
+  });
+
+  it('does not mark transient 429 (no quota signal)', () => {
+    const err = Object.assign(new Error('rate limited'), { status: 429 });
+    markIfByokExhausted(err);
+    assert.ok(!(err as any).tierExhausted);
+    // and isTransientError still returns true so withRetry retries normally
+    assert.ok(isTransientError(err));
+  });
+
+  it('does not mark generic 500 server errors', () => {
+    const err = Object.assign(new Error('internal error'), { status: 500 });
+    markIfByokExhausted(err);
+    assert.ok(!(err as any).tierExhausted);
+  });
+
+  it('is idempotent — does not re-mark already-marked errors', () => {
+    const err = Object.assign(new Error('quota'), { tierExhausted: true, byokReason: 'original reason' });
+    markIfByokExhausted(err);
+    assert.equal((err as any).byokReason, 'original reason');
+  });
 });
 
 describe('withRetry', () => {
@@ -103,6 +160,28 @@ describe('withRetry', () => {
         throw new Error('HTTP 401 unauthorized');
       }, { baseDelayMs: 1, maxDelayMs: 1 });
     }, /401/);
+    assert.equal(attempts, 1);
+  });
+
+  it('does not retry BYOK quota errors (429 with insufficient_quota)', async () => {
+    let attempts = 0;
+    await assert.rejects(async () => {
+      await withRetry(async () => {
+        attempts++;
+        throw Object.assign(new Error('You exceeded your current quota'), { status: 429, code: 'insufficient_quota' });
+      }, { baseDelayMs: 1, maxDelayMs: 1, maxRetries: 5 });
+    }, /quota/);
+    assert.equal(attempts, 1);
+  });
+
+  it('does not retry Anthropic credit balance errors', async () => {
+    let attempts = 0;
+    await assert.rejects(async () => {
+      await withRetry(async () => {
+        attempts++;
+        throw new Error('Your credit balance is too low to access the Anthropic API.');
+      }, { baseDelayMs: 1, maxDelayMs: 1, maxRetries: 5 });
+    }, /credit/);
     assert.equal(attempts, 1);
   });
 

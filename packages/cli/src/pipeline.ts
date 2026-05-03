@@ -407,7 +407,7 @@ async function runOnce(
       );
     } catch (err: any) {
       if (err?.tierExhausted) {
-        store.setTierExhausted();
+        store.setTierExhausted(err?.byokReason);
         optimizeResult = { content: baseContent, reasoning: [] };
       } else {
         throw err;
@@ -944,7 +944,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
         store.setPreferenceCount(prefs.preferences.length);
         if (forwarded.length > 0) store.pushAssessments(forwarded);
       } catch (err: any) {
-        if (err?.tierExhausted) store.setTierExhausted();
+        if (err?.tierExhausted) store.setTierExhausted(err?.byokReason);
         store.pushAssessments(surviving);
       }
     } else if (surviving.length > 0) {
@@ -1078,7 +1078,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
       store.setManagedFiles(buildManagedFiles(root, (await loadPreferences(root)).preferences.length, activePlatforms));
     } catch (err: any) {
       if (err?.tierExhausted) {
-        store.setTierExhausted();
+        store.setTierExhausted(err?.byokReason);
       } else {
         const msg = err instanceof Error ? err.message : String(err);
         log.warn(`Dream cycle failed: ${msg}`);
@@ -1262,7 +1262,7 @@ export async function runPipeline(ctx: RunContext): Promise<ExitCodeValue> {
                 store.setLearnedMessage(`Auto-resolved ${autoCount} assessment${autoCount === 1 ? '' : 's'}`);
               }
             } catch (err: any) {
-              if (err?.tierExhausted) { store.setTierExhausted(); }
+              if (err?.tierExhausted) { store.setTierExhausted(err?.byokReason); }
               forwarded.push(...immediate);
             }
           } else if (cached.length > 0) {

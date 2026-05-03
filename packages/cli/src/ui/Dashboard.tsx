@@ -218,8 +218,9 @@ const Dashboard: React.FC = () => {
 
     const current = store.state.currentAssessment;
 
-    // Tier exhaustion actions
-    if (store.state.tierExhausted) {
+    // Tier exhaustion actions — only the hosted prompt accepts a key. BYOK is
+    // already a key, so there's no [k] action; user must add credit / swap key.
+    if (store.state.tierExhausted && store.state.userTier !== 'byok') {
       if (input === 'k') {
         store.setLearnedMessage('Add "apiKey": "sk-..." to aspectcode.json or ASPECTCODE_LLM_KEY to .env, then restart aspectcode');
         return;
@@ -545,7 +546,17 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* ── Tier exhaustion prompt ────────────── */}
-      {s.tierExhausted && (
+      {s.tierExhausted && s.userTier === 'byok' && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={COLORS.red} bold>
+            {s.byokExhaustedReason || 'BYOK API key has no remaining credit, or is invalid.'}
+          </Text>
+          <Text>{''}</Text>
+          <Text color={COLORS.gray} dimColor>{'  Add credit at your provider (OpenAI / Anthropic) or use a different key.'}</Text>
+          <Text color={COLORS.gray} dimColor>{'  Or unset ASPECTCODE_LLM_KEY (and remove `apiKey` from aspectcode.json) to fall back to the hosted tier.'}</Text>
+        </Box>
+      )}
+      {s.tierExhausted && s.userTier !== 'byok' && (
         <Box flexDirection="column" marginTop={1}>
           <Text color={COLORS.red} bold>
             {`Token limit reached (${formatTokens(s.tierTokensUsed)} / ${formatTokens(s.tierTokensCap)} tokens).`}
@@ -559,8 +570,8 @@ const Dashboard: React.FC = () => {
       {s.userTier === 'byok' ? (
         <Text color={COLORS.gray} dimColor>
           {s.sessionUsage.calls > 0
-            ? `${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'}  (BYOK)`
-            : 'BYOK — 0 calls'}
+            ? `BYOK · ${formatTokens(s.sessionUsage.inputTokens)} in · ${formatTokens(s.sessionUsage.outputTokens)} out · ${s.sessionUsage.calls} call${s.sessionUsage.calls === 1 ? '' : 's'} this session`
+            : 'BYOK · unlimited · 0 calls this session'}
         </Text>
       ) : s.tierTokensUsed >= 75_000 ? (
         <Text color={s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.95 ? COLORS.red : s.tierTokensCap > 0 && s.tierTokensUsed / s.tierTokensCap >= 0.8 ? COLORS.yellow : COLORS.gray} dimColor={s.tierTokensCap === 0 || s.tierTokensUsed / s.tierTokensCap < 0.8}>

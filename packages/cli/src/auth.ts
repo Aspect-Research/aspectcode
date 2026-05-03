@@ -349,7 +349,30 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+/** Detect BYOK from env var or current directory's aspectcode.json. */
+function detectByok(): boolean {
+  if (process.env.ASPECTCODE_LLM_KEY) return true;
+  try {
+    const cfgPath = path.join(process.cwd(), 'aspectcode.json');
+    if (!fs.existsSync(cfgPath)) return false;
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8')) as { apiKey?: string };
+    return Boolean(cfg.apiKey);
+  } catch {
+    return false;
+  }
+}
+
 export async function usageCommand(): Promise<void> {
+  // BYOK: no server-side token tracking. Show a clear message and exit.
+  if (detectByok()) {
+    console.log();
+    console.log(`  ${fmt.bold('Mode:')}  Bring Your Own Key (BYOK)`);
+    console.log(`  ${fmt.dim('Tokens are billed directly to your provider account (OpenAI / Anthropic).')}`);
+    console.log(`  ${fmt.dim('Aspect Code does not track or limit BYOK usage.')}`);
+    console.log();
+    return;
+  }
+
   const creds = loadCredentials();
   if (!creds) {
     console.log(`Not logged in. Run ${fmt.bold('aspectcode login')} first.`);

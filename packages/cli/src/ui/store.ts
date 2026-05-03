@@ -204,8 +204,10 @@ export interface DashboardState {
   tierTokensUsed: number;
   /** Token cap for the tier (0 = unlimited/BYOK). */
   tierTokensCap: number;
-  /** True when the tier token cap has been reached. */
+  /** True when the tier token cap has been reached, or BYOK key has no credit / is invalid. */
   tierExhausted: boolean;
+  /** When BYOK exhaustion is detected, the specific reason (quota, balance, invalid key). */
+  byokExhaustedReason: string;
 }
 
 /**
@@ -257,6 +259,7 @@ class DashboardStore extends EventEmitter {
     tierTokensUsed: 0,
     tierTokensCap: 100_000,
     tierExhausted: false,
+    byokExhaustedReason: '',
   };
 
   private update(patch: Partial<DashboardState>): void {
@@ -462,8 +465,8 @@ class DashboardStore extends EventEmitter {
     this.update({ tierTokensUsed: this.state.tierTokensUsed + tokens });
   }
 
-  setTierExhausted(): void {
-    this.update({ tierExhausted: true });
+  setTierExhausted(reason?: string): void {
+    this.update({ tierExhausted: true, byokExhaustedReason: reason ?? this.state.byokExhaustedReason });
   }
 
   /** Update a single managed file's annotation or timestamp. */
